@@ -1,20 +1,29 @@
+# python
 __pycache__/
 *.pyc
+
+# venv / node
+.venv/
+frontend/node_modules/
+
+# built static is shipped inside the Space image
+frontend/dist/
+!frontend/dist/
+
+# secrets are not in the repo (env vars / HF Secrets)
+.env
+
+# neon connection strings
+*.neon.env
+
+# runtime data: logs, audio cache, db, tunnel state
 data/*.log
 data/*.err
 data/*.out
-frontend/node_modules/
-frontend/dist/
-.venv/
-*.local
-data/lock_*.lock
 data/*.lock
-
-# собранная статика нужна внутри Space-образа
-!frontend/dist/
-
-# секреты не в репозитории — они задаются в .env локально и в Secret'ах HF
-.env
-
-# Neon-подключение не в репозитории
-*.neon.env
+data/lock_*.lock
+data/audio/
+data/music.db
+data/music.db-*
+data/webapp_url.txt
+data/tunnel_url.txt
