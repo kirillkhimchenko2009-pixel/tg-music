@@ -1,4 +1,6 @@
 """Поиск по тексту, /get, inline-результаты и колбэки скачивания/добавления."""
+import asyncio
+
 from aiogram import F, Router, types
 from aiogram.filters import Command
 from sqlalchemy import select
