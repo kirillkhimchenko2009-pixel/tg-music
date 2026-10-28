@@ -131,7 +131,41 @@ body {
 .eq-sm { height: 10px; }
 .eq-sm i { height: 10px; }
 
-/* ---------- состояния загрузки ---------- */
+/* ---------- морф play/pause (иконки оживают, как в ЯМ) ---------- */
+.ppm { position: relative; width: 1.02em; height: 1.02em; display: inline-block; vertical-align: -2px; }
+.ppm .pp-ico {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  transition: opacity .2s var(--ease), transform .38s var(--spring);
+}
+.ppm .pp-ico path, .ppm .pp-ico rect { fill: currentColor; }
+.ppm .pp-ico:last-child { opacity: 0; transform: scale(.4) rotate(-80deg); transform-origin: 50% 50%; }
+.ppm.on .pp-ico:first-child { opacity: 0; transform: scale(.4) rotate(80deg); }
+.ppm.on .pp-ico:last-child { opacity: 1; transform: none; }
+.ppm.lg { width: 2rem; height: 2rem; vertical-align: 0; }
+.ppm .spinner { position: absolute; inset: 15%; width: auto; height: auto; margin: 0; }
+
+/* ---------- сердечко «в Любимое» ---------- */
+.heart {
+  background: none; border: 0; cursor: pointer; color: var(--dim);
+  padding: 8px 5px; flex: none; display: inline-flex;
+  transition: transform .25s var(--spring), color .25s var(--ease);
+}
+.heart svg {
+  width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8px;
+  stroke-linejoin: round; transition: fill .22s var(--ease), stroke .22s;
+}
+.heart:active { transform: scale(.8); }
+.heart.on { color: var(--acc); }
+.heart.on svg { fill: var(--acc); stroke: var(--acc); animation: beat .55s var(--spring); }
+.heart.lg { padding: 10px 8px; }
+.heart.lg svg { width: 30px; height: 30px; stroke-width: 1.6px; }
+@keyframes beat {
+  0% { transform: scale(.5); }
+  55% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- состояние загрузки ---------- */
 .loading, .empty { text-align: center; color: var(--dim); padding: 48px 24px 0; line-height: 1.6; }
 .empty .big { font-size: 2.4rem; margin-bottom: 10px; display: inline-block; }
 .float { animation: float 3.2s ease-in-out infinite; }
@@ -334,7 +368,8 @@ body {
   from { transform: scale(1) translateY(0); }
   to   { transform: scale(1.075) translateY(-6px); }
 }
-.np-meta { animation: viewin .4s var(--ease) both; }
+.np-meta { animation: viewin .4s var(--ease) both; position: relative; padding-right: 46px; }
+.np-meta .heart.lg { position: absolute; right: -4px; top: 0; }
 .np-title { font-size: 1.3rem; font-weight: 850; letter-spacing: .1px; }
 .np-artist { color: var(--dim); margin-bottom: 12px; }
 .np-chip {

@@ -8,6 +8,9 @@ from server.auth import CurrentUser, tg_user
 from server.routes.tracks import track_dict
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
+likes_router = APIRouter(prefix="/api/likes", tags=["likes"])
+
+_LIKES_TITLE = "❤ Любимое"          # личный плейлист лайков (как «Мне нравится» в ЯМ)
 
 class PlaylistIn(BaseModel):
     title: str
@@ -24,13 +27,22 @@ async def _owned_playlist(user: CurrentUser, playlist_id, session):
         raise HTTPException(404, "нет такого плейлиста")
     return pl
 
+async def _likes_playlist(user: CurrentUser, s):
+    """Личный плейлист «❤ Любимое» — создаётся всем и всегда идёт первым."""
+    from bot import runtime
+    await runtime.ensure_user(s, int(user.id), user.username, "MiniApp")
+    return await runtime.get_or_create_playlist(s, int(user.id), _LIKES_TITLE)
+
+
 @router.get("")
 async def my_playlists(user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
         from core.models import Playlist, PlaylistTrack
-        q = (select(Playlist).where(Playlist.owner_id == int(user.id))
+        likes = await _likes_playlist(user, s)
+        q = (select(Playlist).where(Playlist.owner_id == int(user.id),
+                                    Playlist.id != likes.id)
              .order_by(Playlist.id.desc()))
-        rows = list((await s.execute(q)).scalars())
+        rows = [likes] + list((await s.execute(q)).scalars())
         out = []
         for pl in rows:
             items = list((await s.execute(
@@ -115,3 +127,43 @@ async def delete_playlist(playlist_id: int, user: CurrentUser = Depends(tg_user)
         await s.execute(_del(Playlist).where(Playlist.id == playlist_id))
         await s.commit()
     return {"deleted": True}
+
+
+# ---------------- лайки («❤ Любимое») ----------------
+
+@likes_router.get("")
+async def liked_ids(user: CurrentUser = Depends(tg_user)):
+    """Множество лайкнутых track_id — для состояний сердечек."""
+    async with runtime.get_session() as s:
+        from core.models import PlaylistTrack
+        pl = await _likes_playlist(user, s)
+        rows = (await s.execute(
+            select(PlaylistTrack.track_id).where(PlaylistTrack.playlist_id == pl.id)
+        )).scalars().all()
+    return {"ids": list(rows)}
+
+
+@likes_router.post("/{track_id}")
+async def toggle_like(track_id: int, user: CurrentUser = Depends(tg_user)):
+    """Сердечко-переключатель: добавил/убрал из «❤ Любимое»."""
+    async with runtime.get_session() as s:
+        from core.models import PlaylistTrack, Track
+        from sqlalchemy import delete as _del
+        pl = await _likes_playlist(user, s)
+        exists = (await s.execute(
+            select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id,
+                                        PlaylistTrack.track_id == track_id)
+        )).scalar_one_or_none()
+        if exists:
+            await s.execute(_del(PlaylistTrack).where(PlaylistTrack.id == exists.id))
+            liked = False
+        else:
+            t = await s.get(Track, track_id)
+            if not t:
+                raise HTTPException(404, "нет такого трека")
+            n = len((await s.execute(
+                select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id))).scalars().all())
+            s.add(PlaylistTrack(playlist_id=pl.id, track_id=track_id, position=n))
+            liked = True
+        await s.commit()
+    return {"liked": liked}

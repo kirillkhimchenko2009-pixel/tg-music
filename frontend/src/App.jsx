@@ -2,8 +2,10 @@
    Премиум-полиш: spring-переходы, индикатор таб-бара, haptic, Ken-Burns обложка. */
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api, API_BASE, ensureGuestToken, hasAuth, setUnauthorizedHandler } from './api.js';
+import { toggleLike, useLikes } from './likes.js';
 import { setAuthToken } from './store.js';
 import { firstUserName, haptic } from './tg.js';
+import { loadLikes } from './likes.js';
 import * as P from './player.js';
 import Library from './screens/Library.jsx';
 import SearchScreen from './screens/Search.jsx';
@@ -42,6 +44,7 @@ export default function App() {
       if (dead) return;
       if (hasAuth()) { setOk(true); setName(firstUserName() || 'Гость'); }
       else setOk('boot');            // splash остаётся; 401-хук перезапустит boot
+      loadLikes();
     };
     setUnauthorizedHandler(() => {
       setAuthToken('');              // сессия протухла — тихо получим новую
@@ -145,8 +148,8 @@ function PlayerBar({ onExpand }) {
         <div className="pbar-artist">{cur.artist}</div>
       </div>
       <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.prev(); }}>⏮</button>
-      <button className="pib key-pop" key={String(st.playing)} onClick={e => { e.stopPropagation(); haptic('light'); P.toggle(); }}>
-        {st.playing ? '⏸' : '▶'}
+      <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.toggle(); }}>
+        <PlayPause playing={st.playing} />
       </button>
       <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.next(); }}>⏭</button>
     </div>
@@ -157,7 +160,6 @@ function NowPlaying({ track, onClose }) {
   const st = usePlayerState();
   const cur = st.queue[st.index] || track;
   const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
-  const playState = st.loading ? 'load' : (st.playing ? 'play' : 'pause');
   return (
     <div className="np" onClick={onClose}>
       <div className="np-card" onClick={e => e.stopPropagation()}>
@@ -172,6 +174,7 @@ function NowPlaying({ track, onClose }) {
           <div className="np-title">{cur.title}</div>
           <div className="np-artist">{cur.artist}</div>
           {!cur.ready && <div className="np-chip"><span className="np-dot" />Онлайн-превью · 0:30</div>}
+          <HeartBtn id={cur.id} big />
         </div>
         <div className="seekrow" onClick={e => e.stopPropagation()}>
           <span className="np-time">{P.fmt(st.currentTime)}</span>
@@ -185,9 +188,8 @@ function NowPlaying({ track, onClose }) {
           <button onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}
                   className={'ib toggle' + (st.shuffle ? ' on' : '')}>🔀</button>
           <button onClick={() => { haptic('light'); P.prev(); }} className="ib big">⏮</button>
-          <button onClick={() => { haptic('medium'); P.toggle(); }}
-                  className={'ib big play st-' + playState} key={playState}>
-            {st.loading ? <span className="spinner" /> : (st.playing ? '⏸' : '▶')}
+          <button onClick={() => { haptic('medium'); P.toggle(); }} className="ib big play">
+            <PlayPause playing={st.playing} loading={st.loading} big />
           </button>
           <button onClick={() => { haptic('light'); P.next(); }} className="ib big">⏭</button>
           <button onClick={() => { haptic('light'); P.setLoop(!st.loop); }}
@@ -214,6 +216,38 @@ function coverOr(t) {
   if (t && t.cover_url && t.cover_url.startsWith('http')) return t.cover_url;
   if (t && t.cover_url) return API_BASE + t.cover_url;
   return 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"/%3E';
+}
+
+/* ---------------- морф play/pause (как в Яндекс.Музыке) ---------------- */
+export function PlayPause({ playing, loading, big }) {
+  return (
+    <span className={'ppm' + (big ? ' lg' : '') + (playing ? ' on' : '')}>
+      {loading
+        ? <span className="spinner spinner-dark" />
+        : <>
+          <svg className="pp-ico" viewBox="0 0 24 24"><path d="M8.2 5.6v12.8L18.6 12z" /></svg>
+          <svg className="pp-ico" viewBox="0 0 24 24">
+            <rect x="6.6" y="5.4" width="3.6" height="13.2" rx="1.7" />
+            <rect x="13.8" y="5.4" width="3.6" height="13.2" rx="1.7" />
+          </svg>
+        </>}
+    </span>
+  );
+}
+
+/* ---------------- сердечко «в Любимое» ---------------- */
+const HEART_D = ('M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3'
+  + 'c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5'
+  + 'c0 3.78-3.4 6.86-8.55 11.54L12 21.35z');
+export function HeartBtn({ id, big }) {
+  const liked = useLikes().has(id);
+  return (
+    <button className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
+            aria-label="В любимое"
+            onClick={e => { e.stopPropagation(); haptic(liked ? 'soft' : 'light'); toggleLike(id); }}>
+      <svg viewBox="0 0 24 24"><path d={HEART_D} /></svg>
+    </button>
+  );
 }
 
 /* Премиум-скелетон загрузки (shimmer) — для списков и сеток плейлистов. */

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, Skeletons } from '../App.jsx';
+import { coverOr, HeartBtn, Skeletons } from '../App.jsx';
 
 export default function Library() {
   const [data, setData] = useState(null);
@@ -36,8 +36,11 @@ export default function Library() {
               <div className="rt">{x.title}</div>
               <div className="ra">{x.artist}</div>
             </div>
+            <HeartBtn id={x.id} />
             <span className={'qbadge q' + (x.quality || 'a')}>{(x.quality || 'mp3').toUpperCase()}</span>
-            <span className="pbtn">▶</span>
+            {cur && cur.id === x.id && st.playing
+              ? <span className="eq eq-sm"><i /><i /><i /></span>
+              : <span className="pbtn">▶</span>}
           </div>
         ))}
       </div>

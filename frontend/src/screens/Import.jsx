@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr } from '../App.jsx';
+import { coverOr, HeartBtn } from '../App.jsx';
 
 export default function ImportScreen({ onOpenPlaylist }) {
   const [url, setUrl] = useState('');
@@ -53,6 +53,7 @@ export default function ImportScreen({ onOpenPlaylist }) {
                 <div className="rt">{t.title}</div>
                 <div className="ra">{t.artist}</div>
               </div>
+              <HeartBtn id={t.id} />
               <span className="pbtn">▶</span>
             </div>
           ))}

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, Skeletons } from '../App.jsx';
+import { coverOr, HeartBtn, Skeletons } from '../App.jsx';
 
 /* Пастельные обложки-фолбэки по кругу — как художественные сетки YM */
 const PL_GRADS = [
@@ -35,7 +35,9 @@ export default function Playlists() {
                style={{ animationDelay: Math.min(i, 8) * 40 + 'ms' }}
                onClick={() => { haptic('light'); setOpen(p); }}>
             <img className="plcov" src={p.cover_url ? coverOr(p) : ''} alt=""
-                 style={{ background: PL_GRADS[p.id % PL_GRADS.length] }} />
+                 style={{ background: p.title.includes('❤')
+                   ? 'linear-gradient(135deg,#FF6A8B,#8C2F4E)'
+                   : PL_GRADS[p.id % PL_GRADS.length] }} />
             <div className="plt">{p.title}</div>
             <div className="ra">{p.count} трек(ов)</div>
           </div>
@@ -105,6 +107,7 @@ function Detail({ pl, back }) {
               <div className="rt">{x.title}</div>
               <div className="ra">{x.artist} · {x.album || ''}</div>
             </div>
+            <HeartBtn id={x.id} />
             {cur && cur.id === x.id && st.playing && <span className="eq eq-sm"><i /><i /><i /></span>}
             {x.ready && <span className="qbadge">✓</span>}
           </div>
