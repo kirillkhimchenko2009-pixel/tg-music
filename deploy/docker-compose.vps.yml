@@ -1,0 +1,47 @@
+# Полный стек для VPS (Oracle Cloud Always Free или любой другой):
+#   docker compose -f deploy/docker-compose.vps.yml up -d --build
+# Домен указывается в deploy/Caddyfile (можно duckdns-поддомен).
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: tgmb-bot
+    command: python run_bot.py
+    env_file: ../.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: tgmb-server
+    command: python run_server.py
+    env_file: ../.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: tgmb-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+data/*.log
+data/*.err
+data/*.out
+frontend/node_modules/
+frontend/dist/
+.venv/
+*.local
+data/lock_*.lock
+data/*.lock
+
+# собранная статика нужна внутри Space-образа
+!frontend/dist/
+
+# секреты не в репозитории — они задаются в .env локально и в Secret'ах HF
+.env
+
+# Neon-подключение не в репозитории
+*.neon.env

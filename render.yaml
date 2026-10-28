@@ -1,0 +1,20 @@
+# Render Blueprint: один веб-сервис = сервер мини-аппа + бот (CMD из Dockerfile).
+# Секреты со sync:false Render попросит ввести при создании — в репо их нет.
+services:
+  - type: web
+    name: vibe-music
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/ping
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL        # строка подключения Neon (sslmode=require)
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBAPP_URL          # публичный адрес мини-аппа для меню-кнопки
+        value: https://vibe-music.onrender.com/v2/
+      - key: PROXY_URL           # из облака прокси не нужен
+        value: ""
+      - key: PYTHONUNBUFFERED
+        value: "1"

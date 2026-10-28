@@ -1,0 +1,68 @@
+"""Сетевые утилиты: единая точка прокси для httpx, yt-dlp и spotipy."""
+import asyncio
+import json
+import shutil
+import sys
+from pathlib import Path
+
+import httpx
+
+from core.config import settings
+
+def yt_dlp_binary() -> str:
+    """Путь к yt-dlp: venv → PATH → fallback имя."""
+    cand = None
+    try:
+        venv_exe = Path(sys.executable).resolve().parent / "yt-dlp.exe"
+        if venv_exe.exists():
+            cand = str(venv_exe)
+    except Exception:
+        cand = None
+    return cand or shutil.which("yt-dlp") or "yt-dlp"
+
+def yt_dlp_proxy_args() -> list[str]:
+    return ["--proxy", settings.PROXY_URL] if settings.PROXY_URL else []
+
+def httpx_client(**kw) -> httpx.AsyncClient:
+    kw.setdefault("timeout", 30)
+    kw.setdefault("proxy", settings.PROXY_URL or None)
+    kw.setdefault("headers", {})
+    kw.setdefault("follow_redirects", False)
+    return httpx.AsyncClient(**kw)
+
+def spotipy_session() -> "object":
+    """requests.Session с прокси (для spotipy)."""
+    import requests
+    s = requests.Session()
+    if settings.PROXY_URL:
+        s.proxies.update({"http": settings.PROXY_URL, "https": settings.PROXY_URL})
+    return s
+
+async def yt_dlp_search(query: str, limit: int = 8) -> list[dict]:
+    """Гостевой поиск через yt-dlp (работает даже без ключей; прокси учитывается)."""
+    cmd = [
+        yt_dlp_binary(), "--flat-playlist", "--dump-json", "--no-warnings", "--quiet",
+        *yt_dlp_proxy_args(),
+        f"ytsearch{int(limit)}:{query}",
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await proc.communicate()
+    except Exception:
+        return []
+    items = []
+    for line in out.decode(errors="ignore").splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if e.get("id") and e.get("title"):
+            items.append(e)
+    return items
+
+def cover_from_yt(entry: dict) -> str | None:
+    thumbs = entry.get("thumbnails") or []
+    if thumbs and isinstance(thumbs, list):
+        return thumbs[-1].get("url")
+    return None
