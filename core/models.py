@@ -9,7 +9,9 @@ class Base(DeclarativeBase):
     pass
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Naive UTC: SQLite хранит так, и asyncpg требует naive для
+    timestamp-колонок Postgres (timezone-aware он отвергает)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class User(Base):
     __tablename__ = "users"
