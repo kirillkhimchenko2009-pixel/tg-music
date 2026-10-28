@@ -45,6 +45,25 @@
 Переименуй сервис в render.yaml/на дашборде (адрес = `<имя>.onrender.com`)
 и поправь `WEBAPP_URL` в render.yaml.
 
+## Маршрут «в обход GitHub» (когда аккаунт GitHub под флагом — OAuth чужим приложениям закрыт)
+
+1. Образ собирается локально и выкатывается в Docker Hub:
+   ```powershell
+   docker build -t vibe-music:local .
+   docker tag vibe-music:local <hub-user>/vibe-music:latest
+   docker push <hub-user>/vibe-music:latest
+   ```
+2. Render: регистрация **по email** (не GitHub) → New → Web Service →
+   вкладка **Existing image** → `docker.io/<hub-user>/vibe-music:latest`
+   → Free plan, регион Frankfurt → Environment:
+   - `DATABASE_URL` — строка Neon;
+   - `BOT_TOKEN` — токен бота;
+   - `WEBAPP_URL` — `https://<имя-сервиса>.onrender.com/v2/` (посмотреть фактический адрес в шапке сервиса после создания);
+   - Health Check Path: `/api/ping`.
+3. Если Render не может вытащить образ — сделай репозиторий в Docker Hub
+   публичным (Details → Visibility → Public; в образе нет ни секретов, ни данных).
+4. Пингер (cron-job.org) на `https://<адрес>/api/ping` каждые 10 минут.
+
 ## Запасной путь: Koyeb free
 
 Тот же контейнер без сна и без холодных стартов (512 МБ RAM):
