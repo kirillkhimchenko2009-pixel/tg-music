@@ -77,7 +77,12 @@ async def run() -> None:
         asyncio.create_task(_search_yt.warmup())
         log.info("Бот запущен (polling), webapp=%s", settings.WEBAPP_URL or "-")
 
-    await bot.delete_webhook(drop_pending_updates=True)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:  # noqa: BLE001
+        log.error("Telegram отклонил запрос бота (проверь BOT_TOKEN и сеть): %r", e)
+        await bot.session.close()
+        return
     try:
         await dp.start_polling(bot)
     finally:
