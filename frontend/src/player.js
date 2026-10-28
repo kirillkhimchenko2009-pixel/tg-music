@@ -34,7 +34,7 @@ export function subscribe(fn) {
 
 /* Хук для подписки React-компонентов на состояние плеера. */
 export function usePlayerSnap() {
-  return useSyncExternalStore(subscribe, state, state);
+  return useSyncExternalStore(subscribe, getState, getState);
 }
 
 export function getState() { return state; }
