@@ -27,3 +27,6 @@ data/music.db
 data/music.db-*
 data/webapp_url.txt
 data/tunnel_url.txt
+
+# binaries are not in the repo
+tools/*.exe
