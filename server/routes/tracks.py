@@ -238,16 +238,18 @@ async def _tg_file_path(track_id: int, file_id: str) -> str | None:
 
 
 async def _resolve_online_audio(track_id: int, t: Track) -> str | None:
-    """Прямой аудио-URL для нескачанных треков: YouTube (полная версия, если
-    пропустит бот-проверку) → анонимное 30-секундное превью Deezer."""
+    """Прямой аудио-URL для нескачанных треков: быстрые 30-сек превью
+    (Deezer → iTunes, ~1 с) — мгновенный старт; полный звук YouTube —
+    только если превью не нашлось (с зарубежных IP YT часто блокирует)."""
     hit = _AUDIO_URL_CACHE.get(track_id)
     if hit and hit[1] > _time.time():
         return hit[0]
-    url = None
-    if (t.source or "") == "ytmusic" and t.external_id:
-        url = await _yt_audio_url(vid=t.external_id)
+    dz, it = await asyncio.gather(_deezer_preview(t), _itunes_preview(t),
+                                  return_exceptions=True)
+    url = (dz if isinstance(dz, str) else None) or (it if isinstance(it, str) else None)
     if not url:
-        url = await _deezer_preview(t)
+        vid = t.external_id if (t.source or "") == "ytmusic" else ""
+        url = await _yt_audio_url(vid=vid, query=f"{t.artist or ''} {t.title or ''}")
     if url:
         _AUDIO_URL_CACHE[track_id] = (url, _time.time() + 35 * 60)
     return url
@@ -258,21 +260,78 @@ async def _deezer_preview(t: Track) -> str | None:
     import httpx
 
     def _sync() -> str | None:
+        from services.matching import best_match
+        from services.providers.base import TrackMeta as TM
         q = f"{t.artist or ''} {t.title or ''}".strip()
         if not q:
             return None
         r = httpx.get("https://api.deezer.com/search",
-                      params={"q": q, "limit": 5}, timeout=15)
-        d = (r.json().get("data") or [{}])[0]
-        return d.get("preview") or None
+                      params={"q": q, "limit": 8}, timeout=12)
+        data = r.json().get("data") or []
+        cands, previews = [], {}
+        for d in data:
+            tid = str(d.get("id") or "")
+            cands.append(TM(source="deezer", external_id=tid,
+                            title=d.get("title") or "",
+                            artist=(d.get("artist") or {}).get("name") or "",
+                            duration=int(d.get("duration") or 0)))
+            previews[tid] = d.get("preview")
+        m = best_match(TM(source="deezer", external_id="", title=t.title or "",
+                          artist=t.artist or ""), cands, min_score=0.5)
+        if m:
+            return previews.get(m.external_id)
+        # матчинг не сработал (транслит/фиты) — доверяем релевантности Deezer
+        return (data[0].get("preview") if data else None)
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=25)
+        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=20)
+    except Exception:
+        return None
+
+
+async def _itunes_preview(t: Track) -> str | None:
+    """30-сек превью из iTunes Search API (CDN Apple, без токенов)."""
+    import httpx
+
+    def _sync() -> str | None:
+        from services.matching import best_match
+        from services.providers.base import TrackMeta as TM
+        q = f"{t.artist or ''} {t.title or ''}".strip()
+        if not q:
+            return None
+        r = httpx.get("https://itunes.apple.com/search",
+                      params={"term": q, "media": "music", "entity": "song",
+                              "limit": 8}, timeout=12)
+        data = r.json().get("results") or []
+        cands, previews = [], {}
+        for d in data:
+            tid = str(d.get("trackId") or "")
+            cands.append(TM(source="itunes", external_id=tid,
+                            title=d.get("trackName") or "",
+                            artist=d.get("artistName") or "",
+                            duration=int((d.get("trackTimeMillis") or 0) / 1000)))
+            previews[tid] = d.get("previewUrl")
+        m = best_match(TM(source="itunes", external_id="", title=t.title or "",
+                          artist=t.artist or ""), cands, min_score=0.5)
+        if m:
+            return previews.get(m.external_id)
+        return (data[0].get("previewUrl") if data else None)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=15)
     except Exception:
         return None
 
 
 async def _yt_audio_url(vid: str, query: str = "") -> str | None:
-    """Аудио-URL конкретного видео (или первого результата поиска) через yt-dlp."""
+    """Аудио-URL конкретного видео (или первого результата поиска):
+    InnerTube (быстро, без yt-dlp) → yt-dlp (с прокси при необходимости)."""
+    if vid:
+        try:
+            from services.providers import yt_stream
+            got = await yt_stream.audio_url(vid)
+            if got:
+                return got["url"]
+        except Exception:
+            pass
     from services.net import yt_dlp_binary, yt_dlp_proxy_args
     target = f"https://www.youtube.com/watch?v={vid}" if vid else f"ytsearch1:{query}"
     cmd = [yt_dlp_binary(), "-f", "bestaudio/best", "--no-playlist", "--no-warnings",
@@ -352,23 +411,99 @@ async def stream(track_id: int,
                 url = urljoin(base, fp)
                 return await relay_response(url, rng, settings.PROXY_URL or None)
 
-        # 3) не скачан — превью/онлайн: буферизуем целиком (это ≤ ~0.5 МБ)
+        # 3) не скачан — превью/онлайн: стримим чужой CDN через relay
+        #    (раньше файл буферизовался целиком — TTFB доходил до 14 с)
         online = await _resolve_online_audio(track_id, tr)
         if online:
-            import httpx
-            from fastapi.responses import Response
-            cli = httpx.AsyncClient(timeout=40, proxy=settings.PROXY_URL or None)
-            try:
-                r = await cli.get(online)
-                body = r.content
-            finally:
-                await cli.aclose()
-            if r.status_code == 200 and body:
-                return Response(content=body, status_code=200, media_type="audio/mpeg",
-                                headers={"Accept-Ranges": "none",
-                                         "Cache-Control": "private, max-age=600"})
+            return await relay_response(online, rng, settings.PROXY_URL or None)
 
         raise HTTPException(404, "трек недоступен онлайн — нажми «Скачать»")
+
+
+@router.get("/diag/sources")
+async def diag_sources(q: str = "баста сансара", user: CurrentUser = Depends(tg_user)):
+    """Проверка источников с IP продакшна: поиск → ссылка → реальные байты."""
+    import httpx
+    from services.providers import hitmoz as hmz
+    from services.providers import zaycev as zyc
+
+    out: dict = {}
+    for name, prov in (("zaycev", zyc), ("hitmoz", hmz)):
+        t0 = _time.time()
+        try:
+            cands = await prov.search(q, limit=3)
+            row: dict = {"search_s": round(_time.time() - t0, 2), "found": len(cands),
+                         "first": (f"{cands[0].artist} — {cands[0].title}"
+                                   if cands else None)}
+            if cands:
+                t1 = _time.time()
+                url = await prov.download_url(cands[0])
+                row["url_s"] = round(_time.time() - t1, 2)
+                if url:
+                    try:
+                        async with httpx.AsyncClient(timeout=25,
+                                                     follow_redirects=True) as c:
+                            r = await c.get(url, headers={
+                                "Range": "bytes=0-65535",
+                                "User-Agent": "Mozilla/5.0"})
+                        row["mp3"] = {"status": r.status_code, "bytes": len(r.content),
+                                      "type": r.headers.get("content-type")}
+                    except Exception as e:
+                        row["mp3"] = f"{type(e).__name__}: {str(e)[:60]}"
+                else:
+                    row["mp3"] = "no url"
+            out[name] = row
+        except Exception as e:
+            out[name] = {"error": f"{type(e).__name__}: {str(e)[:80]}",
+                         "search_s": round(_time.time() - t0, 2)}
+
+    for name, url, params in (
+            ("deezer", "https://api.deezer.com/search", {"q": q, "limit": 1}),
+            ("itunes", "https://itunes.apple.com/search",
+             {"term": q, "media": "music", "entity": "song", "limit": 1})):
+        t0 = _time.time()
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(url, params=params)
+            body = r.json()
+            has = bool((body.get("data") or body.get("results") or [{}])[0])
+            out[name] = {"status": r.status_code, "has_match": has,
+                         "s": round(_time.time() - t0, 2)}
+        except Exception as e:
+            out[name] = {"error": type(e).__name__,
+                         "s": round(_time.time() - t0, 2)}
+
+    # карта доступности сайтов-аналогов с IP продакшна (параллельно)
+    from urllib.parse import quote as _q
+
+    async def _probe(name: str, url: str):
+        t0 = _time.time()
+        try:
+            async with httpx.AsyncClient(
+                    timeout=8, follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                           "AppleWebKit/537.36 Chrome/126.0"}) as c:
+                r = await c.get(url)
+            text = r.text or ""
+            return name, {"status": r.status_code, "len": len(text),
+                          "s": round(_time.time() - t0, 2)}
+        except Exception as e:
+            return name, {"error": type(e).__name__,
+                          "s": round(_time.time() - t0, 2)}
+
+    sites = {
+        "mp3party": "https://mp3party.net/search?q=" + _q(q),
+        "get-tune": "https://get-tune.cc/search/?q=" + _q(q),
+        "sefon": "https://sefon.pro/search/?q=" + _q(q),
+        "z1": "https://z1.fm/search/" + _q(q),
+        "musify": "https://musify.club/search?q=" + _q(q),
+        "muzofond": "https://muzofond.fm/search/" + _q(q),
+        "hotplayer": "https://hotplayer.ru/?s=" + _q(q),
+        "mp3xa": "https://mp3xa.me/search?q=" + _q(q),
+    }
+    out["sites"] = dict(await asyncio.gather(
+        *[_probe(n, u) for n, u in sites.items()]))
+    return out
 
 
 async def relay_response(url: str, rng: str | None, proxy: str | None):

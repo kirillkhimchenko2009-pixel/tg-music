@@ -45,9 +45,6 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         if tok:
             out.append((meta, tok))
             return out
-    if meta.source == "ytmusic":
-        out.append((meta, ""))
-        return out
 
     # 1) Звук (если есть токен — там лучше качество, вплоть до FLAC)
     zv_tok = await get_token(session, user_id, "zvuk")
@@ -86,11 +83,15 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         except Exception:
             log.exception("поиск на %s не удался", name)
 
-    # 3) YouTube Music (без токена; работает через прокси при необходимости)
-    try:
-        out.extend(await _yt_candidates(meta, query))
-    except Exception:
-        log.exception("yt-поиск упал для %s", meta.display())
+    # 3) YouTube Music: для ytmusic-источника сам трек — последний запасной
+    #    вариант (с зарубежных IP YouTube часто ловит бот-чек, RU-сайты выше надёжнее)
+    if meta.source == "ytmusic":
+        out.append((meta, ""))
+    else:
+        try:
+            out.extend(await _yt_candidates(meta, query))
+        except Exception:
+            log.exception("yt-поиск упал для %s", meta.display())
     return out
 
 
@@ -177,7 +178,8 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                 pass
         return Resolved(track=dl_track, file_path=res.path,
                         quality=res.quality, status="downloaded")
-    err = f"все источники не ответили ({len(chain)} вариант(ов) попробовано — см. bot.log)"
+    tried = ", ".join(dict.fromkeys(m.source for m, _ in chain))
+    err = f"все источники не ответили (пробовали: {tried})"
     log.warning("skip %s: %s", meta.display(), err)
     return Resolved(track=track, file_path=None, quality=None,
                     status="not_found", error=err)

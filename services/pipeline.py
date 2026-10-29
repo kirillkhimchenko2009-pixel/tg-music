@@ -87,4 +87,14 @@ async def _download_inner(dl_meta, quality, token, on_progress):
                 url, dl_meta, "flac" if is_flac else "aac320",
                 on_progress=on_progress, headers=SOURCE_HEADERS["yandex"])
         # нет ссылки — yt-fallback ниже
+    if dl_meta.source == "ytmusic":
+        # InnerTube напрямую (без yt-dlp): быстрее и иногда проходит бот-чек
+        try:
+            res = await downloader.download_innertube(dl_meta, quality,
+                                                      on_progress=on_progress)
+        except Exception:
+            res = None
+        if res:
+            return res
+        # yt-dlp как запасной путь ниже
     return await downloader.download_track(dl_meta, quality, on_progress=on_progress)
