@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, HeartBtn, Skeletons } from '../App.jsx';
+import { coverOr, HeartBtn, IcoDownload, IcoPlaySmall, Skeletons } from '../App.jsx';
 
 /* Пастельные обложки-фолбэки по кругу — как художественные сетки YM */
 const PL_GRADS = [
@@ -87,10 +87,10 @@ function Detail({ pl, back }) {
         <div className="plt big">{pl.title}</div>
         <div className="btnrow">
           <button className="bigbtn primary" onClick={() => { haptic('medium'); tracks && play(tracks, 0); }}>
-            ▶ Слушать
+            <IcoPlaySmall /> Слушать
           </button>
           <button className="bigbtn" disabled={!!prog} onClick={downloadAll}>
-            {prog ? <>{prog.done}/{prog.total}<span className="minispinner" /></> : '⬇ Скачать всё'}
+            {prog ? <>{prog.done}/{prog.total}<span className="minispinner" /></> : <><IcoDownload /> Скачать всё</>}
           </button>
         </div>
         {err && <div className="err">{err}</div>}

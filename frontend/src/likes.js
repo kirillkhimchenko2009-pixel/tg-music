@@ -1,12 +1,13 @@
 /* Лайки: личный плейлист «❤ Любимое» (аналог «Мне нравится» из Яндекс.Музыки).
-   Оптимистичный toggle: сердечко оживает мгновенно, при ошибке откатывается. */
+   Оптимистичный toggle: сердечко оживает мгновенно, при ошибке откатывается.
+   Снапшоты иммутабельные — иначе useSyncExternalStore не перерисует сердечки. */
 import { useSyncExternalStore } from 'react';
 import { api } from './api.js';
 
 let ids = new Set();
 let loaded = false;
 const listeners = new Set();
-const emit = () => { for (const fn of listeners) fn(); };
+const emit = () => { ids = new Set(ids); for (const fn of listeners) fn(); };
 
 export function loadLikes() {
   if (loaded) return Promise.resolve();
@@ -29,10 +30,11 @@ export async function toggleLike(id) {
     const j = await api('/api/likes/' + id, { method: 'POST' });
     if (typeof j.liked === 'boolean') {
       if (j.liked) ids.add(id); else ids.delete(id);
+      emit();
     }
   } catch {
     if (was) ids.add(id); else ids.delete(id);   // откат при сбое сети
+    emit();
   }
-  emit();
   return !was;
 }

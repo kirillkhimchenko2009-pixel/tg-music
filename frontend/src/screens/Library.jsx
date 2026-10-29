@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, HeartBtn, Skeletons } from '../App.jsx';
+import { coverOr, HeartBtn, IcoPlaySmall, Skeletons } from '../App.jsx';
 
 export default function Library() {
   const [data, setData] = useState(null);
@@ -40,7 +40,7 @@ export default function Library() {
             <span className={'qbadge q' + (x.quality || 'a')}>{(x.quality || 'mp3').toUpperCase()}</span>
             {cur && cur.id === x.id && st.playing
               ? <span className="eq eq-sm"><i /><i /><i /></span>
-              : <span className="pbtn">▶</span>}
+              : <span className="pbtn"><IcoPlaySmall /></span>}
           </div>
         ))}
       </div>

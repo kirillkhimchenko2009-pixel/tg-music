@@ -466,16 +466,116 @@ body {
   transition: color .22s var(--ease), transform .22s var(--spring);
 }
 .tab:active { transform: scale(.92); }
-.tab .ti { font-size: 1.25rem; transition: transform .3s var(--spring); }
+.tab .ti { font-size: 1.25rem; display: inline-block; transition: transform .3s var(--spring); }
 .tab.on { color: var(--txt); }
 .tab.on .ti {
   color: var(--acc); font-weight: 800;
-  animation: tabpop .35s var(--spring) both;
+  animation: tabpop .38s var(--spring) both;
 }
 @keyframes tabpop {
-  from { transform: scale(.55) translateY(3px); }
-  to   { transform: scale(1) translateY(0); }
+  0%   { transform: scale(.55) translateY(3px); }
+  55%  { transform: scale(1.18) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); }
 }
+
+/* ---------- NowPlaying «Моя волна»: живые блобы + стеклянная пилюля ---------- */
+.np-card { position: relative; overflow: hidden; background: #0E0E12; }
+.blobs {
+  position: absolute; left: -20%; right: -20%; top: -14%; height: 620px; z-index: 0;
+  pointer-events: none;
+  filter: blur(52px) saturate(1.3); opacity: .6;
+  -webkit-mask-image: linear-gradient(#000 76%, transparent);
+  mask-image: linear-gradient(#000 76%, transparent);
+}
+.blob { position: absolute; border-radius: 50%; will-change: transform; }
+.blob-1 {
+  width: 58%; aspect-ratio: 1.25; left: 4%; top: 0;
+  background: radial-gradient(closest-side, #FFE066, rgba(255,224,102,0) 72%);
+  animation: blob1 17s ease-in-out infinite alternate;
+}
+.blob-2 {
+  width: 50%; aspect-ratio: 1; right: 0; top: 14%;
+  background: radial-gradient(closest-side, #E43FAE, rgba(228,63,174,0) 72%);
+  animation: blob2 21s ease-in-out infinite alternate;
+}
+.blob-3 {
+  width: 64%; aspect-ratio: 1.3; left: 12%; bottom: 2%;
+  background: radial-gradient(closest-side, #7A3FE4, rgba(122,63,228,0) 74%);
+  animation: blob3 25s ease-in-out infinite alternate;
+}
+@keyframes blob1 {
+  from { transform: translate(0,0) scale(1) rotate(0deg); }
+  to   { transform: translate(16%, 12%) scale(1.2) rotate(26deg); }
+}
+@keyframes blob2 {
+  from { transform: translate(0,0) scale(1); }
+  to   { transform: translate(-14%, 16%) scale(1.24) rotate(-20deg); }
+}
+@keyframes blob3 {
+  from { transform: translate(0,0) scale(1.06); }
+  to   { transform: translate(12%, -14%) scale(.9) rotate(16deg); }
+}
+.np-body { position: relative; z-index: 1; }
+
+/* обложка: меньше, по центру, парит в воздухе */
+.np-float {
+  position: relative; width: min(54vw, 236px); margin: 6px auto 18px;
+  animation: float 5.4s ease-in-out infinite;
+}
+.np-float .np-cover { width: 100%; border-radius: 18px; margin: 0; }
+.np-float .eq-lg { left: 9px; bottom: 9px; }
+.covin { animation: coverin .5s var(--ease) both; }
+@keyframes coverin {
+  from { opacity: 0; transform: scale(1.07) rotate(.6deg); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* стеклянная пилюля управления (как в ЯМ) */
+.pillbar {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(22, 22, 28, .74); backdrop-filter: blur(16px) saturate(1.4);
+  border-radius: 999px; padding: 7px 10px; margin: 0 0 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  animation: pop .45s var(--spring) both;
+}
+.cbtn {
+  width: 42px; height: 42px; border-radius: 50%; border: 0; cursor: pointer; flex: none;
+  background: rgba(255,255,255,.08); color: var(--txt);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1.02rem;
+  transition: transform .24s var(--spring), background .22s, color .22s;
+}
+.cbtn:active { transform: scale(.85); }
+.cbtn.on { color: var(--acc); background: rgba(255, 219, 77, .15); }
+.cbtn.glass { background: rgba(255,255,255,.1); }
+.cbtn.big {
+  width: 66px; height: 66px; background: var(--grad); color: #1A1200; font-size: 1.5rem;
+  box-shadow: 0 12px 32px rgba(255, 200, 60, .35), inset 0 1px 0 rgba(255,255,255,.35);
+  will-change: transform;
+}
+.cbtn.big:active { transform: scale(.92); }
+.cbtn.big.playing { animation: glowpulse 2.6s ease-in-out infinite; }
+
+/* бегущая строка в пилюле */
+.mq {
+  flex: 1; min-width: 0; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.mq-in { display: inline-flex; white-space: nowrap; animation: mq 18s linear infinite; will-change: transform; }
+.mq-in > span { padding-right: 40px; font-size: .95rem; font-weight: 750; }
+@keyframes mq { to { transform: translateX(-50%); } }
+
+.minirow { display: flex; justify-content: center; gap: 12px; margin: -4px 0 14px; }
+.minirow .cbtn { width: 38px; height: 38px; font-size: .92rem; }
+
+/* ---------- размеры SVG-иконок кнопок ---------- */
+.ico { display: block; }
+.pib .ico, .pib .ppm { width: 1.2em; height: 1.2em; }
+.cbtn .ico { width: 19px; height: 19px; }
+.cbtn.big .ppm { width: 2rem; height: 2rem; }
+.pbtn .ico { width: 13px; height: 13px; margin: 0 auto; }
+.dlbtn .ico { width: 16px; height: 16px; margin: 0 auto; }
+.bigbtn .ico { width: 17px; height: 17px; }
 
 /* ---------- уважение к настройкам системы ---------- */
 @media (prefers-reduced-motion: reduce) {

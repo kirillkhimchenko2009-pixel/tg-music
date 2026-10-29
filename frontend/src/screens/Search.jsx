@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, HeartBtn, Skeletons } from '../App.jsx';
+import { coverOr, HeartBtn, IcoDownload, Skeletons } from '../App.jsx';
 
 export default function SearchScreen() {
   const [q, setQ] = useState('');
@@ -79,7 +79,7 @@ function List({ tracks, jobs, onDl }) {
             <div className="ra">{x.artist}</div>
           </div>
           <HeartBtn id={x.id} />
-          <button className="dlbtn" onClick={() => onDl(x)}>{jobs[x.id] || '⬇'}</button>
+          <button className="dlbtn" aria-label="Скачать" onClick={() => onDl(x)}>{jobs[x.id] || <IcoDownload />}</button>
         </div>
       ))}
     </div>

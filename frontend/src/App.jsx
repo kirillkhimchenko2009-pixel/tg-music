@@ -147,11 +147,11 @@ function PlayerBar({ onExpand }) {
         <div className="pbar-title">{cur.title}</div>
         <div className="pbar-artist">{cur.artist}</div>
       </div>
-      <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.prev(); }}>⏮</button>
-      <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.toggle(); }}>
+      <button className="pib" aria-label="Предыдущий" onClick={e => { e.stopPropagation(); haptic('light'); P.prev(); }}><IcoPrev /></button>
+      <button className="pib" aria-label="Играть/пауза" onClick={e => { e.stopPropagation(); haptic('light'); P.toggle(); }}>
         <PlayPause playing={st.playing} />
       </button>
-      <button className="pib" onClick={e => { e.stopPropagation(); haptic('light'); P.next(); }}>⏭</button>
+      <button className="pib" aria-label="Следующий" onClick={e => { e.stopPropagation(); haptic('light'); P.next(); }}><IcoNext /></button>
     </div>
   );
 }
@@ -160,52 +160,84 @@ function NowPlaying({ track, onClose }) {
   const st = usePlayerState();
   const cur = st.queue[st.index] || track;
   const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
+  const [dl, setDl] = useState('');
+  const download = async () => {
+    if (dl === 'busy') return;
+    haptic('medium'); setDl('busy');
+    try {
+      const { job } = await api('/api/download?track_id=' + cur.id, { method: 'POST' });
+      let it = 0;
+      while (it++ < 400) {
+        const s2 = await api('/api/jobs/' + job);
+        if (s2.status === 'done') { setDl('done'); break; }
+        if (s2.status === 'error') { setDl('err'); break; }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    } catch { setDl('err'); }
+    setTimeout(() => setDl(''), 4000);
+  };
+  const label = (cur.title || '') + ' — ' + (cur.artist || '');
   return (
     <div className="np" onClick={onClose}>
       <div className="np-card" onClick={e => e.stopPropagation()}>
-        <div className="np-close" onClick={onClose}>⌄</div>
-        {st.error && <div className="err">{st.error}</div>}
-        <div className="np-art">
-          <div className="np-aura" />
-          <img className={'np-cover' + (st.playing ? ' kb' : '')} src={coverOr(cur)} alt="" />
-          {st.playing && <span className="eq eq-lg"><i /><i /><i /></span>}
+        <div className="blobs">
+          <span className="blob blob-1" /><span className="blob blob-2" /><span className="blob blob-3" />
         </div>
-        <div className="np-meta" key={cur.id}>
-          <div className="np-title">{cur.title}</div>
-          <div className="np-artist">{cur.artist}</div>
-          {!cur.ready && <div className="np-chip"><span className="np-dot" />Онлайн-превью · 0:30</div>}
-          <HeartBtn id={cur.id} big />
-        </div>
-        <div className="seekrow" onClick={e => e.stopPropagation()}>
-          <span className="np-time">{P.fmt(st.currentTime)}</span>
-          <input className="seek" type="range" min="0" max="1000"
-                 value={Math.round(pct * 10)}
-                 style={{ '--fill': pct.toFixed(1) + '%' }}
-                 onChange={e => P.seek(+e.target.value / 1000)} />
-          <span className="np-time">{P.fmt(st.duration)}</span>
-        </div>
-        <div className="np-btns">
-          <button onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}
-                  className={'ib toggle' + (st.shuffle ? ' on' : '')}>🔀</button>
-          <button onClick={() => { haptic('light'); P.prev(); }} className="ib big">⏮</button>
-          <button onClick={() => { haptic('medium'); P.toggle(); }} className="ib big play">
-            <PlayPause playing={st.playing} loading={st.loading} big />
-          </button>
-          <button onClick={() => { haptic('light'); P.next(); }} className="ib big">⏭</button>
-          <button onClick={() => { haptic('light'); P.setLoop(!st.loop); }}
-                  className={'ib toggle' + (st.loop ? ' on' : '')}>🔁</button>
-        </div>
-        <div className="np-queue">
-          {st.queue.map((t, i) => (
-            <button key={t.id} className={'npq' + (i === st.index ? ' on' : '')}
-                    style={{ animationDelay: Math.min(i, 12) * 30 + 'ms' }}
-                    onClick={() => { haptic('select'); P.play(st.queue, i); }}>
-              <span className="npq-n">{i === st.index
-                ? (st.playing ? <span className="eq eq-sm"><i /><i /><i /></span> : '▶')
-                : (i + 1)}</span>
-              <span className="npq-t">{t.title} — {t.artist}</span>
+        <div className="np-body">
+          <div className="np-close" onClick={onClose}>⌄</div>
+          {st.error && <div className="err">{st.error}</div>}
+          <div className="np-float">
+            <div className="covin" key={cur.id}>
+              <img className={'np-cover' + (st.playing ? ' kb' : '')} src={coverOr(cur)} alt="" />
+              {st.playing && <span className="eq eq-lg"><i /><i /><i /></span>}
+            </div>
+          </div>
+          <div className="pillbar" key={cur.id}>
+            <HeartBtn id={cur.id} />
+            <div className="mq">
+              <div className="mq-in">
+                <span>{label}</span><span aria-hidden="true">{label}</span>
+              </div>
+            </div>
+            <button className="cbtn" aria-label="Скачать в чат" onClick={download}>
+              {dl === 'busy' ? <span className="minispinner" /> : (dl === 'done' ? '✓' : <IcoDownload />)}
             </button>
-          ))}
+          </div>
+          {!cur.ready && <div className="np-chip"><span className="np-dot" />Онлайн-превью · 0:30</div>}
+          <div className="seekrow" onClick={e => e.stopPropagation()}>
+            <span className="np-time">{P.fmt(st.currentTime)}</span>
+            <input className="seek" type="range" min="0" max="1000"
+                   value={Math.round(pct * 10)}
+                   style={{ '--fill': pct.toFixed(1) + '%' }}
+                   onChange={e => P.seek(+e.target.value / 1000)} />
+            <span className="np-time">{P.fmt(st.duration)}</span>
+          </div>
+          <div className="np-btns">
+            <button onClick={() => { haptic('light'); P.prev(); }} className="cbtn glass" aria-label="Предыдущий"><IcoPrev /></button>
+            <button onClick={() => { haptic('medium'); P.toggle(); }}
+                    className={'cbtn big' + (st.playing ? ' playing' : '')} aria-label="Играть/пауза">
+              <PlayPause playing={st.playing} loading={st.loading} big />
+            </button>
+            <button onClick={() => { haptic('light'); P.next(); }} className="cbtn glass" aria-label="Следующий"><IcoNext /></button>
+          </div>
+          <div className="minirow">
+            <button onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}
+                    className={'cbtn' + (st.shuffle ? ' on' : '')} aria-label="Перемешать"><IcoShuffle /></button>
+            <button onClick={() => { haptic('light'); P.setLoop(!st.loop); }}
+                    className={'cbtn' + (st.loop ? ' on' : '')} aria-label="Повтор"><IcoRepeat /></button>
+          </div>
+          <div className="np-queue">
+            {st.queue.map((t, i) => (
+              <button key={t.id} className={'npq' + (i === st.index ? ' on' : '')}
+                      style={{ animationDelay: Math.min(i, 12) * 30 + 'ms' }}
+                      onClick={() => { haptic('select'); P.play(st.queue, i); }}>
+                <span className="npq-n">{i === st.index
+                  ? (st.playing ? <span className="eq eq-sm"><i /><i /><i /></span> : '▶')
+                  : (i + 1)}</span>
+                <span className="npq-t">{t.title} — {t.artist}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -247,6 +279,61 @@ export function HeartBtn({ id, big }) {
             onClick={e => { e.stopPropagation(); haptic(liked ? 'soft' : 'light'); toggleLike(id); }}>
       <svg viewBox="0 0 24 24"><path d={HEART_D} /></svg>
     </button>
+  );
+}
+
+/* ---------------- SVG-иконки: кнопки в едином стиле ЯМ ---------------- */
+const STROKE = {
+  viewBox: '0 0 24 24', className: 'ico', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+};
+export function IcoPrev() {
+  return (
+    <svg {...STROKE}>
+      <path d="M18.4 5.4v13.2L7.4 12z" fill="currentColor" stroke="none" />
+      <rect x="4" y="5.4" width="2.4" height="13.2" rx="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+export function IcoNext() {
+  return (
+    <svg {...STROKE}>
+      <path d="M5.6 5.4v13.2L16.6 12z" fill="currentColor" stroke="none" />
+      <rect x="17.6" y="5.4" width="2.4" height="13.2" rx="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+export function IcoShuffle() {
+  return (
+    <svg {...STROKE}>
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+      <line x1="4" y1="4" x2="9" y2="9" />
+    </svg>
+  );
+}
+export function IcoRepeat() {
+  return (
+    <svg {...STROKE}>
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  );
+}
+export function IcoDownload() {
+  return (
+    <svg {...STROKE}>
+      <path d="M12 3v12" /><polyline points="7 10 12 15 17 10" /><path d="M5 21h14" />
+    </svg>
+  );
+}
+export function IcoPlaySmall() {
+  return (
+    <svg {...STROKE}><path d="M8.5 5.5v13L19 12z" fill="currentColor" stroke="none" /></svg>
   );
 }
 

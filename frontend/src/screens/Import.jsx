@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { api } from '../api.js';
 import { play, usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, HeartBtn } from '../App.jsx';
+import { coverOr, HeartBtn, IcoPlaySmall } from '../App.jsx';
 
 export default function ImportScreen({ onOpenPlaylist }) {
   const [url, setUrl] = useState('');
@@ -54,7 +54,7 @@ export default function ImportScreen({ onOpenPlaylist }) {
                 <div className="ra">{t.artist}</div>
               </div>
               <HeartBtn id={t.id} />
-              <span className="pbtn">▶</span>
+              <span className="pbtn"><IcoPlaySmall /></span>
             </div>
           ))}
           {(res.tracks || []).length > 6 && <div className="muted c">…и ещё {res.tracks.length - 6}</div>}

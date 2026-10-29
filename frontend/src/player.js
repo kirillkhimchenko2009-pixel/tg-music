@@ -5,7 +5,7 @@ import { playerSrc } from './api.js';
 const audio = new Audio();
 audio.preload = 'metadata';
 
-const state = {
+let state = {
   queue: [],
   index: -1,
   playing: false,
@@ -24,7 +24,8 @@ function emit() {
   state.playing = !audio.paused && !audio.ended;
   state.currentTime = audio.currentTime || 0;
   state.duration = audio.duration || 0;
-  for (const fn of listeners) fn(state);
+  state = { ...state };            // новый снапшот: useSyncExternalStore видит изменение
+  for (const fn of listeners) fn();
 }
 
 export function subscribe(fn) {
