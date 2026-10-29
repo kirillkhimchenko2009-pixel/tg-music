@@ -425,10 +425,11 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
     """Проверка источников с IP продакшна: поиск → ссылка → реальные байты."""
     import httpx
     from services.providers import hitmoz as hmz
+    from services.providers import hotplayer as hpl
     from services.providers import zaycev as zyc
 
     out: dict = {}
-    for name, prov in (("zaycev", zyc), ("hitmoz", hmz)):
+    for name, prov in (("zaycev", zyc), ("hitmoz", hmz), ("hotplayer", hpl)):
         t0 = _time.time()
         try:
             cands = await prov.search(q, limit=3)

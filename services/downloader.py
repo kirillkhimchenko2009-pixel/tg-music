@@ -66,18 +66,25 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
 async def download_direct(url: str, meta: TrackMeta, quality: str,
                           on_progress=None, headers: dict | None = None,
                           use_proxy: bool = True) -> DownloadResult | None:
-    """Скачивание по прямой ссылке (ЯМ/Звук/zaycev/hitmoz), без перекодирования.
-    use_proxy=False — для RU-сайтов, которые быстрее напрямую."""
+    """Скачивание по прямой ссылке (ЯМ/Звук/zaycev/hitmoz/hotplayer), без перекодирования.
+    use_proxy=False — для RU-сайтов, которые быстрее напрямую.
+    Расширение файла берём из content-type (у hotplayer ссылка без .mp3)."""
     import httpx
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    ext = "flac" if quality == "flac" else \
-          ("mp3" if url.lower().endswith(".mp3") else "m4a")
-    out_path = settings.AUDIO_DIR / f"{meta.source}_{meta.external_id}.{ext}"
     proxy = (settings.PROXY_URL or None) if use_proxy else None
     async with httpx.AsyncClient(timeout=180, follow_redirects=True, proxy=proxy,
                                   headers=headers or {}) as c:
         async with c.stream("GET", url) as resp:
             resp.raise_for_status()
+            ctype = (resp.headers.get("content-type") or "").lower()
+            low = url.lower()
+            if "flac" in ctype or (quality == "flac" and "mpeg" not in ctype):
+                ext = "flac"
+            elif "mpeg" in ctype or "mp3" in ctype or low.endswith(".mp3"):
+                ext = "mp3"
+            else:
+                ext = "m4a"
+            out_path = settings.AUDIO_DIR / f"{meta.source}_{meta.external_id}.{ext}"
             total = int(resp.headers.get("content-length") or 0)
             done = 0
             with open(out_path, "wb") as f:
@@ -86,7 +93,8 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
                     done += len(chunk)
                     if on_progress and total:
                         on_progress(min(done / total * 100, 100.0))
-    return DownloadResult(path=out_path, quality=quality, size_bytes=out_path.stat().st_size)
+    q = "flac" if ext == "flac" else quality
+    return DownloadResult(path=out_path, quality=q, size_bytes=out_path.stat().st_size)
 
 async def download_innertube(meta: TrackMeta, quality: str = "aac320",
                              on_progress=None) -> DownloadResult | None:

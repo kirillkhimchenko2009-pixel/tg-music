@@ -8,6 +8,7 @@ from services.providers import yandex as ymx
 from services.providers import zvuk as zv
 from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
+from services.providers import hotplayer as hpl
 from services.providers.base import TrackMeta
 
 log = logging.getLogger("pipeline")
@@ -33,6 +34,10 @@ SOURCE_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
         "Referer": "https://ru.hitmoz.org/",
     },
+    "hotplayer": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
+        "Referer": "https://hotplayer.ru/",
+    },
 }
 
 async def download(dl_meta: TrackMeta, quality: str, token: str = "",
@@ -52,8 +57,8 @@ async def download(dl_meta: TrackMeta, quality: str, token: str = "",
                 return None
 
 async def _download_inner(dl_meta, quality, token, on_progress):
-    if dl_meta.source in ("zaycev", "hitmoz"):
-        prov = zay if dl_meta.source == "zaycev" else hzm
+    if dl_meta.source in ("zaycev", "hitmoz", "hotplayer"):
+        prov = {"zaycev": zay, "hitmoz": hzm, "hotplayer": hpl}[dl_meta.source]
         try:
             url = await prov.download_url(dl_meta)
         except Exception:
