@@ -72,7 +72,7 @@ export default function App() {
             <div className="vwrap" key={tab}>
               {tab === 'library' && <Library />}
               {tab === 'search' && <SearchScreen />}
-              {tab === 'playlists' && <Playlists />}
+              {tab === 'playlists' && <Playlists onImport={() => switchTab('import')} />}
               {tab === 'import' && <ImportScreen onOpenPlaylist={() => switchTab('playlists')} />}
             </div>
           </main>

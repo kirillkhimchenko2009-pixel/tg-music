@@ -79,3 +79,14 @@ async def init_db() -> None:
     from .models import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # мини-миграция: create_all не добавляет колонки в существующие таблицы
+    from sqlalchemy import text
+    col = "ALTER TABLE playlists ADD COLUMN {ifnot}source VARCHAR(16) NOT NULL DEFAULT ''"
+    try:
+        async with engine.begin() as conn:
+            if engine.dialect.name == "postgresql":
+                await conn.execute(text(col.format(ifnot="IF NOT EXISTS ")))
+            else:
+                await conn.execute(text(col.format(ifnot="")))
+    except Exception:
+        pass

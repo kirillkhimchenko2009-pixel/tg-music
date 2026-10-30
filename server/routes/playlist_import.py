@@ -99,6 +99,7 @@ async def import_playlist(body: ImportIn, user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
         await runtime.ensure_user(s, int(user.id), user.username, "MiniApp")
         pl = await runtime.get_or_create_playlist(s, int(user.id), (title or "Импорт")[:120])
+        pl.source = "import"
 
         count = len(list((await s.execute(
             select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id))).scalars()))

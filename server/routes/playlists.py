@@ -37,24 +37,33 @@ async def _likes_playlist(user: CurrentUser, s):
 @router.get("")
 async def my_playlists(user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
-        from core.models import Playlist, PlaylistTrack
+        from core.models import Playlist, PlaylistTrack, Track
         likes = await _likes_playlist(user, s)
+        await s.commit()                      # «Любимое» живёт в БД с первого открытия
         q = (select(Playlist).where(Playlist.owner_id == int(user.id),
                                     Playlist.id != likes.id)
              .order_by(Playlist.id.desc()))
         rows = [likes] + list((await s.execute(q)).scalars())
+        ids = [pl.id for pl in rows]
+        counts: dict[int, int] = {i: 0 for i in ids}
+        covers: dict[int, list[str]] = {i: [] for i in ids}
+        if ids:
+            # одна выборка на все плейлисты: количество + до 4 разных обложек (мозаика)
+            pt_rows = (await s.execute(
+                select(PlaylistTrack.playlist_id, Track.cover_url)
+                .join(Track, PlaylistTrack.track_id == Track.id)
+                .where(PlaylistTrack.playlist_id.in_(ids))
+                .order_by(PlaylistTrack.playlist_id, PlaylistTrack.position))).all()
+            for pid, cover in pt_rows:
+                counts[pid] += 1
+                if cover and len(covers[pid]) < 4 and cover not in covers[pid]:
+                    covers[pid].append(cover)
         out = []
         for pl in rows:
-            items = list((await s.execute(
-                select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id))).scalars())
-            first = next(iter(items), None)
-            cover = None
-            if first:
-                from services.catalog import get_track
-                t = await get_track(s, first.track_id)
-                cover = t.cover_url if t else None
-            out.append({"id": pl.id, "title": pl.title, "count": len(items),
-                        "cover_url": cover})
+            cv = covers[pl.id]
+            out.append({"id": pl.id, "title": pl.title, "count": counts[pl.id],
+                        "cover_url": cv[0] if cv else None, "covers": cv,
+                        "source": getattr(pl, "source", "") or ""})
     return {"playlists": out}
 
 @router.post("")
@@ -65,8 +74,38 @@ async def create(body: PlaylistIn, user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
         await runtime.ensure_user(s, int(user.id), user.username, "MiniApp")
         pl = await runtime.get_or_create_playlist(s, int(user.id), title)
+        pl.source = "manual"
         await s.commit()
-        return {"id": pl.id, "title": pl.title, "count": 0}
+        return {"id": pl.id, "title": pl.title, "count": 0, "source": "manual"}
+
+
+# ---------------- любимые исполнители (топ по плейлистам) ----------------
+
+artists_router = APIRouter(prefix="/api/artists", tags=["artists"])
+
+
+@artists_router.get("/top")
+async def top_artists(limit: int = 8, user: CurrentUser = Depends(tg_user)):
+    """Топ исполнителей юзера: частота треков в его плейлистах (лайки дают
+    доп. вес — трек из «❤ Любимое» и другого плейлиста считается дважды)."""
+    from sqlalchemy import func
+
+    async with runtime.get_session() as s:
+        from core.models import Playlist, PlaylistTrack, Track
+        await _likes_playlist(user, s)          # гарантируем «❤ Любимое»
+        await s.commit()
+        rows = (await s.execute(
+            select(Track.artist, func.count().label("cnt"),
+                   func.max(Track.cover_url).label("cover"))
+            .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+            .join(Playlist, Playlist.id == PlaylistTrack.playlist_id)
+            .where(Playlist.owner_id == int(user.id),
+                   Track.artist.isnot(None), Track.artist != "")
+            .group_by(Track.artist)
+            .order_by(func.count().desc(), Track.artist)
+            .limit(max(1, min(limit, 12))))).all()
+    return {"artists": [{"name": r.artist, "count": r.cnt, "cover_url": r.cover}
+                        for r in rows]}
 
 @router.get("/{playlist_id}")
 async def playlist_items(playlist_id: int, user: CurrentUser = Depends(tg_user)):

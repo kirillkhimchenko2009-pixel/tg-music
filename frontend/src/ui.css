@@ -74,7 +74,8 @@ body {
   transition: background .18s var(--ease), transform .18s var(--ease);
 }
 .row:active { background: var(--surf); transform: scale(.985); }
-.rise { animation: rise .46s var(--ease) both; }
+.rise { animation: rise .46s var(--ease) backwards; }   /* backwards, не both:
+   иначе финальный transform перебивает :active-нажатие карточек */
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
@@ -253,6 +254,261 @@ body {
   box-shadow: 0 6px 24px rgba(255, 200, 60, .28);
 }
 .bigbtn:disabled { opacity: .45; }
+
+/* ========== КОЛЛЕКЦИЯ (как «Моя коллекция» в Яндекс.Музыке) ==========
+   Шапка со свечением из доминирующего цвета обложки, строка «Любимое»,
+   лента любимых исполнителей с рангами, сегмент-табы с пружинным
+   индикатором, мозаичные обложки плейлистов и шторка создания. */
+.coll { position: relative; padding-top: 2px; }
+
+.coll-glow {
+  position: absolute; top: -150px; left: 50%; width: 520px; height: 400px;
+  transform: translateX(-50%); pointer-events: none; z-index: 0;
+  background: radial-gradient(closest-side, var(--coll-glow, #FFDB4D), transparent 72%);
+  opacity: .22; filter: blur(38px);
+  animation: glowsmoke 1.2s var(--ease) backwards;
+}
+@keyframes glowsmoke {
+  from { opacity: 0; transform: translateX(-50%) scale(.7); }
+  to   { opacity: .22; transform: translateX(-50%) scale(1); }
+}
+
+.coll-head { position: relative; z-index: 1; padding: 14px 0 2px; }
+.coll-head h1 { font-size: 1.88rem; font-weight: 900; letter-spacing: -.5px; }
+.coll-sub {
+  color: var(--dim); font-size: .84rem; margin-top: 4px;
+  animation: viewin .45s var(--ease) backwards;
+}
+
+/* ---- большая строка «Любимое» ---- */
+.likesrow {
+  position: relative; z-index: 1; width: 100%; display: flex; align-items: center;
+  gap: 14px; margin: 20px 0 4px; padding: 10px; border: 0; cursor: pointer;
+  text-align: left; color: var(--txt); border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255,255,255,.085), rgba(255,255,255,.03));
+  box-shadow: 0 12px 32px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.07);
+  transition: transform .28s var(--spring), box-shadow .3s var(--ease);
+}
+.likesrow:active { transform: scale(.97); box-shadow: 0 8px 22px rgba(0,0,0,.5); }
+.likescov {
+  position: relative; width: 80px; height: 80px; border-radius: 16px; flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(130% 130% at 18% 8%, #FF8B98 0%, #F5325F 46%, #A80D34 100%);
+  box-shadow: 0 10px 26px rgba(245, 50, 95, .34), inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.likescov svg {
+  width: 40px; height: 40px; fill: #fff;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.3));
+  animation: heartpulse 3s ease-in-out infinite;
+}
+@keyframes heartpulse {
+  0%, 100% { transform: scale(1); }
+  44%      { transform: scale(1.09); }
+  60%      { transform: scale(.97); }
+}
+.likesshine {
+  position: absolute; inset: -20%; pointer-events: none;
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.4) 50%, transparent 62%);
+  transform: translateX(-130%);
+  animation: shine 4.6s ease-in-out infinite 1.4s;
+}
+@keyframes shine {
+  0%, 60% { transform: translateX(-130%); }
+  84%, 100% { transform: translateX(130%); }
+}
+.likesmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.likest { font-size: 1.18rem; font-weight: 850; letter-spacing: -.2px; }
+.likesn { font-size: .82rem; color: var(--dim); }
+.chevr { color: var(--dim); flex: none; padding-right: 4px; transition: transform .25s var(--ease), color .25s; }
+.chevr .ico { width: 20px; height: 20px; }
+.likesrow:hover .chevr, .likesrow:active .chevr { transform: translateX(3px); color: var(--txt); }
+
+/* ---- секции ---- */
+.collsec { position: relative; z-index: 1; margin-top: 26px; }
+.collh2 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.collh2 h2 { font-size: 1.06rem; font-weight: 850; letter-spacing: -.1px; }
+
+/* ---- лента любимых исполнителей ---- */
+.artrow {
+  display: flex; gap: 16px; overflow-x: auto; padding: 6px 2px 8px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.artrow::-webkit-scrollbar { display: none; }
+.artcard {
+  flex: none; width: 88px; display: flex; flex-direction: column; align-items: center;
+  gap: 5px; text-align: center;
+  animation: artistpop .5s var(--spring) backwards;
+}
+@keyframes artistpop {
+  from { opacity: 0; transform: translateY(14px) scale(.82); }
+  to   { opacity: 1; transform: none; }
+}
+.artava {
+  position: relative; width: 78px; height: 78px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: linear-gradient(135deg, #34343F, #1B1B22);
+  box-shadow: 0 8px 24px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.07);
+}
+.artava img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+  transition: transform .4s var(--spring), box-shadow .3s;
+}
+.artcard:active .artava img { transform: scale(1.07); }
+.artava.top1 {
+  box-shadow: 0 8px 24px rgba(0,0,0,.45), 0 0 0 2px rgba(255,219,77,.62),
+              0 0 26px rgba(255,219,77,.2);
+}
+.artinit { font-size: 1.7rem; font-weight: 900; color: var(--dim); }
+.artrank {
+  position: absolute; left: -4px; bottom: -4px; min-width: 24px; height: 24px;
+  padding: 0 6px; border-radius: 999px; background: #23232C; color: var(--txt);
+  font-size: .72rem; font-weight: 900; display: inline-flex; align-items: center;
+  justify-content: center; gap: 2px;
+  box-shadow: 0 3px 10px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.1);
+}
+.artrank em { font-style: normal; font-size: .72rem; color: var(--acc); }
+.artava.top1 .artrank { background: var(--grad); color: #1A1200; }
+.artava.top1 .artrank em { color: #1A1200; }
+.artname {
+  font-size: .78rem; font-weight: 750; max-width: 88px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.artn { font-size: .68rem; color: var(--dim); }
+
+/* ---- сегмент-табы «Вы собрали / Вам понравилось» ---- */
+.seg {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 2px;
+  background: rgba(255,255,255,.055); border-radius: 999px; padding: 3px;
+  margin: 2px 0 16px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+}
+.seg-ind {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 4px);
+  border-radius: 999px; background: var(--surf-hi);
+  box-shadow: 0 4px 14px rgba(0,0,0,.38), inset 0 0 0 1px rgba(255,255,255,.09);
+  transition: transform .4s var(--spring);
+}
+.seg[data-pos="liked"] .seg-ind { transform: translateX(calc(100% + 2px)); }
+.segbtn {
+  position: relative; z-index: 1; background: none; border: 0; color: var(--dim);
+  font: inherit; font-size: .82rem; font-weight: 800; padding: 9px 4px;
+  border-radius: 999px; cursor: pointer; white-space: nowrap;
+  transition: color .25s var(--ease), transform .2s var(--spring);
+}
+.segbtn.on { color: var(--txt); }
+.segbtn:active { transform: scale(.96); }
+
+/* ---- карточки плейлистов ---- */
+.plgridx { gap: 16px 14px; }
+.plcardx {
+  position: relative; display: block; width: 100%; padding: 0; border: 0;
+  background: none; color: var(--txt); text-align: left; cursor: pointer;
+  transition: transform .3s var(--spring);
+}
+.plcardx:active { transform: scale(.955); }
+.plcovx {
+  position: relative; display: block; width: 100%; aspect-ratio: 1;
+  border-radius: 16px; overflow: hidden; margin-bottom: 9px;
+  background: linear-gradient(135deg, #24242D, #17171C);
+  box-shadow: 0 10px 24px rgba(0,0,0,.48);
+  transition: box-shadow .35s var(--ease);
+}
+.plcardx:hover .plcovx { box-shadow: 0 16px 36px rgba(0,0,0,.62); }
+
+.plsingle { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* мозаика 2×2 с лёгкими поворотами — «коллаж», как у ЯМ */
+.mosaic { position: absolute; inset: 0; display: block; overflow: hidden; }
+.mosaic img {
+  position: absolute; width: 57%; height: 57%; object-fit: cover; border-radius: 8%;
+  box-shadow: 0 4px 14px rgba(0,0,0,.42);
+  transition: transform .55s var(--spring);
+}
+.mosaic img:nth-child(1) { left: -4%;  top: -4%;    transform: rotate(-3.5deg); }
+.mosaic img:nth-child(2) { right: -4%; top: -4%;    transform: rotate(3deg); }
+.mosaic img:nth-child(3) { left: -4%;  bottom: -4%; transform: rotate(2.5deg); }
+.mosaic img:nth-child(4) { right: -4%; bottom: -4%; transform: rotate(-2.5deg); }
+.plcardx:active .mosaic img { transform: rotate(0deg) scale(1.04); }
+
+.plshine {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(155deg, rgba(255,255,255,.1), transparent 42%);
+  opacity: .45; transition: opacity .3s;
+}
+.plcardx:active .plshine { opacity: .9; }
+.plfill { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.5); }
+.plnote { width: 34px; height: 34px; }
+
+.plname {
+  display: block; font-size: .92rem; font-weight: 800;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pln { display: block; font-size: .76rem; color: var(--dim); margin-top: 2px; }
+
+/* плитка «Новый плейлист» */
+.newcov {
+  display: grid; place-items: center; box-shadow: none;
+  background: radial-gradient(130% 120% at 50% 0%, rgba(255,219,77,.12), rgba(255,255,255,.035) 62%);
+  border: 1.5px dashed rgba(255,255,255,.3);
+  transition: border-color .3s var(--ease), background .3s;
+}
+.plus {
+  font-size: 2.3rem; font-weight: 300; line-height: 1; color: rgba(255,255,255,.72);
+  transition: transform .45s var(--spring), color .3s;
+}
+.plcardx:hover .plus { transform: rotate(90deg) scale(1.08); color: var(--acc); }
+.plcardx:hover .newcov { border-color: rgba(255,219,77,.55); }
+.plcardx:active .plus { transform: rotate(90deg) scale(.92); }
+
+/* пустая вкладка «Вам понравилось» */
+.collempty {
+  padding: 26px 20px; text-align: center; border-radius: 20px;
+  background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07);
+}
+.ceic { font-size: 1.9rem; color: var(--acc); opacity: .85; margin-bottom: 8px; animation: float 3.4s ease-in-out infinite; }
+.cet { font-weight: 800; font-size: .98rem; line-height: 1.35; }
+.ced { color: var(--dim); font-size: .82rem; line-height: 1.5; margin: 6px 0 15px; }
+.collempty .bigbtn { width: 100%; }
+
+/* ---- шапка детального экрана ---- */
+.dhero { display: flex; align-items: center; gap: 14px; margin: 8px 0 4px; }
+.dherocov {
+  position: relative; width: 96px; height: 96px; border-radius: 16px; overflow: hidden;
+  flex: none; background: linear-gradient(135deg, #24242D, #17171C);
+  box-shadow: 0 12px 30px rgba(0,0,0,.55);
+  animation: heroin .5s var(--spring) backwards;
+}
+@keyframes heroin {
+  from { opacity: 0; transform: scale(.86) rotate(-2deg); }
+  to   { opacity: 1; transform: none; }
+}
+.dherometa { min-width: 0; }
+.dherometa .plt.big { font-size: 1.35rem; }
+.dherometa .ra { margin-top: 4px; }
+
+/* ---- шторка «Новый плейлист» ---- */
+.shovl {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end;
+  background: rgba(4,4,6,.62); backdrop-filter: blur(16px) saturate(1.3);
+  animation: npfade .25s var(--ease) backwards;
+}
+.sheet {
+  width: 100%; padding: 10px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, #1C1C24 0%, #121217 100%);
+  border-radius: 26px 26px 0 0; border-top: 1px solid rgba(255,255,255,.09);
+  animation: sheet .45s var(--spring) backwards;
+}
+.shgrab { display: block; width: 40px; height: 4px; border-radius: 999px; background: rgba(255,255,255,.22); margin: 2px auto 16px; }
+.sht { font-size: 1.15rem; font-weight: 850; margin-bottom: 14px; }
+.shinput {
+  width: 100%; padding: 14px 16px; border-radius: 14px; background: #17171D;
+  border: 1px solid rgba(255,255,255,.09); color: var(--txt); font-size: 1rem;
+  outline: none; caret-color: var(--acc);
+  transition: border-color .25s, box-shadow .25s;
+}
+.shinput:focus { border-color: rgba(255,219,77,.6); box-shadow: 0 0 0 3px rgba(255,219,77,.12); }
+.shinput::placeholder { color: var(--dim); }
+.sheet .btnrow { margin: 16px 0 0; }
+.sheet .bigbtn { flex: 1; }
 
 .cardbox {
   max-width: 380px; margin: 10vh auto 0; padding: 26px 22px; text-align: center;

@@ -40,6 +40,7 @@ async def shutdown():
 app.include_router(tracks_route.router)
 app.include_router(playlists_route.router)
 app.include_router(playlists_route.likes_router)
+app.include_router(playlists_route.artists_router)
 app.include_router(auth_route.router)
 from server.routes import playlist_import as import_route  # noqa: E402
 app.include_router(import_route.router)
