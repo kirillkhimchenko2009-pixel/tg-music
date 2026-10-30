@@ -1,4 +1,6 @@
 """FastAPI приложение: REST API + статика Mini App."""
+import logging
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -11,6 +13,11 @@ from core.db import init_db
 from server.routes import tracks as tracks_route
 from server.routes import playlists as playlists_route
 from server.routes import auth as auth_route
+
+# INFO наших сервисов (провайдеры, релей, онлайн-звук) — в stderr под uvicorn
+logging.basicConfig(level=logging.INFO,
+                    format="%(levelname)s %(name)s: %(message)s",
+                    stream=sys.stderr)
 
 WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
 

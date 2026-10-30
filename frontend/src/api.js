@@ -78,7 +78,7 @@ export async function ensureGuestToken() {
 /* ---------- стрим: короткоживущий токен в URL → нативный потоковый <audio> ---------- */
 export async function playerSrc(trackId) {
   const j = await api('/api/player/' + trackId);
-  return API_BASE + j.url;   // /api/stream/{id}?t=…&u=… — откроется и в <audio>
+  return { url: API_BASE + j.url, kind: j.kind || null };   // /api/stream/{id}?t=…&u=… — откроется и в <audio>
 }
 
 export function coverUrl(t) {

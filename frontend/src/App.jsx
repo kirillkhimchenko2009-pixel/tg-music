@@ -203,7 +203,13 @@ function NowPlaying({ track, onClose }) {
               {dl === 'busy' ? <span className="minispinner" /> : (dl === 'done' ? '✓' : <IcoDownload />)}
             </button>
           </div>
-          {!cur.ready && <div className="np-chip"><span className="np-dot" />Онлайн-превью · 0:30</div>}
+          {/* что именно играет: скачанное / полный онлайн / 30-сек превью */}
+          <div className={'np-chip' + (st.kind === 'preview' ? ' np-chip-dim' : '')}>
+            <span className="np-dot" />
+            {st.kind === 'preview' ? 'Превью 0:30 · жми ⤓ для полного трека'
+              : st.kind === 'file' ? 'Играет из Telegram · полный трек'
+              : 'Полный трек онлайн · без скачивания'}
+          </div>
           <div className="seekrow" onClick={e => e.stopPropagation()}>
             <span className="np-time">{P.fmt(st.currentTime)}</span>
             <input className="seek" type="range" min="0" max="1000"

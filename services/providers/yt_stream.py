@@ -11,6 +11,12 @@ import httpx
 log = logging.getLogger("providers.yt_stream")
 
 PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
+
+SEARCH_CTX = {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00",
+              "hl": "en", "gl": "US"}
+SEARCH_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 CLIENTS = [
     {
@@ -40,6 +46,58 @@ CLIENTS = [
         "ua": "Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Safari/605.1.15",
     },
 ]
+
+
+async def search_video_id(query: str, diag: list | None = None) -> str | None:
+    """videoId первого видео YouTube Music по InnerTube-поиску.
+    Нужен на Render: yt-dlp с датацентровых IP часто ловит бот-чек,
+    а InnerTube-клиенты — нет (search → player → прямой googlevideo-URL)."""
+    if not query:
+        return None
+    from core.config import settings
+    notes = diag if diag is not None else []
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=8),
+                                     follow_redirects=True,
+                                     proxy=settings.PROXY_URL or None) as c:
+            r = await c.post(SEARCH_URL, params={"prettyPrint": "false"},
+                             json={"context": {"client": SEARCH_CTX},
+                                   "query": query},
+                             headers={"Content-Type": "application/json",
+                                      "Accept-Language": "en",
+                                      "Origin": "https://music.youtube.com",
+                                      "User-Agent": SEARCH_UA})
+            if r.status_code != 200:
+                notes.append(f"search: HTTP {r.status_code}")
+                return None
+            d = r.json()
+
+            def walk(node) -> str | None:
+                """Глубокий обход в поисках первого playlistItemData.videoId."""
+                if isinstance(node, dict):
+                    vid = (node.get("playlistItemData") or {}).get("videoId") \
+                        or (node.get("musicResponsiveListItemRenderer") or {}).get("playlistItemData", {}).get("videoId")
+                    if isinstance(vid, str) and len(vid) == 11:
+                        return vid
+                    for v in node.values():
+                        got = walk(v)
+                        if got:
+                            return got
+                elif isinstance(node, list):
+                    for v in node:
+                        got = walk(v)
+                        if got:
+                            return got
+                return None
+
+            vid = walk(d)
+            if vid:
+                return vid
+            notes.append("search: нет videoId в ответе")
+    except Exception as e:  # noqa: BLE001
+        notes.append(f"search: {type(e).__name__}")
+    log.info("innertube search «%s»: %s", query[:60], "; ".join(notes))
+    return None
 
 
 async def audio_url(video_id: str, diag: list | None = None) -> dict | None:

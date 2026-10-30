@@ -50,7 +50,11 @@ def _download_url_sync(dl_id: str) -> str | None:
                   follow_redirects=True)
     r.raise_for_status()
     m = _DL.search(r.text)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    # href в HTML содержит HTML-энтити: &amp; → & (иначе CDN не видит v=…)
+    import html as _html
+    return _html.unescape(m.group(1))
 
 
 async def download_url(meta: TrackMeta) -> str | None:

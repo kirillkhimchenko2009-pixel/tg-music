@@ -16,11 +16,13 @@ from core.config import settings
 from core.models import Track
 from server.auth import CurrentUser, tg_user
 from services import catalog
+from services.providers.base import TrackMeta
 from services.providers.youtube import YouTubeProvider
 
 router = APIRouter(prefix="/api", tags=["tracks"])
 yt = YouTubeProvider()
 JOB_STATUS: dict[str, dict] = {}
+log = __import__("logging").getLogger("routes.tracks")
 
 
 # ---------------- короткоживущие playback-токены ----------------
@@ -194,7 +196,7 @@ async def job_status(job_id: str, user: CurrentUser = Depends(tg_user)):
 
 # ---------------- потоковый плеер ----------------
 _FILE_PATH_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (tg file_path, expire)
-_AUDIO_URL_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (direct audio url, expire)
+_AUDIO_URL_CACHE: dict[int, tuple[tuple[str, str], float]] = {}   # id -> ((url, kind), expire)
 
 
 async def stream_user(
@@ -212,12 +214,23 @@ async def stream_user(
 
 @router.get("/player/{track_id}")
 async def player_src(track_id: int, user: CurrentUser = Depends(tg_user)):
-    """Лёгкий JSON со ссылкой на поток (нативное воспроизведение, без blob)."""
+    """Лёгкий JSON со ссылкой на поток (нативное воспроизведение, без blob).
+    kind подсказывает UI, что играть: file (скачано/ТГ) | online (полный)
+    | preview (30-сек превью — не нашлось полной версии)."""
     async with runtime.get_session() as s:
         t = await catalog.get_track(s, track_id)
         if not t:
             raise HTTPException(404, "нет такого трека")
-    return {"url": f"/api/stream/{track_id}?t={make_stream_token(int(user.id), track_id)}"}
+        kind = "file" if (t.file_id or t.local_path) else "online"
+        resolved = None
+        if kind == "online":
+            # резолвим ЗДЕСЬ (сессия нужна ym_source): прогрев кеша до первого
+            # Range от <audio> + бейдж в UI
+            resolved = await _resolve_online_audio(track_id, t, s, int(user.id))
+            if resolved and resolved[1] == "preview":
+                kind = "preview"
+    return {"url": f"/api/stream/{track_id}?t={make_stream_token(int(user.id), track_id)}",
+            "kind": kind}
 
 
 async def _tg_file_path(track_id: int, file_id: str) -> str | None:
@@ -237,22 +250,103 @@ async def _tg_file_path(track_id: int, file_id: str) -> str | None:
     return fp
 
 
-async def _resolve_online_audio(track_id: int, t: Track) -> str | None:
-    """Прямой аудио-URL для нескачанных треков: быстрые 30-сек превью
-    (Deezer → iTunes, ~1 с) — мгновенный старт; полный звук YouTube —
-    только если превью не нашлось (с зарубежных IP YT часто блокирует)."""
+async def _resolve_online_audio(track_id: int, t: Track,
+                                session=None, user_id: int | None = None) -> tuple[str, str] | None:
+    """Аудио для нескачанных треков. ПРИОРИТЕТ — ПОЛНЫЙ звук:
+    Яндекс.Музыка (если юзер дал /token — весь каталог)
+    → zaycev.net (mp3-320, Range) → hitmoz → hotplayer
+    → YouTube (InnerTube → yt-dlp). Ничего не нашлось — быстрый фолбэк
+    на 30-сек превью (Deezer → iTunes, ~1 с). Возвращает (url, kind)."""
     hit = _AUDIO_URL_CACHE.get(track_id)
     if hit and hit[1] > _time.time():
         return hit[0]
-    dz, it = await asyncio.gather(_deezer_preview(t), _itunes_preview(t),
-                                  return_exceptions=True)
-    url = (dz if isinstance(dz, str) else None) or (it if isinstance(it, str) else None)
-    if not url:
-        vid = t.external_id if (t.source or "") == "ytmusic" else ""
-        url = await _yt_audio_url(vid=vid, query=f"{t.artist or ''} {t.title or ''}")
-    if url:
-        _AUDIO_URL_CACHE[track_id] = (url, _time.time() + 35 * 60)
-    return url
+
+    async def ym_source(query: str) -> tuple[str, str] | None:
+        """Полный трек с Яндекс.Музыки по пользовательскому токену (/token в боте)."""
+        if session is None or user_id is None:
+            return None
+        try:
+            from services.authstore import get_token
+            tok = await get_token(session, int(user_id), "ym")
+            if not tok:
+                return None
+            from services.matching import best_match
+            from services.ingest import _clean_query
+            from services.providers.yandex import YandexProvider
+            meta = TrackMeta(source="yandex", external_id="", title=t.title or "",
+                             artist=t.artist or "", duration=int(t.duration or 0))
+            cands = await YandexProvider(tok).search(_clean_query(query), limit=8)
+            m = best_match(meta, cands, min_score=0.5)
+            if not m:
+                return None
+            url = await YandexProvider(tok).track_url(m, "")   # 320/aac — стримабельно
+            if url:
+                log.info("онлайн-звук «%s» → yandex: %s", query, m.display())
+                return url, "yandex"
+        except Exception as e:
+            log.info("онлайн-звук yandex не удался: %s", type(e).__name__)
+        return None
+
+    async def direct_sources(query: str) -> tuple[str, str] | None:
+        """Полные треки с прямых сайтов (mp3, Range-стрим): zaycev → hitmoz → hotplayer."""
+        from services.matching import best_match
+        from services.ingest import _clean_query
+        from services.providers import hitmoz as hzm
+        from services.providers import hotplayer as hpl
+        from services.providers import zaycev as zay
+        meta = TrackMeta(source="zaycev", external_id="", title=t.title or "",
+                         artist=t.artist or "", duration=int(t.duration or 0))
+        cquery = _clean_query(query)
+        for prov, name in ((zay, "zaycev"), (hzm, "hitmoz"), (hpl, "hotplayer")):
+            try:
+                cands = await prov.search(cquery, limit=6)
+                if not cands:
+                    continue
+                m = best_match(meta, cands, min_score=0.5)
+                # guard по артисту обязателен — сайты отдают тёзок-однофамильцев;
+                # если матч слабый, допускаем первого результата только с чистым артистом
+                if m and not hzm.artist_guard(meta, m):
+                    m = None
+                if not m and hzm.artist_guard(meta, cands[0]):
+                    m = cands[0]
+                if not m:
+                    continue
+                url = await prov.download_url(m)
+                if url:
+                    log.info("онлайн-звук «%s» → %s: %s", cquery, name, m.display())
+                    return url, name
+            except Exception as e:
+                log.info("онлайн-звук %s не удался: %s", name, type(e).__name__)
+        return None
+
+    q = f"{t.artist or ''} {t.title or ''}".strip()
+    full = None
+    if q:
+        try:
+            full = await asyncio.wait_for(asyncio.gather(
+                ym_source(q), direct_sources(q), return_exceptions=True), timeout=20)
+            full = next((r for r in (full or []) if isinstance(r, tuple)), None)
+        except Exception:
+            full = None
+    if not full:
+        # YouTube — InnerTube (быстро) → yt-dlp как запасной
+        try:
+            vid = t.external_id if (t.source or "") == "ytmusic" else ""
+            url = await _yt_audio_url(vid=vid, query=q)
+            if url:
+                full = (url, "youtube")
+        except Exception:
+            full = None
+    if not full:
+        # превью-фолбэк: мгновенный старт, но 30 секунд
+        dz, it = await asyncio.gather(_deezer_preview(t), _itunes_preview(t),
+                                      return_exceptions=True)
+        url = (dz if isinstance(dz, str) else None) or (it if isinstance(it, str) else None)
+        if url:
+            full = (url, "preview")
+    if full:
+        _AUDIO_URL_CACHE[track_id] = (full, _time.time() + 35 * 60)
+    return full
 
 
 async def _deezer_preview(t: Track) -> str | None:
@@ -322,7 +416,7 @@ async def _itunes_preview(t: Track) -> str | None:
 
 
 async def _yt_audio_url(vid: str, query: str = "") -> str | None:
-    """Аудио-URL конкретного видео (или первого результата поиска):
+    """Аудио-URL конкретного видео (или результат InnerTube-поиска):
     InnerTube (быстро, без yt-dlp) → yt-dlp (с прокси при необходимости)."""
     if vid:
         try:
@@ -330,6 +424,20 @@ async def _yt_audio_url(vid: str, query: str = "") -> str | None:
             got = await yt_stream.audio_url(vid)
             if got:
                 return got["url"]
+        except Exception:
+            pass
+    if not vid and query:
+        # InnerTube-поиск → player: работает с датацентровых IP (Render),
+        # yt-dlp там часто ловит бот-чек YouTube
+        try:
+            from services.providers import yt_stream as _yts
+            found = await asyncio.wait_for(_yts.search_video_id(query), timeout=25)
+            if found:
+                got = await _yts.audio_url(found)
+                if got:
+                    log.info("онлайн-звук youtube «%s» (innertube, %s)",
+                             query[:60], got.get("client"))
+                    return got["url"]
         except Exception:
             pass
     from services.net import yt_dlp_binary, yt_dlp_proxy_args
@@ -411,11 +519,11 @@ async def stream(track_id: int,
                 url = urljoin(base, fp)
                 return await relay_response(url, rng, settings.PROXY_URL or None)
 
-        # 3) не скачан — превью/онлайн: стримим чужой CDN через relay
-        #    (раньше файл буферизовался целиком — TTFB доходил до 14 с)
-        online = await _resolve_online_audio(track_id, tr)
-        if online:
-            return await relay_response(online, rng, settings.PROXY_URL or None)
+        # 3) не скачан — ПОЛНЫЙ звук онлайн (YM → zaycev → hitmoz → hotplayer → YT),
+        #    иначе 30-сек превью; чужой CDN стримим через relay с Range-пробросом
+        resolved = await _resolve_online_audio(track_id, tr, s, int(user.id))
+        if resolved:
+            return await relay_response(resolved[0], rng, settings.PROXY_URL or None)
 
         raise HTTPException(404, "трек недоступен онлайн — нажми «Скачать»")
 
@@ -474,6 +582,44 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
             out[name] = {"error": type(e).__name__,
                          "s": round(_time.time() - t0, 2)}
 
+    # YouTube: InnerTube play-проба известного видео + поиск по запросу
+    t0 = _time.time()
+    try:
+        from services.providers import yt_stream
+        got = await asyncio.wait_for(yt_stream.audio_url("jNQXAC9IVRw"), timeout=40)
+        yrow: dict = {"s": round(_time.time() - t0, 2)}
+        if got and got.get("url"):
+            yrow["player"] = f"ok client={got.get('client')} itag={got.get('itag')}"
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.get(got["url"], headers={"Range": "bytes=0-65535"})
+                yrow["bytes"] = {"status": r.status_code, "n": len(r.content),
+                                 "type": r.headers.get("content-type")}
+            except Exception as e:
+                yrow["bytes"] = f"{type(e).__name__}: {str(e)[:60]}"
+        else:
+            yrow["player"] = "no_url"
+        t1 = _time.time()
+        srch = await asyncio.wait_for(yt_stream.search_video_id(q), timeout=30)
+        yrow["search"] = {"found": bool(srch), "vid": srch or None,
+                          "s": round(_time.time() - t1, 2)}
+        if srch:
+            g2 = await asyncio.wait_for(yt_stream.audio_url(srch), timeout=40)
+            yrow["search"]["audio"] = "ok" if (g2 and g2.get("url")) else "no_url"
+        out["youtube"] = yrow
+    except Exception as e:
+        out["youtube"] = {"error": type(e).__name__,
+                          "s": round(_time.time() - t0, 2)}
+
+    # Яндекс.Музыка: есть ли пользовательский токен (/token в боте)
+    try:
+        from services.authstore import get_token
+        async with runtime.get_session() as s:
+            ym_tok = await get_token(s, int(user.id), "ym")
+        out["yandex"] = {"token": bool(ym_tok)}
+    except Exception as e:
+        out["yandex"] = {"error": type(e).__name__}
+
     # карта доступности сайтов-аналогов с IP продакшна (параллельно)
     from urllib.parse import quote as _q
 
@@ -511,10 +657,18 @@ async def relay_response(url: str, rng: str | None, proxy: str | None):
     """Стримим чужой статичный файл, ДО старта тела зная его длину:
     pinggy (и любой туннель) плохо живёт с chunked-ответами без Content-Length."""
     import httpx
+    from urllib.parse import urlsplit
+    host = urlsplit(url).netloc
+    # браузерный вид обязателен: без него mp3-CDN отвечает 200 на весь файл
+    # (Range игнорируется) — скраб будет качать файл целиком
+    hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "Referer": f"https://{host}/"}
+    if rng:
+        hdrs["Range"] = rng
     cli = httpx.AsyncClient(timeout=httpx.Timeout(None, read=None, write=30, connect=30),
-                            proxy=proxy)
-    up = await cli.send(cli.build_request("GET", url, headers={"Range": rng} if rng else {}),
-                        stream=True)
+                            proxy=proxy, follow_redirects=True)
+    up = await cli.send(cli.build_request("GET", url, headers=hdrs), stream=True)
     if up.status_code >= 400:
         await up.aclose()
         await cli.aclose()

@@ -66,9 +66,9 @@ async function startUrl(trackId) {
   state.loading = true;
   emit();
   try {
-    const url = await playerSrc(trackId);
-    // преследуем мгновенный старт: src + play сразу, буферизация идёт параллельно
-    audio.src = url;
+    const r = await playerSrc(trackId);          // { url, kind? }
+    state.kind = r.kind || null;
+    audio.src = r.url || r;
     await audio.play();
   } catch (e) {
     if (e && e.name === 'AbortError') { state.loading = false; emit(); return; }
