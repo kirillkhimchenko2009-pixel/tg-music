@@ -17,10 +17,11 @@ router = Router(name="search")
 
 yt = YouTubeProvider()
 
-async def do_search(session, query: str, limit: int = 24,
-                    user_id: int | None = None) -> list[int]:
-    """Поиск результатов для бота: сначала Яндекс.Музыка (работает из облака),
-    YouTube — только запасной вариант (с датацентровых IP ловит бот-чек)."""
+async def do_search_ex(session, query: str, limit: int = 24,
+                       user_id: int | None = None) -> list[tuple[int, float]]:
+    """Поиск для бота: сначала Яндекс.Музыка (работает из облака), YouTube —
+    запасной вариант (с датацентровых IP ловит бот-чек).
+    Возвращает [(track_id, похожесть на запрос 0..1), ...] — лучшие первыми."""
     import logging
     import re as _re
     from services.authstore import get_token
@@ -56,13 +57,30 @@ async def do_search(session, query: str, limit: int = 24,
     def score(m):
         return max((similarity(p, m) for p in pse), default=0.0)
 
-    metas.sort(key=score, reverse=True)
-    ids = []
+    import difflib
+    from services.matching import norm
+
+    def combined(m):
+        """Итоговый скор: общая похожесть «артист+название» сжимается, если
+        само название запроса не совпадает с названием кандидата — иначе
+        длинный артист завышает скор чужим трекам."""
+        tscr = max((difflib.SequenceMatcher(None, norm(p.title), norm(m.title)).ratio()
+                    for p in pse), default=0.0)
+        return score(m) * (0.4 + 0.6 * tscr)
+
+    metas.sort(key=combined, reverse=True)
+    out: list[tuple[int, float]] = []
     for meta in metas:
+        m_score = combined(meta)
         t = await catalog.upsert_track(session, meta)
         await session.commit()
-        ids.append(t.id)
-    return ids
+        out.append((t.id, round(m_score, 3)))
+    return out
+
+
+async def do_search(session, query: str, limit: int = 24,
+                    user_id: int | None = None) -> list[int]:
+    return [tid for tid, _ in await do_search_ex(session, query, limit, user_id)]
 
 async def _kb_from_ids(ids: list[int], page: int, user_id: int | None = None) -> types.InlineKeyboardMarkup:
     begin = page * 8
@@ -213,23 +231,33 @@ async def cmd_get(message: types.Message):
     if not query:
         await message.answer("Формат: <code>/get Название — Исполнитель</code>")
         return
+    uid = message.from_user.id
     try:
         async with runtime.get_session() as s:
-            await runtime.ensure_user(s, message.from_user.id, message.from_user.username,
+            await runtime.ensure_user(s, uid, message.from_user.username,
                                       message.from_user.first_name or "")
-            ids = await do_search(s, query, limit=8, user_id=message.from_user.id)
+            scored = await do_search_ex(s, query, limit=8, user_id=uid)
     except Exception:
         import logging
         logging.getLogger("bot.search").exception("/get failed for %r", query)
         await message.answer("⚠ Не смог найти — попробуй ещё раз.")
         return
-    if not ids:
+    if not scored:
         await message.answer("Не нашёл такого трека 😕")
+        return
+    ids = [tid for tid, _ in scored]
+    top_id, top_score = scored[0]
+    if top_score < 0.70:
+        # уверенного совпадения нет — не качаем вслепую, а даём выбрать
+        state_.search_cache()[uid] = {"ids": ids, "page": 0}
+        await message.answer(
+            f"Точного трека не нашёл (лучшее совпадение {int(top_score*100)}%). "
+            "Выбери похожий сам:",
+            reply_markup=await _kb_from_ids(ids, 0, uid))
         return
     status = await message.answer("⬇ Скачиваю лучшее совпадение…")
     bot = message.bot
     chat_id = message.chat.id
-    uid = message.from_user.id
 
     async def _job():
         ok = False
