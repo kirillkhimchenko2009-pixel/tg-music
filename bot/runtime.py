@@ -334,7 +334,16 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
             res = await ingest.resolve(session, meta_of(track), quality,
                                        user_id=user_id, on_progress=on_progress)
             if res.status == "not_found" or not (res.file_path or res.track):
-                # источников нет — всё же отправим хоть что-то: 30-сек фрагмент
+                # 1) сторонние tg-боты, 2) 30-сек фрагмент
+                try:
+                    from bot.handlers.musicbot import request_track
+                    if await request_track(bot, chat_id, track.artist or "",
+                                           track.title or ""):
+                        return True
+                except Exception:
+                    import logging
+                    logging.getLogger("bot.runtime").exception(
+                        "tg-bots fallback failed for track %s", track.id)
                 if await send_preview_file(bot, chat_id, track, status_msg):
                     return True
                 return False
@@ -387,6 +396,13 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
                 track_after = await catalog.get_track(session, res.track.id)
                 if track_after and await send_track_cached(bot, chat_id, track_after):
                     return True
+            try:
+                from bot.handlers.musicbot import request_track
+                if await request_track(bot, chat_id, track.artist or "",
+                                       track.title or ""):
+                    return True
+            except Exception:
+                pass
             if await send_preview_file(bot, chat_id, track, status_msg):
                 return True
             return False

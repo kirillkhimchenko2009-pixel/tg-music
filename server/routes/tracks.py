@@ -156,6 +156,30 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
     st = JOB_STATUS[job_id]
     bot = await _bot()
     t = None
+
+    async def send_fallback() -> bool:
+        """В чат должен прийти хоть какой-то файл: 1) сторонние ТГ-боты
+        (категорийные каталоги ищут со СВОЕГО IP), 2) 30-сек фрагмент."""
+        nonlocal t
+        if t is None:
+            return False
+        try:
+            from bot.handlers.musicbot import request_track
+            if await request_track(bot, user_id, t.artist or "", t.title or ""):
+                st.update(status="done", progress=100.0, telegram=True,
+                          via_tgbot=True)
+                return True
+        except Exception:
+            import logging
+            logging.getLogger("server.tracks").exception(
+                "tg-bots fallback failed for track %s", track_id)
+        from bot.runtime import send_preview_file
+        ok = await send_preview_file(bot, user_id, t)
+        if ok:
+            st.update(status="done", progress=100.0, telegram=True,
+                      preview=True)
+        return ok
+
     try:
         from services.catalog import meta_of
         async with runtime.get_session() as s:
@@ -168,20 +192,10 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 if p - st.get("progress", 0.0) >= 2.0 or p >= 100:
                     st.update(progress=p, status="downloading")
 
-            async def send_preview() -> bool:
-                """В чат должен прийти хоть какой-то файл: откуда не досталось
-                полное аудио — отправляем 30-сек фрагмент с пометкой."""
-                from bot.runtime import send_preview_file
-                ok = await send_preview_file(bot, user_id, t)
-                if ok:
-                    st.update(status="done", progress=100.0, telegram=True,
-                              preview=True)
-                return ok
-
             res = await ingest.resolve(s, meta_of(t), quality, user_id=user_id,
                                        on_progress=on_progress)
             if res.status == "not_found" or not (res.file_path or res.track):
-                if await send_preview():
+                if await send_fallback():
                     return
                 st.update(status="error", error=res.error or "не удалось скачать")
                 return
@@ -201,19 +215,15 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 st.update(status="done", progress=100.0,
                           telegram=True if await send_track_cached(bot, user_id, target) else False)
             else:
-                if await send_preview():
+                if await send_fallback():
                     return
                 st.update(status="error", error="файл не доступен")
     except Exception as e:  # noqa: BLE001
         # часто тут TelegramEntityTooLarge (>50 MB) — превью-файл крошечный,
         # его отправка всё равно реально сработает
         try:
-            if t is not None:
-                from bot.runtime import send_preview_file
-                if await send_preview_file(bot, user_id, t):
-                    st.update(status="done", progress=100.0, telegram=True,
-                              preview=True)
-                    return
+            if await send_fallback():
+                return
         except Exception:
             pass
         st.update(status="error", error=str(e)[:200])

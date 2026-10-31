@@ -21,6 +21,13 @@ class Settings:
     DEFAULT_QUALITY: str = os.getenv("DEFAULT_QUALITY", "aac320")
     PROXY_URL: str = os.getenv("PROXY_URL", "")   # прокси для YouTube/Spotify и вообще
     BOT_PROXY_URL: str = os.getenv("BOT_PROXY_URL") or os.getenv("PROXY_URL", "")  # для aiogram/Telegram API
+
+    # Сторонние ТГ-боты-источники mp3 (запятая/пробел): "@DeezerMusicBot @spotify_down_bot".
+    # Боту приходит «артист — название», его аудио-ответ копируется в чат юзера.
+    TG_BOTS: list[str] = [u for u in os.getenv("TG_BOTS", "")
+                          .replace(",", " ").replace(";", " ").split() if u]
+    TG_BOTS_WAIT: float = float(os.getenv("TG_BOTS_WAIT", "40"))     # сек на ответ бота
+    TG_BOTS_COOLDOWN: float = float(os.getenv("TG_BOTS_COOLDOWN", "4"))  # анти-спам между запросами
     DEV_MODE: bool = os.getenv("DEV_MODE", "0") == "1"
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "")
     NGROK_DOMAIN: str = os.getenv("NGROK_DOMAIN", "")
