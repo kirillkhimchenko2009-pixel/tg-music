@@ -155,6 +155,7 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
     from services import catalog, ingest
     st = JOB_STATUS[job_id]
     bot = await _bot()
+    t = None
     try:
         from services.catalog import meta_of
         async with runtime.get_session() as s:
@@ -167,9 +168,21 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 if p - st.get("progress", 0.0) >= 2.0 or p >= 100:
                     st.update(progress=p, status="downloading")
 
+            async def send_preview() -> bool:
+                """В чат должен прийти хоть какой-то файл: откуда не досталось
+                полное аудио — отправляем 30-сек фрагмент с пометкой."""
+                from bot.runtime import send_preview_file
+                ok = await send_preview_file(bot, user_id, t)
+                if ok:
+                    st.update(status="done", progress=100.0, telegram=True,
+                              preview=True)
+                return ok
+
             res = await ingest.resolve(s, meta_of(t), quality, user_id=user_id,
                                        on_progress=on_progress)
             if res.status == "not_found" or not (res.file_path or res.track):
+                if await send_preview():
+                    return
                 st.update(status="error", error=res.error or "не удалось скачать")
                 return
             target = res.track or (await catalog.get_track(s, track_id))
@@ -188,8 +201,21 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 st.update(status="done", progress=100.0,
                           telegram=True if await send_track_cached(bot, user_id, target) else False)
             else:
+                if await send_preview():
+                    return
                 st.update(status="error", error="файл не доступен")
     except Exception as e:  # noqa: BLE001
+        # часто тут TelegramEntityTooLarge (>50 MB) — превью-файл крошечный,
+        # его отправка всё равно реально сработает
+        try:
+            if t is not None:
+                from bot.runtime import send_preview_file
+                if await send_preview_file(bot, user_id, t):
+                    st.update(status="done", progress=100.0, telegram=True,
+                              preview=True)
+                    return
+        except Exception:
+            pass
         st.update(status="error", error=str(e)[:200])
 
 @router.get("/jobs/{job_id}")
