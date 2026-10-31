@@ -369,68 +369,14 @@ async def _resolve_online_audio(track_id: int, t: Track,
 
 async def _deezer_preview(t: Track) -> str | None:
     """Анонимное превью (30 сек) с Deezer — работает без токенов и без VPN."""
-    import httpx
-
-    def _sync() -> str | None:
-        from services.matching import best_match
-        from services.providers.base import TrackMeta as TM
-        q = f"{t.artist or ''} {t.title or ''}".strip()
-        if not q:
-            return None
-        r = httpx.get("https://api.deezer.com/search",
-                      params={"q": q, "limit": 8}, timeout=12)
-        data = r.json().get("data") or []
-        cands, previews = [], {}
-        for d in data:
-            tid = str(d.get("id") or "")
-            cands.append(TM(source="deezer", external_id=tid,
-                            title=d.get("title") or "",
-                            artist=(d.get("artist") or {}).get("name") or "",
-                            duration=int(d.get("duration") or 0)))
-            previews[tid] = d.get("preview")
-        m = best_match(TM(source="deezer", external_id="", title=t.title or "",
-                          artist=t.artist or ""), cands, min_score=0.5)
-        if m:
-            return previews.get(m.external_id)
-        # матчинг не сработал (транслит/фиты) — доверяем релевантности Deezer
-        return (data[0].get("preview") if data else None)
-    try:
-        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=20)
-    except Exception:
-        return None
+    from services.preview import deezer_preview
+    return await deezer_preview(t.artist or "", t.title or "")
 
 
 async def _itunes_preview(t: Track) -> str | None:
     """30-сек превью из iTunes Search API (CDN Apple, без токенов)."""
-    import httpx
-
-    def _sync() -> str | None:
-        from services.matching import best_match
-        from services.providers.base import TrackMeta as TM
-        q = f"{t.artist or ''} {t.title or ''}".strip()
-        if not q:
-            return None
-        r = httpx.get("https://itunes.apple.com/search",
-                      params={"term": q, "media": "music", "entity": "song",
-                              "limit": 8}, timeout=12)
-        data = r.json().get("results") or []
-        cands, previews = [], {}
-        for d in data:
-            tid = str(d.get("trackId") or "")
-            cands.append(TM(source="itunes", external_id=tid,
-                            title=d.get("trackName") or "",
-                            artist=d.get("artistName") or "",
-                            duration=int((d.get("trackTimeMillis") or 0) / 1000)))
-            previews[tid] = d.get("previewUrl")
-        m = best_match(TM(source="itunes", external_id="", title=t.title or "",
-                          artist=t.artist or ""), cands, min_score=0.5)
-        if m:
-            return previews.get(m.external_id)
-        return (data[0].get("previewUrl") if data else None)
-    try:
-        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=15)
-    except Exception:
-        return None
+    from services.preview import itunes_preview
+    return await itunes_preview(t.artist or "", t.title or "")
 
 
 async def _yt_audio_url(vid: str, query: str = "") -> str | None:

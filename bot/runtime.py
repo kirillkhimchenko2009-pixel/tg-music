@@ -246,6 +246,48 @@ def _lock_for(track_id: int) -> asyncio.Lock:
         _dl_locks[track_id] = lock
     return lock
 
+async def send_preview_file(bot: Bot, chat_id: int, track: Track,
+                            status_msg: Message | None = None) -> bool:
+    """Последний шанс, когда полного аудио нет нигде: 30-сек фрагмент
+    из Deezer/iTunes. Возвращает True, если фрагмент доставлен в чат."""
+    import html as _html
+    import re as _re
+    import httpx
+    from aiogram.types import BufferedInputFile
+    from services.preview import best_preview
+
+    artist, title = (track.artist or ""), (track.title or "")
+    if not title.strip() and not artist.strip():
+        return False
+    if status_msg:
+        try:
+            await status_msg.edit_text("⚠ Полной версии нет в каталогах — ищу фрагмент (30 с)…")
+        except Exception:
+            pass
+    try:
+        url = await best_preview(artist, title)
+    except Exception:
+        url = None
+    if not url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=40, follow_redirects=True) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            data = r.content
+        if not data or len(data) < 10_000:
+            return False
+        fname = _re.sub(r'[\\/:*?"<>|]+', "_", f"{artist} - {title}")[:70] + ".mp3"
+        caption = (f"🎵 <b>{_html.escape(title or 'Без названия')}</b>"
+                   + (f" — {_html.escape(artist)}" if artist else "") + "\n"
+                   "⚠ Полной версии нет в доступных каталогах — 30-секундный фрагмент")
+        await bot.send_audio(chat_id, BufferedInputFile(data, filename=fname),
+                             caption=caption)
+        return True
+    except Exception:
+        log.exception("preview send failed for track %s", track.id)
+        return False
+
 async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
                         track: Track, quality: str | None = None,
                         status_msg: Message | None = None,
@@ -292,6 +334,9 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
             res = await ingest.resolve(session, meta_of(track), quality,
                                        user_id=user_id, on_progress=on_progress)
             if res.status == "not_found" or not (res.file_path or res.track):
+                # источников нет — всё же отправим хоть что-то: 30-сек фрагмент
+                if await send_preview_file(bot, chat_id, track, status_msg):
+                    return True
                 return False
 
             target = res.track
@@ -342,6 +387,8 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
                 track_after = await catalog.get_track(session, res.track.id)
                 if track_after and await send_track_cached(bot, chat_id, track_after):
                     return True
+            if await send_preview_file(bot, chat_id, track, status_msg):
+                return True
             return False
         except Exception:
             import logging

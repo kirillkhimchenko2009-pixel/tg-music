@@ -17,10 +17,46 @@ router = Router(name="search")
 
 yt = YouTubeProvider()
 
-async def do_search(session, query: str, limit: int = 24) -> list[int]:
-    metas = await yt.search(query, limit=limit)
+async def do_search(session, query: str, limit: int = 24,
+                    user_id: int | None = None) -> list[int]:
+    """Поиск результатов для бота: сначала Яндекс.Музыка (работает из облака),
+    YouTube — только запасной вариант (с датацентровых IP ловит бот-чек)."""
+    import logging
+    import re as _re
+    from services.authstore import get_token
+    from services.matching import similarity
+    from services.providers.base import TrackMeta as TM
+
+    metas: list = []
+    try:
+        ym_tok = await get_token(session, user_id, "ym")
+        if ym_tok:
+            from services.providers.yandex import YandexProvider
+            metas = await YandexProvider(ym_tok).search(query, limit=limit)
+    except Exception:
+        logging.getLogger("bot.search").exception("ym search failed for %r", query)
+        metas = []
     if not metas:
-        return []
+        try:
+            metas = await yt.search(query, limit=limit)
+        except Exception:
+            logging.getLogger("bot.search").exception("yt search failed for %r", query)
+            return []
+
+    # re-rank: Yandex-поиск часто ставит выше другой трек того же артиста.
+    # Пробуем обе трактовки «A — B» (название — исполнитель и наоборот).
+    parts = _re.split(r"\s+[—–-]\s+", query)
+    if len(parts) == 2:
+        a, b = parts[0].strip(), parts[1].strip()
+        pse = [TM(source="", external_id="", title=b, artist=a),
+               TM(source="", external_id="", title=a, artist=b)]
+    else:
+        pse = [TM(source="", external_id="", title=query.strip(), artist="")]
+
+    def score(m):
+        return max((similarity(p, m) for p in pse), default=0.0)
+
+    metas.sort(key=score, reverse=True)
     ids = []
     for meta in metas:
         t = await catalog.upsert_track(session, meta)
@@ -57,7 +93,7 @@ async def on_text(message: types.Message):
             await runtime.ensure_user(s, message.from_user.id,
                                       message.from_user.username,
                                       message.from_user.first_name or "")
-            ids = await do_search(s, text)
+            ids = await do_search(s, text, user_id=message.from_user.id)
     except Exception:
         import logging
         logging.getLogger("bot.search").exception("search failed for %r", text)
@@ -181,7 +217,7 @@ async def cmd_get(message: types.Message):
         async with runtime.get_session() as s:
             await runtime.ensure_user(s, message.from_user.id, message.from_user.username,
                                       message.from_user.first_name or "")
-            ids = await do_search(s, query, limit=3)
+            ids = await do_search(s, query, limit=8, user_id=message.from_user.id)
     except Exception:
         import logging
         logging.getLogger("bot.search").exception("/get failed for %r", query)
@@ -208,7 +244,10 @@ async def cmd_get(message: types.Message):
             ok = False
         if not ok:
             try:
-                await status.edit_text("❌ Не удалось скачать.")
+                await status.edit_text(
+                    "❌ Полной записи «{0}» нет в доступных каталогах — "
+                    "попробуй /get с другим написанием или найди трек через поиск."
+                    .format(track.title if track else query[:64]))
             except Exception:
                 pass
         else:

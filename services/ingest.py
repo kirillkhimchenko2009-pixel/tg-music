@@ -65,10 +65,44 @@ async def _candidates(session: AsyncSession, user_id: int | None,
             prov = YandexProvider(ym_tok)
             cands = await prov.search(query, limit=6)
             m = matching.best_match(meta, cands)
+            # guard по названию и в строгом матче: цельное «артист название»
+            # завышает скор при длинном имени артиста — иначе предложит
+            # совершенно чужой трек того же исполнителя
+            if m and _title_sim(meta.title, m.title) < 0.55:
+                log.info("ям: кандидат %s отвергнут по названию (%.2f) для %s",
+                         m.display(), _title_sim(meta.title, m.title),
+                         meta.display())
+                m = None
+            if not m and cands:
+                # широкий фолбэк: точное название может не пройти строгий порог
+                # (транслит/фиты/издания) — берём лучшее по схожести, но строго
+                # по артисту, чтобы не подсовывать песню чужого исполнителя
+                pool = list(cands)
+                q2 = _clean_query(query)
+                if q2 and q2.lower() != query.lower().strip():
+                    try:
+                        pool += await prov.search(q2, limit=6)
+                    except Exception:
+                        pass
+                m = matching.best_match(meta, pool, min_score=0.45)
+                # «artist title» целиком завышает скор на общем имени артиста —
+                # поэтому дополнительно требовать похожести самого названия
+                if m and _title_sim(meta.title, m.title) < 0.6:
+                    log.info("ям: кандидат %s отвергнут по названию (%.2f) для %s",
+                             m.display(), _title_sim(meta.title, m.title),
+                             meta.display())
+                    m = None
+                if m and not hzm.artist_guard(meta, m):
+                    log.info("ям: кандидат %s отвергнут по артисту для %s",
+                             m.display(), meta.display())
+                    m = None
+                if m:
+                    log.info("широкий ям-матч для %s: %s",
+                             meta.display(), m.display())
             if m:
                 out.append((m, ym_tok))
         except Exception:
-            pass
+            log.exception("поиск на яндексе не удался")
 
     # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) → hitmoz → hotplayer
     for prov, name in ((zay, "zaycev"), (hzm, "hitmoz"), (hpl, "hotplayer")):
@@ -103,6 +137,14 @@ _JUNK = re.compile(r"\((?:[^)]*(?:feat|ft\.|official|video|audio|lyric|remaster|
 def _clean_query(q: str) -> str:
     q = _JUNK.sub(" ", q)
     return re.sub(r"\s+", " ", q).strip(" -–—:,")
+
+
+def _title_sim(a: str, b: str) -> float:
+    """Схожесть только названий: общий текст a+b завышает скор, когда
+    артист длинный (префикс всегда совпадает)."""
+    import difflib
+    from services.matching import norm
+    return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
 
 
 async def _yt_candidates(meta: TrackMeta, query: str) -> list[tuple[TrackMeta, str]]:
