@@ -174,10 +174,15 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 return
             target = res.track or (await catalog.get_track(s, track_id))
             if res.file_path and target and res.file_path.exists():
-                from bot.runtime import send_audio_file
+                from bot.runtime import send_audio_file, save_file_id_retry
                 fid = await send_audio_file(bot, user_id, target, res.file_path)
                 st.update(status="done", progress=100.0,
                           telegram=fid is not None)
+                # кеш file_id обязательно пишем: иначе следующий раз качается заново
+                if fid:
+                    await save_file_id_retry(target.id, fid, res.quality,
+                                             size=res.file_path.stat().st_size,
+                                             local_path=res.file_path.as_posix())
             elif target and target.file_id:
                 from bot.runtime import send_track_cached
                 st.update(status="done", progress=100.0,
@@ -642,6 +647,24 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
                 yrow["search"] = {
                     "s": round(_time.time() - t0, 2), "found": len(res),
                     "first": (f"{res[0].artist} — {res[0].title}" if res else None)}
+                # RAW-пробинг того же запроса без библиотеки (aiohttp глотает тела)
+                try:
+                    async with httpx.AsyncClient(timeout=20) as c0:
+                        r0 = await c0.get(
+                            "https://api.music.yandex.ru/search",
+                            params={"text": q[:64], "type": "track",
+                                    "nocorrect": "false", "page": "0"},
+                            headers={"Authorization": "OAuth " + ym_tok,
+                                     "User-Agent": "Yandex-Music-API"})
+                        body = r0.json()
+                        res_j = body.get("result") or {}
+                        tr_j = (res_j.get("tracks") or {}).get("results") or []
+                        yrow["raw"] = {
+                            "status": r0.status_code, "tracks": len(tr_j),
+                            "err": res_j.get("error"),
+                            "body_head": ("" if tr_j else r0.text[:170])}
+                except Exception as e:          # noqa: BLE001
+                    yrow["raw"] = f"{type(e).__name__}: {str(e)[:80]}"
                 if res:
                     t1 = _time.time()
                     u = await asyncio.wait_for(_Ymx(ym_tok).track_url(res[0], ""),

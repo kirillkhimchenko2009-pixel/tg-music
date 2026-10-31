@@ -92,7 +92,9 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
                     f.write(chunk)
                     done += len(chunk)
                     if on_progress and total:
-                        on_progress(min(done / total * 100, 100.0))
+                        rr = on_progress(min(done / total * 100, 100.0))
+                        if asyncio.iscoroutine(rr):
+                            await rr
     q = "flac" if ext == "flac" else quality
     return DownloadResult(path=out_path, quality=q, size_bytes=out_path.stat().st_size)
 
@@ -121,7 +123,9 @@ async def download_innertube(meta: TrackMeta, quality: str = "aac320",
                     f.write(chunk)
                     done += len(chunk)
                     if on_progress and total:
-                        on_progress(min(done / total * 100, 100.0))
+                        rr = on_progress(min(done / total * 100, 100.0))
+                    if asyncio.iscoroutine(rr):
+                        await rr
     if not raw.exists() or raw.stat().st_size < 50_000:
         return None
     out_path = settings.AUDIO_DIR / f"{meta.source}_{meta.external_id}.m4a"
