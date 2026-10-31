@@ -21,6 +21,7 @@ async def upsert_track(session: AsyncSession, meta: TrackMeta) -> Track:
         track.cover_url = meta.cover_url
         track.duration = meta.duration
         track.year = meta.year
+        track.explicit = bool(getattr(meta, "explicit", False))
         return track
     track = Track(**asdict(meta))
     session.add(track)
@@ -49,4 +50,5 @@ async def get_track(session: AsyncSession, track_id: int) -> Track | None:
 def meta_of(track: Track) -> TrackMeta:
     return TrackMeta(source=track.source, external_id=track.external_id, title=track.title,
                      artist=track.artist, album=track.album, year=track.year,
-                     isrc=track.isrc, duration=track.duration, cover_url=track.cover_url)
+                     isrc=track.isrc, duration=track.duration, cover_url=track.cover_url,
+                     explicit=bool(getattr(track, "explicit", False)))

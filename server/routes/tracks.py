@@ -201,7 +201,7 @@ async def job_status(job_id: str, user: CurrentUser = Depends(tg_user)):
 
 # ---------------- потоковый плеер ----------------
 _FILE_PATH_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (tg file_path, expire)
-_AUDIO_URL_CACHE: dict[int, tuple[tuple[str, str], float]] = {}   # id -> ((url, kind), expire)
+_AUDIO_URL_CACHE: dict[int, tuple[tuple[str, str, bool], float]] = {}  # id -> ((url, kind, 18+), expire)
 
 
 async def stream_user(
@@ -266,8 +266,9 @@ async def _resolve_online_audio(track_id: int, t: Track,
     if hit and hit[1] > _time.time():
         return hit[0]
 
-    async def ym_source(query: str) -> tuple[str, str] | None:
-        """Полный трек с Яндекс.Музыки по пользовательскому токену (/token в боте)."""
+    async def ym_source(query: str) -> tuple[str, str, bool] | None:
+        """Полный трек с Яндекс.Музыки. Третий элемент — флаг 18+ найденного
+        кандидата: такие фонограммы у ЯМ бывают «чистыми» (слова замазаны)."""
         if session is None or user_id is None:
             return None
         try:
@@ -284,10 +285,20 @@ async def _resolve_online_audio(track_id: int, t: Track,
             m = best_match(meta, cands, min_score=0.5)
             if not m:
                 return None
+            expl18 = bool(getattr(m, "explicit", False))
+            if expl18 and not bool(getattr(t, "explicit", False)):
+                # старая строка БД без флага — пометим, чтобы и скачивание,
+                # и последующие проигрыши получали приоритет оригиналов
+                try:
+                    t.explicit = True
+                    await session.commit()
+                except Exception:
+                    pass
             url = await YandexProvider(tok).track_url(m, "")   # 320/aac — стримабельно
             if url:
-                log.info("онлайн-звук «%s» → yandex: %s", query, m.display())
-                return url, "yandex"
+                log.info("онлайн-звук «%s» → yandex: %s (18+: %s)",
+                         query, m.display(), expl18)
+                return url, "yandex", expl18
         except Exception as e:
             log.info("онлайн-звук yandex не удался: %s", type(e).__name__)
         return None
@@ -319,40 +330,69 @@ async def _resolve_online_audio(track_id: int, t: Track,
                 url = await prov.download_url(m)
                 if url:
                     log.info("онлайн-звук «%s» → %s: %s", cquery, name, m.display())
-                    return url, name
+                    return url, name, False
             except Exception as e:
                 log.info("онлайн-звук %s не удался: %s", name, type(e).__name__)
         return None
 
     q = f"{t.artist or ''} {t.title or ''}".strip()
     full = None
+    explicit = bool(getattr(t, "explicit", False))
     if q:
         # параллельно ЯМ и прямые сайты; таймауты раздельны — зависший ЯМ больше
         # не выбрасывает готовые результаты zaycev (раньше умирал общий gather)
         t_ym = asyncio.create_task(ym_source(q))
         t_dir = asyncio.create_task(direct_sources(q))
-        try:
-            full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=13)
-        except Exception:
-            full = None
-        if full:
-            if not t_dir.done():
-                t_dir.cancel()
-        else:
-            t_ym.cancel()
-            log.info("онлайн-звук: ЯМ не дал результата (%s) — фолбэк на прямые сайты",
-                     q[:46])
+        if explicit:
+            # 18+: у ЯМ фонограммы бывают «чистые» (замазанные слова) —
+            # у прямых сайтов обычно оригиналы, они первые; ЯМ-задача бежит
+            # параллельно и её результат забирается как запасной
             try:
-                full = await asyncio.wait_for(t_dir, timeout=32)
+                full = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
             except Exception:
                 full = None
+            if full:
+                if not t_ym.done():
+                    t_ym.cancel()
+            else:
+                try:
+                    full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=10)
+                except Exception:
+                    full = None
+        else:
+            try:
+                full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=13)
+            except Exception:
+                full = None
+            if full and full[2]:
+                # ЯМ подтвердил 18+ (флаг в БД был не проставлен) —
+                # прямые сайты могут отдать оригинальную фонограмму
+                log.info("онлайн-звук: ЯМ 18+ «%s» — пробую оригинал с прямых сайтов",
+                         q[:46])
+                try:
+                    full2 = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
+                    if full2:
+                        full = full2
+                except Exception:
+                    pass
+            if full:
+                if not t_dir.done():
+                    t_dir.cancel()
+            else:
+                t_ym.cancel()
+                log.info("онлайн-звук: ЯМ не дал результата (%s) — фолбэк на прямые сайты",
+                         q[:46])
+                try:
+                    full = await asyncio.wait_for(t_dir, timeout=32)
+                except Exception:
+                    full = None
     if not full:
         # YouTube — InnerTube (быстро) → yt-dlp как запасной
         try:
             vid = t.external_id if (t.source or "") == "ytmusic" else ""
             url = await _yt_audio_url(vid=vid, query=q)
             if url:
-                full = (url, "youtube")
+                full = (url, "youtube", False)
         except Exception:
             full = None
     if not full:
@@ -361,7 +401,7 @@ async def _resolve_online_audio(track_id: int, t: Track,
                                       return_exceptions=True)
         url = (dz if isinstance(dz, str) else None) or (it if isinstance(it, str) else None)
         if url:
-            full = (url, "preview")
+            full = (url, "preview", False)
     if full:
         _AUDIO_URL_CACHE[track_id] = (full, _time.time() + 35 * 60)
     return full

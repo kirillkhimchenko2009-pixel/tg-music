@@ -1,8 +1,8 @@
 """ORM-модели: пользователи, треки-каталог, плейлисты, токены сервисов."""
 from datetime import datetime, timezone
 
-from sqlalchemy import (BigInteger, DateTime, Float, ForeignKey, Index, Integer,
-                        String, Text, UniqueConstraint, func)
+from sqlalchemy import (BigInteger, Boolean, DateTime, Float, ForeignKey, Index,
+                        Integer, String, Text, UniqueConstraint, func)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -36,6 +36,7 @@ class Track(Base):
     year: Mapped[int | None] = mapped_column(Integer)
     isrc: Mapped[str | None] = mapped_column(String(16), index=True)
     duration: Mapped[int] = mapped_column(Integer, default=0)  # сек
+    explicit: Mapped[bool] = mapped_column(Boolean, default=False)  # 18+: у ЯМ бывают «чистые» фонограммы
     cover_url: Mapped[str | None] = mapped_column(Text)
     quality: Mapped[str | None] = mapped_column(String(12))    # flac | aac320 | ...
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)

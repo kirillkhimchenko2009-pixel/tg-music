@@ -12,6 +12,7 @@ class TrackMeta:
     isrc: str | None = None
     duration: int = 0        # сек
     cover_url: str | None = None
+    explicit: bool = False   # метка 18+: у ЯМ такие треки бывают «чистыми» версиями
 
     def display(self) -> str:
         head = f"{self.artist} — {self.title}" if self.artist else self.title

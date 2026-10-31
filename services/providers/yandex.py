@@ -30,7 +30,8 @@ def _web_meta(t) -> TrackMeta:
         title=real.get("title") or "",
         artist=artists, album=album, year=year,
         duration=int(real.get("durationMs") or 0) // 1000,
-        cover_url=cover_url)
+        cover_url=cover_url,
+        explicit=bool(real.get("explicit")))
 
 
 async def anon_playlist_by_login(owner: str, kind: str) -> tuple[str, list[TrackMeta]]:
@@ -103,7 +104,8 @@ async def get_public_playlist(owner: str, kind: str, token: str) -> tuple[str, l
             source="yandex", external_id=str(t.id), title=t.title or "",
             artist=artists, album=album, year=year,
             duration=int(getattr(t, "duration_ms", 0) or 0) // 1000,
-            cover_url=cover_url))
+            cover_url=cover_url,
+            explicit=bool(getattr(t, "explicit", False))))
     return (getattr(pl, "title", None) or "Плейлист Яндекс"), metas
 
 async def _client(token: str) -> Any:
@@ -153,7 +155,8 @@ class YandexProvider:
         return TrackMeta(source="yandex", external_id=str(t.id), title=t.title or "",
                          artist=artists, album=album, year=year,
                          duration=int(getattr(t, "duration_ms", 0) or 0) // 1000,
-                         cover_url=cover)
+                         cover_url=cover,
+                         explicit=bool(getattr(t, "explicit", False)))
 
     async def track_url(self, meta: TrackMeta, quality: str) -> str | None:
         """Прямая ссылка на файл (flac при Plus; 320 иначе)."""

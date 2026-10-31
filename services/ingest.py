@@ -45,6 +45,13 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     if meta.source == "yandex":
         tok = await get_token(session, user_id, "ym")
         if tok:
+            # 18+: сначала zaycev-оригинал (у ЯМ бывают «чистые» заливки)
+            if getattr(meta, "explicit", False):
+                zc = await _zaycev_original(query, meta)
+                if zc:
+                    log.info("18+: скачиваю оригинал с zaycev (%s); ЯМ (%s) — запасной",
+                             zc.display(), meta.display())
+                    out.append((zc, ""))
             out.append((meta, tok))
 
     # 1) Звук (если есть токен — там лучше качество, вплоть до FLAC)
@@ -100,6 +107,14 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                     log.info("широкий ям-матч для %s: %s",
                              meta.display(), m.display())
             if m:
+                # 18+: у ЯМ фонограмма может быть «чистой» (слова замазаны) —
+                # сначала пробуем оригинал с zaycev, ЯМ оставляем запасным
+                if getattr(m, "explicit", False):
+                    zc = await _zaycev_original(query, meta)
+                    if zc:
+                        log.info("18+: ставлю первичным оригинал zaycev "
+                                 "(%s); ЯМ (%s) — запасной", zc.display(), m.display())
+                        out.append((zc, ""))
                 out.append((m, ym_tok))
         except Exception:
             log.exception("поиск на яндексе не удался")
@@ -145,6 +160,28 @@ def _title_sim(a: str, b: str) -> float:
     import difflib
     from services.matching import norm
     return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
+
+
+async def _zaycev_original(query: str, meta: TrackMeta) -> TrackMeta | None:
+    """Оригинальная фонограмма с zaycev.net. У ЯМ express-треки с меткой 18+
+    иногда залиты в «чистом» варианте (слова замазаны) — zaycev отдаёт
+    издательские оригиналы."""
+    from services.providers.hitmoz import artist_guard
+    try:
+        cands = await zay.search(_clean_query(query), limit=6)
+        m = matching.best_match(meta, cands, min_score=0.55)
+        if m and _title_sim(meta.title, m.title) < 0.6:
+            m = None
+        if m and not artist_guard(meta, m):
+            m = None
+        if m and meta.duration and m.duration \
+                and abs(meta.duration - m.duration) > 10:
+            log.info("zaycev-оригинал: расхождение длительности (%s vs %s с) — отбой",
+                     m.duration, meta.duration)
+            m = None
+        return m
+    except Exception:
+        return None
 
 
 async def _yt_candidates(meta: TrackMeta, query: str) -> list[tuple[TrackMeta, str]]:
