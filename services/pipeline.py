@@ -71,7 +71,9 @@ async def _download_inner(dl_meta, quality, token, on_progress):
     if dl_meta.source == "zvuk":
         try:
             url = await zv.stream_url(dl_meta.external_id, token or None)
-        except Exception:
+        except Exception as e:
+            log.info("zvuk stream_url %s fail: %s: %s",
+                     dl_meta.external_id, type(e).__name__, str(e)[:120])
             url = None
         if url:
             is_flac = ".flac" in (url or "").lower() or "flac" in (url or "").lower()
@@ -79,19 +81,26 @@ async def _download_inner(dl_meta, quality, token, on_progress):
             return await downloader.download_direct(
                 url, dl_meta, q, on_progress=on_progress,
                 headers=SOURCE_HEADERS["zvuk"])
-        # нет стрима — фолбэк на yt-dlp ниже
+        # нет стрима — yt-dlp с чужеродным zvuk-id тут бесполезен, идём к следующему
+        # кандидату цепочки
+        log.info("zvuk %s: стрима нет — следующий кандидат", dl_meta.external_id)
+        return None
     if dl_meta.source == "yandex":
         prov = ymx.YandexProvider(token)
         try:
             url = await prov.track_url(dl_meta, quality)
-        except Exception:
+        except Exception as e:
+            log.info("yandex track_url %s fail: %s: %s",
+                     dl_meta.external_id, type(e).__name__, str(e)[:120])
             url = None
         if url:
             is_flac = url.lower().endswith(".flac") or "flac" in url.lower()
             return await downloader.download_direct(
                 url, dl_meta, "flac" if is_flac else "aac320",
                 on_progress=on_progress, headers=SOURCE_HEADERS["yandex"])
-        # нет ссылки — yt-fallback ниже
+        # ссылки нет — yt-dlp с яндекс-id бесполезен; дальше работает цепочка
+        log.info("yandex %s: ссылки нет — следующий кандидат", dl_meta.external_id)
+        return None
     if dl_meta.source == "ytmusic":
         # InnerTube напрямую (без yt-dlp): быстрее и иногда проходит бот-чек
         try:

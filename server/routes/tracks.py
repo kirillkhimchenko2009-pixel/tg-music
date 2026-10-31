@@ -322,12 +322,25 @@ async def _resolve_online_audio(track_id: int, t: Track,
     q = f"{t.artist or ''} {t.title or ''}".strip()
     full = None
     if q:
+        # параллельно ЯМ и прямые сайты; таймауты раздельны — зависший ЯМ больше
+        # не выбрасывает готовые результаты zaycev (раньше умирал общий gather)
+        t_ym = asyncio.create_task(ym_source(q))
+        t_dir = asyncio.create_task(direct_sources(q))
         try:
-            full = await asyncio.wait_for(asyncio.gather(
-                ym_source(q), direct_sources(q), return_exceptions=True), timeout=20)
-            full = next((r for r in (full or []) if isinstance(r, tuple)), None)
+            full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=13)
         except Exception:
             full = None
+        if full:
+            if not t_dir.done():
+                t_dir.cancel()
+        else:
+            t_ym.cancel()
+            log.info("онлайн-звук: ЯМ не дал результата (%s) — фолбэк на прямые сайты",
+                     q[:46])
+            try:
+                full = await asyncio.wait_for(t_dir, timeout=32)
+            except Exception:
+                full = None
     if not full:
         # YouTube — InnerTube (быстро) → yt-dlp как запасной
         try:
@@ -611,14 +624,46 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
         out["youtube"] = {"error": type(e).__name__,
                           "s": round(_time.time() - t0, 2)}
 
-    # Яндекс.Музыка: есть ли пользовательский токен (/token в боте)
+    # Яндекс.Музыка: токен + живой пробинг поиска/ссылки/байтов
     try:
         from services.authstore import get_token
-        async with runtime.get_session() as s:
-            ym_tok = await get_token(s, int(user.id), "ym")
-        out["yandex"] = {"token": bool(ym_tok)}
-    except Exception as e:
+        from services.providers.yandex import YandexProvider as _Ymx
+    except Exception as e:                                     # noqa: BLE001
         out["yandex"] = {"error": type(e).__name__}
+    else:
+        try:
+            async with runtime.get_session() as s:
+                ym_tok = await get_token(s, int(user.id), "ym")
+            yrow: dict = {"token": bool(ym_tok)}
+            if ym_tok:
+                t0 = _time.time()
+                res = await asyncio.wait_for(_Ymx(ym_tok).search(q[:80], limit=3),
+                                             timeout=35)
+                yrow["search"] = {
+                    "s": round(_time.time() - t0, 2), "found": len(res),
+                    "first": (f"{res[0].artist} — {res[0].title}" if res else None)}
+                if res:
+                    t1 = _time.time()
+                    u = await asyncio.wait_for(_Ymx(ym_tok).track_url(res[0], ""),
+                                               timeout=35)
+                    yrow["url_s"] = round(_time.time() - t1, 2)
+                    if u:
+                        try:
+                            async with httpx.AsyncClient(timeout=20) as c:
+                                r = await c.get(u, headers={
+                                    "Range": "bytes=0-65535",
+                                    "User-Agent": "Yandex-Music-API",
+                                    "Referer": "https://music.yandex.ru/"})
+                            yrow["mp3"] = {"status": r.status_code,
+                                           "bytes": len(r.content),
+                                           "type": r.headers.get("content-type")}
+                        except Exception as e:
+                            yrow["mp3"] = f"{type(e).__name__}: {str(e)[:70]}"
+                    else:
+                        yrow["mp3"] = "no url"
+            out["yandex"] = yrow
+        except Exception as e:                                 # noqa: BLE001
+            out["yandex"] = {"error": f"{type(e).__name__}: {str(e)[:120]}"}
 
     # карта доступности сайтов-аналогов с IP продакшна (параллельно)
     from urllib.parse import quote as _q

@@ -4,11 +4,13 @@
 api.music.yandex.net (подтверждено 2026-10: /users/<login>/playlists/<kind>
 и /playlist/<uuid> отдают полный JSON без OAuth)."""
 import asyncio
+import logging
 from typing import Any
 
 from core.config import settings
 from services.providers.base import TrackMeta
 
+log = logging.getLogger("providers.yandex")
 URL = "https://api.music.yandex.net"
 
 def _web_meta(t) -> TrackMeta:
@@ -108,7 +110,12 @@ async def _client(token: str) -> Any:
     from yandex_music import Client
     if not token:
         raise RuntimeError("нужен токен Яндекс Музыки (/YM_TOKEN или /token)")
-    return await asyncio.to_thread(lambda: Client(token).init())
+    try:
+        client = await asyncio.to_thread(lambda: Client(token).init())
+    except Exception as e:
+        log.warning("ym init fail: %s: %s", type(e).__name__, str(e)[:180])
+        raise
+    return client
 
 class YandexProvider:
     def __init__(self, token: str, user_id: int | None = None):
@@ -128,8 +135,10 @@ class YandexProvider:
             client = await self._ym()
             res = await asyncio.to_thread(client.search, query, "track")
             tracks = (getattr(res, "tracks", None) and res.tracks.results) or []
-        except Exception:
+        except Exception as e:
+            log.warning("ym search «%s» fail: %s: %s", query, type(e).__name__, str(e)[:180])
             return []
+        log.info("ym search «%s»: %d рез.", query, len(tracks))
         return [self._from_library(t) for t in tracks[:limit]]
 
     @staticmethod
@@ -151,9 +160,13 @@ class YandexProvider:
         client = await self._ym()
         try:
             infos = await asyncio.to_thread(client.tracks_download_info, meta.external_id)
-        except Exception:
+        except Exception as e:
+            log.warning("ym download_info %s fail: %s: %s",
+                        meta.external_id, type(e).__name__, str(e)[:180])
             return None
         if not infos:
+            log.warning("ym download_info %s: пусто (для этого трека нет аудио на ЯМ)",
+                        meta.external_id)
             return None
         want = None
         if quality == "flac":
@@ -173,7 +186,9 @@ class YandexProvider:
         try:
             link = await asyncio.to_thread(want.get_direct_link)
             return link
-        except Exception:
+        except Exception as e:
+            log.warning("ym get_direct_link %s fail: %s: %s",
+                        meta.external_id, type(e).__name__, str(e)[:180])
             return None
 
 async def track_by_id(token: str, external_id: str) -> TrackMeta | None:

@@ -36,20 +36,20 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     out: list[tuple[TrackMeta, str]] = []
     query = f"{meta.artist} {meta.title}".strip()
 
+    # Свой источник — первым, но цепочку НЕ заканчиваем: если ЯМ/Звук не отдали
+    # файл (нет аудио в каталоге, права, регион), подключаются фолбэки ниже.
     if meta.source == "zvuk":
         tok = await get_token(session, user_id, "zvuk")
         if tok:
             out.append((meta, tok))
-            return out
     if meta.source == "yandex":
         tok = await get_token(session, user_id, "ym")
         if tok:
             out.append((meta, tok))
-            return out
 
     # 1) Звук (если есть токен — там лучше качество, вплоть до FLAC)
     zv_tok = await get_token(session, user_id, "zvuk")
-    if zv_tok:
+    if zv_tok and meta.source != "zvuk":
         try:
             cands = await zv.search(query, limit=6, token=zv_tok)
             m = matching.best_match(meta, cands)
@@ -58,9 +58,9 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         except Exception:
             pass
 
-    # 2) Яндекс Музыка (если есть токен)
+    # 2) Яндекс Музыка (если есть токен и это не сам-источник)
     ym_tok = await get_token(session, user_id, "ym")
-    if ym_tok:
+    if ym_tok and meta.source != "yandex":
         try:
             prov = YandexProvider(ym_tok)
             cands = await prov.search(query, limit=6)
