@@ -67,43 +67,49 @@ def _decode(path: str) -> np.ndarray:
     return x.astype(np.float32) / 32768.0
 
 
-def _windows(x: np.ndarray, size: int) -> tuple[np.ndarray, int]:
-    step = int(size * 0.5)
-    n = max(0, (len(x) - size) // step)
-    if n == 0:
-        return np.empty((0, size), np.float32), step
-    idx = np.arange(size)[None, :] + np.arange(n)[:, None] * step
-    return x[idx], step
-
-
 def analyze(x: np.ndarray) -> dict:
+    """Потоковый анализ батчами: НЕ проектируем все окна в память сразу
+    (на Render free 512 МБ полная матрица окон 22k×3200 ≈ 800 МБ — ООМ)."""
     W = int(WIN * SR)
-    frames, step = _windows(x, W)
+    half = W // 2
+    n_f = max(0, (len(x) - W) // half + 1)
     out = {"mutes": 0, "beeps": 0, "mutes_list": [], "beeps_list": [],
            "beeps_ok": False, "mutes_ok": False}
-    if len(frames) == 0:
+    if n_f == 0:
         return out
-    n_f = len(frames)
-    t = np.arange(n_f) * (step / SR)
-    t_start, t_end = END_SKIP * (len(x) / SR), (1 - END_SKIP) * (len(x) / SR)
+    t = np.arange(n_f) * (half / SR)
+    t_start = END_SKIP * (len(x) / SR)
+    t_end = (1 - END_SKIP) * (len(x) / SR)
 
-    rms = np.sqrt((frames ** 2).mean(axis=1))
-    voiced = rms > VOICED
-
-    # --- бипы: узкополосные постоянные тоны ---
-    sp = np.abs(np.fft.rfft(frames * np.hanning(W)[None, :], axis=1)) ** 2
     freqs = np.fft.rfftfreq(W, 1 / SR)
-    lo, hi = 500, 2200
-    band = (freqs >= lo) & (freqs <= hi)   # ЧИСТО частотная маска
-    e_band = (sp * band).sum(axis=1)
-    e_all = sp.sum(axis=1) + 1e-12
+    band = (freqs >= 500) & (freqs <= 2200)
     bi = np.where(band)[0]             # бины рабочей полосы
     k = max(2, int(150 / (freqs[1] - freqs[0])))   # окно узости 150 Гц
     if len(bi) <= k + 1:
         return out
-    cum = np.concatenate([np.zeros((n_f, 1), np.float64),
-                          np.cumsum(sp[:, bi], axis=1)], axis=1)
-    e_narrow = (cum[:, k:] - cum[:, :-k]).max(axis=1)
+    win = np.hanning(W).astype(np.float32)
+
+    CH = 128   # кадров в батче — пик памяти всего ~20 МБ
+    rms = np.empty(n_f, np.float32)
+    e_band = np.empty(n_f, np.float64)
+    e_all = np.empty(n_f, np.float64)
+    e_narrow = np.empty(n_f, np.float64)
+    for i0 in range(0, n_f, CH):
+        m = min(CH, n_f - i0)
+        idx = (i0 + np.arange(m))[:, None] * half + np.arange(W)[None, :]
+        fr = x[idx]
+        rms[i0:i0 + m] = np.sqrt((fr ** 2).mean(axis=1))
+        sp = np.abs(np.fft.rfft(fr * win, axis=1)) ** 2
+        del fr
+        s = sp[:, bi]
+        cum = np.concatenate([np.zeros((m, 1), np.float64),
+                              np.cumsum(s, axis=1)], axis=1)
+        e_band[i0:i0 + m] = s.sum(axis=1)
+        e_all[i0:i0 + m] = sp.sum(axis=1) + 1e-12
+        e_narrow[i0:i0 + m] = (cum[:, k:] - cum[:, :-k]).max(axis=1)
+        del sp, s, cum, idx
+
+    voiced = rms > VOICED
     tonal = ((e_narrow / (e_band + 1e-12)) > 0.50) \
         & ((e_band / e_all) > 0.55) & voiced \
         & (t >= t_start) & (t <= t_end)
