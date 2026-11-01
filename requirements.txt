@@ -14,3 +14,4 @@ spotipy>=2.24
 aiofiles>=24.1
 huggingface_hub>=0.26
 asyncpg>=0.29
+numpy>=1.26

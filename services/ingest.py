@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from core.models import Track
 from services import matching, pipeline
+from services import censor as censor_mod
 from services.authstore import get_token
 from services.providers.base import TrackMeta
 from services.providers.youtube import YouTubeProvider
@@ -238,11 +239,25 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
         return Resolved(track=track, file_path=None, quality=None,
                         status="not_found", error=err)
 
+    bad: dict | None = None            # наименее зацензуренный кандидат
     for dl_meta, token in chain:
         res = await pipeline.download(dl_meta, quality, token, on_progress=on_progress)
         if not res:
             log.warning("skip %s: скачивание не удалось на %-6s (%s)",
                         meta.display(), dl_meta.source, dl_meta.display())
+            continue
+        # 18+: проверяем фонограмму на «замученность» (муты/бипы цензуры) —
+        # если замучена, пробуем следующий источник, а в конце отдаём
+        # наименее зацензуренный вариант (иначе отдали бы тише, но с блюрами)
+        chk = await censor_mod.check(res.path.as_posix())
+        if chk.get("censored"):
+            offenders = chk["beeps"] + chk["mutes"]
+            log.warning("ingest: %s из %s похож на цензурную заливку "
+                        "(бипы=%s муты=%s) — следующий источник…",
+                        dl_meta.display(), dl_meta.source,
+                        chk["beeps"], chk["mutes"])
+            if bad is None or offenders < bad["offenders"]:
+                bad = {"res": res, "meta": dl_meta, "offenders": offenders}
             continue
         dl_track = await _upsert(session, dl_meta)
         dl_track.quality = res.quality
@@ -258,6 +273,27 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                 pass
         return Resolved(track=dl_track, file_path=res.path,
                         quality=res.quality, status="downloaded")
+
+    if bad is not None:
+        # все источники отдали цензурные заливки — отдаём наименее замученную
+        res, dl_meta = bad["res"], bad["meta"]
+        log.warning("ingest: все источники отдали цензурные заливки — "
+                    "отдаю наименее замученную (%s бипов/мутов=%s, %s)",
+                    bad["offenders"], dl_meta.display())
+        dl_track = await _upsert(session, dl_meta)
+        dl_track.quality = res.quality
+        dl_track.size_bytes = res.size_bytes
+        dl_track.local_path = res.path.as_posix()
+        await session.commit()
+        if dl_track.id != track.id and not (track.local_path or track.file_id):
+            try:
+                await session.delete(track)
+                await session.flush()
+            except Exception:
+                pass
+        return Resolved(track=dl_track, file_path=res.path,
+                        quality=res.quality, status="downloaded")
+
     tried = ", ".join(dict.fromkeys(m.source for m, _ in chain))
     err = f"все источники не ответили (пробовали: {tried})"
     log.warning("skip %s: %s", meta.display(), err)

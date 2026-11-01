@@ -13,6 +13,15 @@ from services.providers.base import TrackMeta
 log = logging.getLogger("providers.yandex")
 URL = "https://api.music.yandex.net"
 
+
+def _explicit(o: Any) -> bool:
+    """Метка 18+ с фолбэком: в bulk-ответах ЯМ поле explicit=null,
+    но contentWarning="explicit" проставлен. Фолбэк нужен именно тут."""
+    if bool(getattr(o, "explicit", False)):
+        return True
+    cw = getattr(o, "content_warning", None) or getattr(o, "contentWarning", None)
+    return str(cw or "").lower() == "explicit"
+
 def _web_meta(t) -> TrackMeta:
     """TrackMeta из JSON track api.music.yandex.net (works и для nested)."""
     real = t.get("track") or t
@@ -31,7 +40,8 @@ def _web_meta(t) -> TrackMeta:
         artist=artists, album=album, year=year,
         duration=int(real.get("durationMs") or 0) // 1000,
         cover_url=cover_url,
-        explicit=bool(real.get("explicit")))
+        explicit=bool(real.get("explicit"))
+        or str(real.get("contentWarning") or "").lower() == "explicit")
 
 
 async def anon_playlist_by_login(owner: str, kind: str) -> tuple[str, list[TrackMeta]]:
@@ -105,7 +115,7 @@ async def get_public_playlist(owner: str, kind: str, token: str) -> tuple[str, l
             artist=artists, album=album, year=year,
             duration=int(getattr(t, "duration_ms", 0) or 0) // 1000,
             cover_url=cover_url,
-            explicit=bool(getattr(t, "explicit", False))))
+            explicit=_explicit(t)))
     return (getattr(pl, "title", None) or "Плейлист Яндекс"), metas
 
 async def _client(token: str) -> Any:
@@ -156,7 +166,7 @@ class YandexProvider:
                          artist=artists, album=album, year=year,
                          duration=int(getattr(t, "duration_ms", 0) or 0) // 1000,
                          cover_url=cover,
-                         explicit=bool(getattr(t, "explicit", False)))
+                         explicit=_explicit(t))
 
     async def track_url(self, meta: TrackMeta, quality: str) -> str | None:
         """Прямая ссылка на файл (flac при Plus; 320 иначе)."""

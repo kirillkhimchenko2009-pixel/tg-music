@@ -158,21 +158,13 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
     t = None
 
     async def send_fallback() -> bool:
-        """В чат должен прийти хоть какой-то файл: 1) сторонние ТГ-боты
-        (категорийные каталоги ищут со СВОЕГО IP), 2) 30-сек фрагмент."""
+        """В чат должен прийти хоть какой-то файл: 30-сек фрагмент.
+
+        Сторонние ТГ-боты больше не используются: Telegram запрещает
+        обмен сообщениями между ботами (USER_BOT_TO_BOT_DISABLED)."""
         nonlocal t
         if t is None:
             return False
-        try:
-            from bot.handlers.musicbot import request_track
-            if await request_track(bot, user_id, t.artist or "", t.title or ""):
-                st.update(status="done", progress=100.0, telegram=True,
-                          via_tgbot=True)
-                return True
-        except Exception:
-            import logging
-            logging.getLogger("server.tracks").exception(
-                "tg-bots fallback failed for track %s", track_id)
         from bot.runtime import send_preview_file
         ok = await send_preview_file(bot, user_id, t)
         if ok:
