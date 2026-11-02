@@ -43,7 +43,7 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
     """Скачивает файл трека и возвращает путь. quality: 'aac320' | 'flac'."""
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     settings.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    stem = file_name or f"{meta.source}_{re.sub(r'\\W+', '_', meta.external_id)[:90]}"
+    stem = file_name or f"{meta.source}_{re.sub(r'\W+', '_', meta.external_id)[:90]}"
     out_base = settings.AUDIO_DIR / stem
     log.info("download_track: source=%s ext_id=%.50s stem=%s",
              meta.source, meta.external_id, stem)
