@@ -17,6 +17,7 @@ from services.providers import zvuk as zv
 from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
 from services.providers import hotplayer as hpl
+from services.providers import mp3party as mpp
 from services.providers.yandex import YandexProvider
 from services.providers import soundcloud as scc
 
@@ -123,13 +124,19 @@ async def _candidates(session: AsyncSession, user_id: int | None,
 
     # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) → hitmoz → hotplayer
     for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
-                       (hzm, "hitmoz"), (hpl, "hotplayer")):
+                       (hzm, "hitmoz"), (hpl, "hotplayer"), (mpp, "mp3party")):
         try:
             cands = await prov.search(query, limit=6)
             m = matching.best_match(meta, cands, min_score=0.55)
             # guard по артисту — иначе сайты подсовывают однофамильцев/тёзок
             if m and not hzm.artist_guard(meta, m):
                 log.info("%s: кандидат %s отвергнут по артисту", name, m.display())
+                m = None
+            # источники без длительности (mp3party) рискованно полагаться только
+            # на общий скор: «…Smell Like…» ловит чужие вариации названия
+            if m and not m.duration and _title_sim(meta.title, m.title) < 0.6:
+                log.info("%s: кандидат %s отвергнут по названию "
+                         "(длительности нет)", name, m.display())
                 m = None
             if m:
                 out.append((m, ""))

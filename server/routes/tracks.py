@@ -287,7 +287,7 @@ async def _resolve_online_audio(track_id: int, t: Track,
                                 session=None, user_id: int | None = None) -> tuple[str, str] | None:
     """Аудио для нескачанных треков. ПРИОРИТЕТ — ПОЛНЫЙ звук:
     Яндекс.Музыка (если юзер дал /token — весь каталог)
-    → zaycev.net (mp3-320, Range) → hitmoz → hotplayer
+    → zaycev.net (mp3-320, Range) → mp3party → hitmoz → hotplayer
     → YouTube (InnerTube → yt-dlp). Ничего не нашлось — быстрый фолбэк
     на 30-сек превью (Deezer → iTunes, ~1 с). Возвращает (url, kind)."""
     hit = _AUDIO_URL_CACHE.get(track_id)
@@ -332,16 +332,18 @@ async def _resolve_online_audio(track_id: int, t: Track,
         return None
 
     async def direct_sources(query: str) -> tuple[str, str] | None:
-        """Полные треки с прямых сайтов (mp3, Range-стрим): zaycev → hitmoz → hotplayer."""
+        """Полные треки с прямых сайтов (mp3, Range-стрим): zaycev → mp3party → hitmoz → hotplayer."""
         from services.matching import best_match
         from services.ingest import _clean_query
         from services.providers import hitmoz as hzm
         from services.providers import hotplayer as hpl
+        from services.providers import mp3party as mpp
         from services.providers import zaycev as zay
         meta = TrackMeta(source="zaycev", external_id="", title=t.title or "",
                          artist=t.artist or "", duration=int(t.duration or 0))
         cquery = _clean_query(query)
-        for prov, name in ((zay, "zaycev"), (hzm, "hitmoz"), (hpl, "hotplayer")):
+        for prov, name in ((zay, "zaycev"), (mpp, "mp3party"),
+                           (hzm, "hitmoz"), (hpl, "hotplayer")):
             try:
                 cands = await prov.search(cquery, limit=6)
                 if not cands:
