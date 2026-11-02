@@ -1,5 +1,6 @@
-"""Скачивание треков: yt-dlp для YouTube, прямые ссылки для ЯМ/Звук; конвертация ffmpeg; теги+обложка."""
+"""Скачивание треков: yt-dlp для YouTube/SoundCloud, прямые ссылки для ЯМ/Звук; конвертация ffmpeg; теги+обложка."""
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 from core.config import settings
 from services.providers.base import TrackMeta
 from services.net import yt_dlp_proxy_args, yt_dlp_binary
+
+log = logging.getLogger("downloader")
 
 @dataclass
 class DownloadResult:
@@ -40,11 +43,16 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
     """Скачивает файл трека и возвращает путь. quality: 'aac320' | 'flac'."""
     settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     settings.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    stem = file_name or f"{meta.source}_{meta.external_id}"
+    stem = file_name or f"{meta.source}_{re.sub(r'\\W+', '_', meta.external_id)[:90]}"
     out_base = settings.AUDIO_DIR / stem
+    log.info("download_track: source=%s ext_id=%.50s stem=%s",
+             meta.source, meta.external_id, stem)
 
     yt_format = ("bestaudio[ext=m4a]/bestaudio" if quality == "aac320"
                  else "bestaudio/bestaudio")
+    # soundcloud: external_id — готовый permalink_url (поиск отдаёт напрямую)
+    page_url = (meta.external_id if meta.source == "soundcloud"
+                else _YT_URL.format(vid=meta.external_id))
     cmd = [
         yt_dlp_binary(), "-f", yt_format,
         "-x", "--audio-format", "m4a", "--audio-quality", "320K",
@@ -54,13 +62,17 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
         "--retries", "5", "--fragment-retries", "5", "--socket-timeout", "20",
         *yt_dlp_proxy_args(),
         "-o", str(out_base) + ".%(ext)s",
-        _YT_URL.format(vid=meta.external_id),
+        page_url,
     ]
     await _run(cmd, on_progress)
 
     path = _find_outfile(out_base)
     if path is None:
+        log.info("download_track %s: yt-dlp отработал, но файла нет "
+                 "(base=%s)", meta.display(), out_base.name)
         return None
+    log.info("download_track %s: ok %s (%s bytes)", meta.display(),
+             path.name, path.stat().st_size)
     return DownloadResult(path=path, quality="aac320", size_bytes=path.stat().st_size)
 
 async def download_direct(url: str, meta: TrackMeta, quality: str,

@@ -18,6 +18,7 @@ from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
 from services.providers import hotplayer as hpl
 from services.providers.yandex import YandexProvider
+from services.providers import soundcloud as scc
 
 yt = YouTubeProvider()
 log = logging.getLogger("ingest")
@@ -121,7 +122,8 @@ async def _candidates(session: AsyncSession, user_id: int | None,
             log.exception("поиск на яндексе не удался")
 
     # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) → hitmoz → hotplayer
-    for prov, name in ((zay, "zaycev"), (hzm, "hitmoz"), (hpl, "hotplayer")):
+    for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
+                       (hzm, "hitmoz"), (hpl, "hotplayer")):
         try:
             cands = await prov.search(query, limit=6)
             m = matching.best_match(meta, cands, min_score=0.55)
