@@ -681,9 +681,12 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
                 sc_row["segs"] = len(segs)
                 if segs:
                     try:
-                        r4 = await c3.get(segs[0], headers={
-                            "User-Agent": "Mozilla/5.0",
-                            "Range": "bytes=0-8191"})
+                        async with httpx.AsyncClient(
+                                timeout=25,
+                                follow_redirects=True) as c4:
+                            r4 = await c4.get(segs[0], headers={
+                                "User-Agent": "Mozilla/5.0",
+                                "Range": "bytes=0-8191"})
                         sc_row["seg1"] = {"status": r4.status_code,
                                           "bytes": len(r4.content),
                                           "magic": r4.content[:4].hex()}
