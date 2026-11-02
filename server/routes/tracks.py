@@ -334,16 +334,17 @@ async def _resolve_online_audio(track_id: int, t: Track,
     async def direct_sources(query: str) -> tuple[str, str] | None:
         """Полные треки с прямых сайтов (mp3, Range-стрим): zaycev → mp3party → hitmoz → hotplayer."""
         from services.matching import best_match
-        from services.ingest import _clean_query
+        from services.ingest import _clean_query, _title_sim
         from services.providers import hitmoz as hzm
         from services.providers import hotplayer as hpl
         from services.providers import mp3party as mpp
+        from services.providers import soundcloud as scc
         from services.providers import zaycev as zay
         meta = TrackMeta(source="zaycev", external_id="", title=t.title or "",
                          artist=t.artist or "", duration=int(t.duration or 0))
         cquery = _clean_query(query)
         for prov, name in ((zay, "zaycev"), (mpp, "mp3party"),
-                           (hzm, "hitmoz"), (hpl, "hotplayer")):
+                           (scc, "soundcloud"), (hzm, "hitmoz"), (hpl, "hotplayer")):
             try:
                 cands = await prov.search(cquery, limit=6)
                 if not cands:
@@ -355,7 +356,19 @@ async def _resolve_online_audio(track_id: int, t: Track,
                     m = None
                 if not m and hzm.artist_guard(meta, cands[0]):
                     m = cands[0]
+                if m and not m.duration and _title_sim(meta.title, m.title) < 0.6:
+                    # источники без длительности — доверяем только точному названию
+                    m = None
                 if not m:
+                    continue
+                if name == "soundcloud":
+                    # HLS-плейлист fMP4 — браузер его не играет, отдаём как
+                    # спец-маркер: стрим-роут транскодирует ffmpeg'ом на лету
+                    got = await scc.hls_stream(m.external_id)
+                    if got:
+                        log.info("онлайн-звук «%s» → soundcloud (hls): %s",
+                                 cquery[:44], m.display())
+                        return f"sc-hls:{got}", "soundcloud", False
                     continue
                 url = await prov.download_url(m)
                 if url:
@@ -553,13 +566,58 @@ async def stream(track_id: int,
                 url = urljoin(base, fp)
                 return await relay_response(url, rng, settings.PROXY_URL or None)
 
-        # 3) не скачан — ПОЛНЫЙ звук онлайн (YM → zaycev → hitmoz → hotplayer → YT),
-        #    иначе 30-сек превью; чужой CDN стримим через relay с Range-пробросом
+        # 3) не скачан — ПОЛНЫЙ звук онлайн (YM → zaycev → mp3party → SC → hitmoz
+        #    → hotplayer → YT), иначе 30-сек превью; чужой CDN стримим через relay
         resolved = await _resolve_online_audio(track_id, tr, s, int(user.id))
         if resolved:
+            u = str(resolved[0])
+            if u.startswith("sc-hls:"):
+                # SoundCloud HLS (fMP4): ffmpeg транскодирует в mp3 на лету
+                return StreamingResponse(
+                    _sc_hls_iter(u.split(":", 1)[1]),
+                    media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store"})
             return await relay_response(resolved[0], rng, settings.PROXY_URL or None)
 
         raise HTTPException(404, "трек недоступен онлайн — нажми «Скачать»")
+
+
+async def _sc_hls_iter(playlist_url: str):
+    """Поток fMP4→mp3: ffmpeg читает m3u8 SC и конвертит в pipe:1.
+    Без Content-Length/Seek (браузер играет с начала); при обрыве клиента
+    процесс убивается."""
+    import asyncio as aio
+    import os
+
+    proc: aio.subprocess.Process | None = None
+    try:
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+               "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+               "-protocol_whitelist", "http,https,tls,tcp,applehttps,httpproxy",
+               "-multiple_requests", "1",
+               "-i", playlist_url,
+               "-vn", "-map", "0:a", "-c:a", "libmp3lame", "-b:a", "160k",
+               "-f", "mp3", "pipe:1"]
+        env = dict(os.environ)
+        if settings.PROXY_URL:
+            env["http_proxy"] = env["https_proxy"] = settings.PROXY_URL
+        proc = await aio.create_subprocess_exec(
+            *cmd,
+            stdout=aio.subprocess.PIPE, stdin=aio.subprocess.DEVNULL,
+            stderr=aio.subprocess.DEVNULL, env=env)
+        assert proc.stdout
+        while True:
+            chunk = await proc.stdout.read(1 << 15)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
 
 
 @router.get("/diag/sources")
@@ -599,6 +657,43 @@ async def diag_sources(q: str = "баста сансара", user: CurrentUser =
         except Exception as e:
             out[name] = {"error": f"{type(e).__name__}: {str(e)[:80]}",
                          "search_s": round(_time.time() - t0, 2)}
+
+    # SoundCloud: поиск → HLS-плейлист → первый сегмент (fMP4)
+    try:
+        from services.providers import soundcloud as sccp
+        t0 = _time.time()
+        cands = await sccp.search(q, limit=3)
+        sc_row: dict = {"search_s": round(_time.time() - t0, 2),
+                        "found": len(cands)}
+        if cands:
+            m = cands[0]
+            sc_row["first"] = f"{m.artist} — {m.title}"
+            t1 = _time.time()
+            got = await sccp.hls_stream(m.external_id)
+            sc_row["hls_s"] = round(_time.time() - t1, 2)
+            if got:
+                async with httpx.AsyncClient(timeout=25,
+                                             follow_redirects=True) as c3:
+                    r3 = await c3.get(got, headers={"User-Agent": "Mozilla/5.0"})
+                segs = [l for l in r3.text.splitlines()
+                        if l and not l.startswith("#")]
+                sc_row["m3u8"] = r3.status_code
+                sc_row["segs"] = len(segs)
+                if segs:
+                    try:
+                        r4 = await c3.get(segs[0], headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Range": "bytes=0-8191"})
+                        sc_row["seg1"] = {"status": r4.status_code,
+                                          "bytes": len(r4.content),
+                                          "magic": r4.content[:4].hex()}
+                    except Exception as e:
+                        sc_row["seg1"] = f"{type(e).__name__}: {str(e)[:50]}"
+            else:
+                sc_row["m3u8"] = None
+        out["soundcloud"] = sc_row
+    except Exception as e:
+        out["soundcloud"] = {"error": f"{type(e).__name__}: {str(e)[:80]}"}
 
     for name, url, params in (
             ("deezer", "https://api.deezer.com/search", {"q": q, "limit": 1}),

@@ -139,9 +139,51 @@ class SoundCloudProvider:
             log.info("soundcloud поиск не удался (%s)", type(e).__name__)
         return pool[:limit]
 
+    def _hls_sync(self, permalink: str) -> str | None:
+        """m3u8-плейлист полного трека: resolve → transcodings → aac_160k."""
+        for attempt in (0, 1):
+            cid = self._client_id(force=attempt > 0)
+            if not cid:
+                break
+            r = self._c().get(_API + "/resolve", params={
+                "url": permalink, "client_id": cid})
+            if r.status_code != 200:
+                if attempt == 0:
+                    continue
+                log.info("sc hls resolve %s: HTTP %s", permalink[-20:],
+                         r.status_code)
+                return None
+            j = r.json()
+            trans = ((j.get("media") or {}).get("transcodings")) or []
+            tr = next((t for t in trans if t.get("preset") == "aac_160k")
+                      or next((t for t in trans
+                               if (t.get("format") or {}).get("protocol") == "hls"),
+                              None))
+            if not tr:
+                return None
+            rm = self._c().get(tr["url"], params={"client_id": cid})
+            if rm.status_code != 200:
+                continue
+            return (rm.json() or {}).get("url")
+        return None
+
+    async def hls_stream(self, external_id: str) -> str | None:
+        """URL HLS-плейлиста (только для онлайн-плеера; ссылка подписана ~2-6 ч)."""
+        if not (external_id or "").startswith("https://soundcloud.com/"):
+            return None
+        try:
+            return await asyncio.to_thread(self._hls_sync, external_id)
+        except Exception as e:
+            log.info("soundcloud hls_stream не удался (%s)", type(e).__name__)
+            return None
+
 
 _default = SoundCloudProvider()
 
 
 async def search(query: str, limit: int = 6) -> list[TrackMeta]:
     return await _default.search(query, limit)
+
+
+async def hls_stream(external_id: str) -> str | None:
+    return await _default.hls_stream(external_id)
