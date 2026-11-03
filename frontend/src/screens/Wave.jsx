@@ -10,7 +10,7 @@ import { toggleLike, useLikes } from '../likes.js';
 
 const MOODS = [
   { id: null, icon: '∞', label: 'Любое' },
-  { id: 'fun', icon: '😊', label: 'Весельё' },
+  { id: 'fun', icon: '😊', label: 'Веселье' },
   { id: 'active', icon: '⚡', label: 'Энергия' },
   { id: 'calm', icon: '🌙', label: 'Спокойствие' },
   { id: 'sad', icon: '💧', label: 'Грусть' },
@@ -59,7 +59,7 @@ export default function Wave() {
   const [ws, setWs] = useState(null);           // формула (settings DTO)
   const [sess, setSess] = useState(null);       // { session_id, engine, skips_* }
   const [sheet, setSheet] = useState(false);
-  const [dirty, setDirty] = useState(false);    // формула изменилась — нет peŕезапуска
+  const [dirty, setDirty] = useState(false);    // формула изменилась — жмёт перезапуск
   const booted = useRef(false);
 
   const startWave = async (engine) => {
@@ -107,7 +107,8 @@ export default function Wave() {
   /* live-обновление счётчика скипов из ответов /next приходит через setSess; */
   const cur = st.queue[st.index];
   const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
-  const engineLabel = sess?.engine === 'yandex' ? 'Волна ЯМ' : 'Свой движок';
+  const skipsSoon = !!sess?.skips_per_hour
+    && (sess.skips_used || 0) + 1 >= sess.skips_per_hour;
 
   const dislike = () => {
     haptic('medium');
@@ -136,17 +137,18 @@ export default function Wave() {
       </div>
 
       {phase === 'ready' && cur ? <>
-        <div className="covin wave-covwrap" key={cur.id}>
-          <img className={'wave-cover' + (st.playing ? ' kb' : '')} src={coverOr(cur)} alt="" />
+        <div className="covin wave-covwrap" key={'c' + cur.id}>
+          <WaveCover track={cur} playing={st.playing} />
           {st.playing && <span className="eq eq-lg"><i /><i /><i /></span>}
         </div>
 
-        <div className="wave-meta">
+        <div className="wave-meta" key={cur.id}>
           <div className="wave-tname">{cur.title}</div>
           <div className="wave-tartist">{cur.artist}</div>
         </div>
 
-        {cur.why && <div className="wave-why"><span className="np-dot" /> {cur.why}</div>}
+        {cur.why && <div className="wave-why" key={'w' + cur.id}>
+          <span className="np-dot" /> {cur.why}</div>}
 
         <div className="seekrow wave-seek" onClick={e => e.stopPropagation()}>
           <span className="np-time">{P.fmt(st.currentTime)}</span>
@@ -173,11 +175,16 @@ export default function Wave() {
           </button>
         </div>
 
+        <WaveHistory queue={st.queue} index={st.index} />
+
         <div className="wave-foot">
           <span className={'wave-engine ' + (sess?.engine === 'yandex' ? 'ym' : 'own')}>
             {sess?.engine === 'yandex' ? '⚡ Волна ЯМ' : '◈ Свой движок'}
           </span>
-          {sess?.skips_per_hour ? <span>Скипы: {sess.skips_used || 0}/{sess.skips_per_hour} в час</span> : null}
+          {sess?.skips_per_hour ? (
+            <span className={'skips' + (skipsSoon ? ' soon' : '')}>
+              Скипы: {sess.skips_used || 0}/{sess.skips_per_hour} в час
+            </span>) : null}
           {st.loading && <span className="minispinner" />}
         </div>
       </> : phase === 'err' ? <>
@@ -211,6 +218,45 @@ function formulaText(ws) {
   return parts.join(' · ');
 }
 
+function WaveCover({ track, playing }) {
+  const [broken, setBroken] = useState(false);
+  const src = coverOr(track);
+  if (!src || broken) {
+    return <div className="wave-cover ghost"><span>≋</span></div>;
+  }
+  return (
+    <img className={'wave-cover' + (playing ? ' kb' : '')} src={src} alt=""
+         onError={() => setBroken(true)} />
+  );
+}
+
+/* Недавно в волне: отыгранные треки сессии. Клик — вернуться к треку. */
+function WaveHistory({ queue, index }) {
+  const prev = queue.slice(Math.max(0, index - 8), index).reverse();
+  if (!prev.length) return null;
+  return (
+    <div className="wave-hist">
+      <div className="wave-hist-t">Недавно в волне</div>
+      <div className="wave-hist-row">
+        {prev.map((t, i) => (
+          <button key={(t.id || 'x') + '-' + i} className="wave-hist-chip" title={t.title}
+                  aria-label={`Вернуться: ${t.artist} — ${t.title}`}
+                  onClick={() => {
+                    haptic('soft');
+                    const qi = queue.findIndex(x => x.id === t.id);
+                    if (qi >= 0) P.play([...queue], qi);
+                  }}>
+            {t.cover_url
+              ? <img src={coverOr(t)} alt=""
+                     onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+              : <span className="wave-hist-glyph">≋</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WaveHeart({ id, session, big }) {
   const liked = useLikes().has(id);
   return (
@@ -231,7 +277,7 @@ function WaveNoIcon() {
     <svg viewBox="0 0 24 24" className="ico" fill="none" stroke="currentColor"
          strokeWidth="2" strokeLinecap="round">
       <path d="M17 4l1.5 3M7 4L5.5 7M12 4v4" /><circle cx="12" cy="16" r="4.5" />
-      <path d="M4 4l16 16" stroke="var(--no, #FF6D6D)" />
+      <path d="M4 4l16 16" style={{ stroke: '#FF6D6D' }} />
     </svg>
   );
 }
@@ -239,9 +285,43 @@ function WaveNoIcon() {
 /* ---------------- формулы bottom-sheet ---------------- */
 function FormulaSheet({ ws, dirty, onClose, onChange, onRestart }) {
   const chipOn = (cond) => 'chip' + (cond ? ' on' : '');
+  const cardRef = useRef(null);
+  const drag = useRef({ start: 0, dy: 0, active: false });
+  const [ty, setTy] = useState(0);
+  const [held, setHeld] = useState(false);
+
+  /* Esc для десктопа; на мобиле — свайп-вниз по карточке */
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const onTS = (e) => {
+    const card = cardRef.current;
+    if (card && card.scrollTop > 2) return;   // прокрутка контента важнее жеста
+    drag.current = { start: e.touches[0].clientY, dy: 0, active: true };
+    setHeld(true);
+  };
+  const onTM = (e) => {
+    if (!drag.current.active) return;
+    const dy = e.touches[0].clientY - drag.current.start;
+    if (dy > 0) { drag.current.dy = dy; setTy(dy); }
+  };
+  const onTE = () => {
+    if (!drag.current.active) return;
+    drag.current.active = false;
+    setHeld(false);
+    if (drag.current.dy > 92) onClose(); else setTy(0);
+  };
+
   return (
     <div className="wsheet" onClick={onClose}>
-      <div className="wsheet-card" onClick={e => e.stopPropagation()}>
+      <div className="wsheet-card" ref={cardRef} onClick={e => e.stopPropagation()}
+           onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}
+           style={{ transform: ty ? `translateY(${ty}px)` : undefined,
+                    transition: held ? 'none' : 'transform .3s var(--spring)' }}>
+        <div className="wsheet-grabber" aria-hidden="true" />
         <div className="wsheet-head">
           <div className="wsheet-title">Формула волны</div>
           <button className="wsheet-x" onClick={onClose}>✕</button>
@@ -286,7 +366,7 @@ function FormulaSheet({ ws, dirty, onClose, onChange, onRestart }) {
         </div>
 
         <div className="wsec">
-          <div className="wsec-t">Жа́р</div>
+          <div className="wsec-t">Жанры</div>
           <div className="chiprow">
             {GENRES.map(g => (
               <button key={g} className={chipOn((ws.genres || []).includes(g))}
@@ -312,7 +392,7 @@ function FormulaSheet({ ws, dirty, onClose, onChange, onRestart }) {
 
         <div className="wsec row3">
           <div>
-            <div className="wsec-t">Быва́ет 18+</div>
+            <div className="wsec-t">Треки 18+</div>
             <div className="chiprow">
               <button className={chipOn(ws.allow_explicit)}
                       onClick={() => onChange({ allow_explicit: true })}>Разрешено</button>
