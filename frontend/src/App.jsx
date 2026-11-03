@@ -7,12 +7,14 @@ import { setAuthToken } from './store.js';
 import { firstUserName, haptic } from './tg.js';
 import { loadLikes } from './likes.js';
 import * as P from './player.js';
+import Wave from './screens/Wave.jsx';
 import Library from './screens/Library.jsx';
 import SearchScreen from './screens/Search.jsx';
 import Playlists from './screens/Playlists.jsx';
 import ImportScreen from './screens/Import.jsx';
 
 const TABS = [
+  { id: 'wave', icon: '≋', label: 'Волна' },
   { id: 'library', icon: '♪', label: 'Музыка' },
   { id: 'search', icon: '⌕', label: 'Поиск' },
   { id: 'playlists', icon: '▤', label: 'Плейлисты' },
@@ -68,8 +70,9 @@ export default function App() {
       {ok === true
         ? <>
           {/* key={tab} — ремоunt экрана, launch view-rise transition */}
-          <main className="screen">
+          <main className={'screen' + (tab === 'wave' ? ' wavescreen' : '')}>
             <div className="vwrap" key={tab}>
+              {tab === 'wave' && <Wave />}
               {tab === 'library' && <Library />}
               {tab === 'search' && <SearchScreen />}
               {tab === 'playlists' && <Playlists onImport={() => switchTab('import')} />}

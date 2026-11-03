@@ -87,3 +87,27 @@ export function coverUrl(t) {
   if (raw.startsWith('http')) return raw;
   return API_BASE + raw;
 }
+
+/* ---------- Волна (/api/wave): старт, партии, фидбек, формула ---------- */
+export function waveStart(engine) {
+  return api('/api/wave/start', { method: 'POST',
+    body: JSON.stringify({ engine: engine || null }) });
+}
+
+export function waveNext(sessionId, last) {
+  return api('/api/wave/next', { method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, last: last || null }) });
+}
+
+export function waveFeedback(sessionId, event, trackId, playedSeconds) {
+  return api('/api/wave/feedback', { method: 'POST', body: JSON.stringify({
+    session_id: sessionId, event,
+    track_id: trackId ?? undefined,
+    played_seconds: playedSeconds ?? undefined }) });
+}
+
+export function waveSettings() { return api('/api/wave/settings'); }
+
+export function waveSaveSettings(patch) {
+  return api('/api/wave/settings', { method: 'PUT', body: JSON.stringify(patch) });
+}

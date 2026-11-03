@@ -80,6 +80,15 @@ async function startUrl(trackId) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* Волна: режим бесконечного потока. Wave.jsx задаёт источник:
+   { sessionId, fetchMore(last) -> tracks[], onEvent(kind, track, playedSec) }
+   kind: started | skip | finished. Внутри партии игрок движется локально,
+   фидбек уходит через /feedback; на исчерпании партии — /next за новой. */
+let wave = null;
+
+export function setWaveSource(src) { wave = src || null; }
+export function inWave() { return !!wave; }
+
 export function toggle() {
   if (!current()) return;
   if (audio.paused) audio.play().catch(() => {});
@@ -87,6 +96,7 @@ export function toggle() {
 }
 
 export async function next(manual = true) {
+  if (wave && current()) return waveNext(manual);
   if (!state.queue.length) return;
   if (state.loop && !manual) { await loadAndPlay(); return; }
   if (state.shuffle && state.queue.length > 1) {
@@ -101,6 +111,44 @@ export async function next(manual = true) {
     emit();
     return;
   }
+  await loadAndPlay();
+}
+
+/* Продолжение волны: внутри партии — локальное продвижение + ленивый фидбек;
+   партия исчерпана — /next (фидбек уходит в last), дозарядка новых треков. */
+async function waveNext(manual) {
+  const cur = current();
+  const played = audio.currentTime || 0;
+  const ev = manual ? 'skip' : 'finished';
+
+  if (state.index < state.queue.length - 1) {
+    if (cur) wave.onEvent?.(ev, cur, played);
+    state.index += 1;
+    await loadAndPlay();
+    return;
+  }
+
+  let more = null;
+  state.loading = true;
+  emit();
+  try {
+    more = await wave.fetchMore({ track_id: cur?.id, played_seconds: played, event: ev });
+  } catch (e) {
+    state.loading = false;
+    state.playing = false;
+    state.error = (e && e.message) || 'волна прервалась';
+    emit();
+    return;
+  }
+  if (!more || !more.length) {
+    state.loading = false;
+    state.playing = false;
+    state.error = 'волна стихла — запусти заново';
+    emit();
+    return;
+  }
+  state.queue = [...state.queue, ...more.filter(t => !state.queue.some(x => x.id === t.id))];
+  state.index += 1;
   await loadAndPlay();
 }
 
@@ -120,7 +168,11 @@ export function seek(p) {
 export function setShuffle(v) { state.shuffle = v; emit(); }
 export function setLoop(v) { state.loop = v; emit(); }
 
-audio.addEventListener('play', () => { state.attempts = 0; emit(); });
+audio.addEventListener('play', () => {
+  state.attempts = 0;
+  if (wave && current()) wave.onEvent?.('started', current(), 0);
+  emit();
+});
 audio.addEventListener('pause', emit);
 audio.addEventListener('timeupdate', emit);
 audio.addEventListener('ended', () => { next(false); });
