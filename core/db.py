@@ -90,3 +90,10 @@ async def init_db() -> None:
                 await conn.execute(text(col.format(ifnot="")))
     except Exception:
         pass
+    # Wave (М1): на старых базах может не быть 18+-флага трека
+    for stmt in ("ALTER TABLE tracks ADD COLUMN explicit BOOLEAN NOT NULL DEFAULT 0",):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt))
+        except Exception:
+            pass

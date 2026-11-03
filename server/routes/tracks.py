@@ -304,12 +304,26 @@ async def _resolve_online_audio(track_id: int, t: Track,
             tok = await get_token(session, int(user_id), "ym")
             if not tok:
                 return None
+            from services.providers import yandex as _ya
+            # Быстрый путь треков волны (движок A): source=yandex + известный
+            # external_id — резолвим сразу по ID, без поиска и best_match.
+            if (t.source or "") == "yandex" and t.external_id:
+                try:
+                    m = await _ya.track_by_id(tok, t.external_id)
+                    if m:
+                        url = await _ya.YandexProvider(tok).track_url(m, "")
+                        if url:
+                            log.info("онлайн-звук «%s» → yandex-ID %s (точный)",
+                                     query, t.external_id)
+                            return url, "yandex", bool(getattr(t, "explicit", False))
+                except Exception as e:
+                    log.info("онлайн-звук yandex-ID %s не удался: %s",
+                             t.external_id, type(e).__name__)
             from services.matching import best_match
             from services.ingest import _clean_query
-            from services.providers.yandex import YandexProvider
             meta = TrackMeta(source="yandex", external_id="", title=t.title or "",
                              artist=t.artist or "", duration=int(t.duration or 0))
-            cands = await YandexProvider(tok).search(_clean_query(query), limit=8)
+            cands = await _ya.YandexProvider(tok).search(_clean_query(query), limit=8)
             m = best_match(meta, cands, min_score=0.5)
             if not m:
                 return None

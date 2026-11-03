@@ -2,7 +2,8 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (BigInteger, Boolean, DateTime, Float, ForeignKey, Index,
-                        Integer, String, Text, UniqueConstraint, func)
+                        Integer, JSON, SmallInteger, String, Text,
+                        UniqueConstraint, func)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -104,3 +105,71 @@ class DownloadJob(Base):
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, server_default=func.now())
+
+
+# ----------------------------- волна («Моя волна») -----------------------------
+
+class WaveSettings(Base):
+    """Формула волны юзера: аналог настроек «Мой волны» ЯМ.
+
+    JSON-поля (не JSONB) — формула должна одинаково жить и в Postgres, и в SQLite.
+    """
+    __tablename__ = "wave_settings"
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    engine: Mapped[str] = mapped_column(String(16), default="auto")     # auto | yandex | own
+    mood: Mapped[str | None] = mapped_column(String(16))                # fun | active | calm | sad | edge
+    diversity: Mapped[str] = mapped_column(String(16), default="default")  # favorite | popular | discover | default
+    language: Mapped[str] = mapped_column(String(16), default="any")    # any | ru | non-ru
+    activities: Mapped[list] = mapped_column(JSON, default=list)        # ["work","sport","road",...]
+    genres: Mapped[list] = mapped_column(JSON, default=list)            # ["hiphop","rock",...]
+    artists: Mapped[list] = mapped_column(JSON, default=list)           # [{"name":"Хаски","ym_id":393663}, ...]
+    allow_explicit: Mapped[bool] = mapped_column(Boolean, default=True)  # 18+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class WaveSession(Base):
+    """Сессия волны: одна активная на юзера; rotor-часть — это движок A (ЯМ)."""
+    __tablename__ = "wave_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    engine: Mapped[str] = mapped_column(String(16))                     # yandex | own
+    seeds: Mapped[list] = mapped_column(JSON, default=list)             # сиды rotor / формула сессии
+    radio_session_id: Mapped[str | None] = mapped_column(Text)          # id сессии rotor (движок A)
+    batch_id: Mapped[str | None] = mapped_column(Text)                  # id текущей партии
+    played_ids: Mapped[list] = mapped_column(JSON, default=list)        # external_id (ЯМ) отгруженных треков
+    played_track_ids: Mapped[list] = mapped_column(JSON, default=list)  # локальные track_id анти-повтора
+    prefetch: Mapped[list] = mapped_column(JSON, default=list)          # заряженная следующая партия (DTO)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PlayEvent(Base):
+    """Факт прослушивания: история юзера (ядро вкуса для движка B)."""
+    __tablename__ = "play_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    track_id: Mapped[int | None] = mapped_column(ForeignKey("tracks.id"), index=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("wave_sessions.id"))
+    origin: Mapped[str] = mapped_column(String(16), default="wave")     # wave | search | playlist | library
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    played_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    finished: Mapped[bool] = mapped_column(Boolean, default=False)
+    skipped: Mapped[bool] = mapped_column(Boolean, default=False)       # next до конца (<25 c = жёсткий скип)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    __table_args__ = (Index("ix_play_events_user_time", "user_id", "started_at"),)
+
+
+class TrackFeedback(Base):
+    """Прямой сигнал по треку в волне. Лайки живёт в «❤ Любимое», тут дисклайки.
+
+    kind: -1 дисклайк (мораторий на трек/артиста), +1 лайк (резерв)."""
+    __tablename__ = "track_feedback"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id"), index=True)
+    kind: Mapped[int] = mapped_column(SmallInteger)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("user_id", "track_id", "kind", name="uq_track_feedback_kind"),
+        Index("ix_track_feedback_user_track", "user_id", "track_id"),
+    )

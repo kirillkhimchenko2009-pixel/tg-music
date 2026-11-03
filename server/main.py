@@ -51,6 +51,8 @@ app.include_router(playlists_route.artists_router)
 app.include_router(auth_route.router)
 from server.routes import playlist_import as import_route  # noqa: E402
 app.include_router(import_route.router)
+from server.routes import wave as wave_route  # noqa: E402
+app.include_router(wave_route.router)
 
 @app.get("/api/ping")
 async def ping():
