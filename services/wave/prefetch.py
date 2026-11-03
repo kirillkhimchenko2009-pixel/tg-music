@@ -43,6 +43,7 @@ def kick(user_id: int, party: dict) -> None:
     tracks = (party or {}).get("tracks") or []
     online = [int(t["id"]) for t in tracks if t.get("kind_hint") == "online"][:3]
     if online:
+        LOG.info("kick прогрева стримов: %s", online)
         _spawn(_warm_stream_urls(int(user_id), online))
     if (party or {}).get("engine") == "own" and party.get("session_id"):
         _spawn(_plan_next_own(int(user_id), int(party["session_id"])))
@@ -63,7 +64,12 @@ async def _warm_stream_urls(user_id: int, track_ids: list[int]) -> None:
         async with runtime.get_session() as s:
             for tid in track_ids:
                 t = await catalog.get_track(s, int(tid))
-                if t is None or t.file_id or t.local_path:
+                if t is None:
+                    LOG.info("прогрев стрима %s пропущен: трека нет в БД", tid)
+                    continue
+                if t.file_id or t.local_path:
+                    LOG.info("прогрев стрима %s не нужен: уже есть %s", tid,
+                             "file_id в телеге" if t.file_id else "локальный файл")
                     continue
                 try:
                     got = await _resolve_online_audio(int(tid), t, s, int(user_id))
@@ -71,6 +77,8 @@ async def _warm_stream_urls(user_id: int, track_ids: list[int]) -> None:
                              tid, (got[1] if got else "мимо"), time.time() - t0)
                 except Exception as e:
                     LOG.info("прогрев стрима %s не удался: %s", tid, type(e).__name__)
+    except Exception as e:              # воркер не должен умирать молча
+        LOG.warning("warm-воркер сломался: %s: %s", type(e).__name__, e)
     finally:
         _warm_inflight.discard(key)
 
