@@ -27,19 +27,28 @@ LOG = logging.getLogger("wave.own")
 
 BATCH = 3
 
-# --- веса скоринга (v1, объяснимая формула) ---
+# --- веса скоринга (v2, объяснимая формула) ---
 W_ARTIST = 0.34        # аффинити к артисту (лайки + дослушивания)
 W_LIKED = 0.30         # трек прямо из «Любимого»
 W_FIT = 0.18           # попадание в формулу (жанры/настроение/занятие словам)
 W_POPULAR = 0.10       # глобальная популярность (downloads)
-EXPLORE_SHARE = 0.55   # партия содержит новый трек с таким шансом
+W_FORMULA_ARTIST = 0.22  # артист, вписанный в формулу волны
+EXPLORE_SHARE = 0.25   # дефолт-шанс «нового» трека в партии (или по разнообразию)
 
 PENALTY_REPLAY = 0.45  # артист уже играл в последних треках партии/сессии
 SKIP_SCORE = -10.0     # недавний быстрый скип — трек заморожен на дне списка
 
+LANG_BONUS = 0.05      # язык трека совпал с языком формулы
+LANG_PENALTY = 0.18    # язык трека противоречит формуле
+
 HARD_SKIP_SECONDS = 25          # скип быстрее N с = «не хочу»
 ARTIST_COOLDOWN_TRACKS = 4      # не подсовывать артиста сразу после него
 DAYS_NO_REPEAT = 7              # недавно игравший трек отдыхает N дней
+
+# разнообразие (formula.diversity) → доля «нового» в партии и вес популярного
+EXPLORE_BY_DIVERSITY = {"favorite": 0.08, "default": 0.25,
+                        "popular": 0.15, "discover": 0.55}
+POPULAR_MULT = {"favorite": 0.8, "default": 1.0, "popular": 1.8, "discover": 1.0}
 
 GENRE_WORDS = {
     "hiphop": ("рэп", "rap", "хип-хоп", "hip-hop", "trap", "phonk", "фонк"),
@@ -95,6 +104,37 @@ def artist_key(artist: str) -> str:
 def _word_hit(text: str, words) -> bool:
     low = (text or "").lower()
     return any(w in low for w in words if w)
+
+
+def is_ru_track(t: Track) -> bool:
+    """Эвристика языка: кириллица в артисте/названии = русский трек."""
+    text = " ".join((t.artist or "", t.title or ""))
+    return any(0x0400 <= ord(c) <= 0x04FF for c in text)
+
+
+def _lang_fit(t: Track, ws) -> tuple[float, str | None]:
+    """Формула волны задаёт язык (ru / non-ru / any) — мягкий бонус/штраф."""
+    lang = (getattr(ws, "language", "any") or "any")
+    if lang in (None, "any", ""):
+        return 0.0, None
+    ru = is_ru_track(t)
+    if lang == "ru":
+        return (LANG_BONUS, "русский — язык из твоей формулы") if ru \
+            else (-LANG_PENALTY, None)
+    if lang == "non-ru":
+        return (LANG_BONUS, "иностранный — язык из твоей формулы") if not ru \
+            else (-LANG_PENALTY, None)
+    return 0.0, None
+
+
+def _formula_artist_keys(ws) -> set[str]:
+    keys = set()
+    for a in (getattr(ws, "artists", None) or []):
+        name = a.get("name") if isinstance(a, dict) else a
+        k = artist_key(name or "")
+        if k:
+            keys.add(k)
+    return keys
 
 
 # ------------------------------ ядро вкуса юзера ------------------------------
@@ -199,7 +239,7 @@ def _fit_why(t: Track, ws) -> str | None:
     return None
 
 
-def _score(t: Track, kb: Taste, ws) -> tuple[float, str | None]:
+def _score(t: Track, kb: Taste, ws, popul_mult: float = 1.0) -> tuple[float, str | None]:
     ak = artist_key(t.artist)
     why: str | None = None
     score = 0.0
@@ -213,12 +253,22 @@ def _score(t: Track, kb: Taste, ws) -> tuple[float, str | None]:
         if not why and plays >= 2:
             why = f"ты часто слушаешь {(t.artist or '').split(',')[0].strip()}"
 
+    # артист, вписанный в формулу волны, почти наравне с аффинити
+    if ak and ak in _formula_artist_keys(ws):
+        score += W_FORMULA_ARTIST
+        why = why or f"{(t.artist or '').split(',')[0].strip()} — артист из твоей формулы"
+
     fit = _fit_why(t, ws)
     if fit:
         score += W_FIT
         why = why or fit
 
-    score += min(1.0, (t.downloads or 0) / 8.0) * W_POPULAR
+    # язык формулы — мелкий бонус или ощутимый штраф
+    langd, langwhy = _lang_fit(t, ws)
+    score += langd
+    why = why or langwhy
+
+    score += min(1.0, (t.downloads or 0) / 8.0) * W_POPULAR * popul_mult
     return score, why or "подобрано по твоей формуле"
 
 
@@ -232,6 +282,10 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
     повторы сессии — нет, недавний скип — на дно."""
     kb = await taste(s, user_id)
     pool = await _pool(s, user_id, kb)
+
+    div = (getattr(ws, "diversity", "default") or "default") or "default"
+    popul_mult = POPULAR_MULT.get(div, 1.0)
+    explore_share = EXPLORE_BY_DIVERSITY.get(div, EXPLORE_SHARE)
 
     played = [int(x) for x in (sess.played_track_ids or [])]
     played_set = set(played)
@@ -253,7 +307,7 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
     for t in pool.values():
         if not usable(t, True):
             continue
-        score, why = _score(t, kb, ws)
+        score, why = _score(t, kb, ws, popul_mult)
         if artist_key(t.artist) in tails:
             score -= PENALTY_REPLAY
         if t.id in kb.skip_ids:
@@ -264,15 +318,16 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
     picked: list[tuple[Track, str]] = [(t, why) for _, _, t, why in cands[:n]]
 
     # эксплор-слот: в середину партии кладём «новое», если ядро вкуса достаточно живо
-    if len(cands) > n * 4 and random.random() < EXPLORE_SHARE:
+    if len(cands) > n * 4 and random.random() < explore_share:
         fresh = [c for c in cands[:40]
                  if c[2].id not in kb.recent and artist_key(c[2].artist) not in kb.artist_plays]
         if fresh:
             pick = random.choice(fresh[:20])
             pos = random.randint(1, max(1, n - 1)) if n > 1 else 0
+            why_new = ("новое для тебя — исследуем твой вкус"
+                       if div != "discover" else "широта — режим «Новое»")
             rest = [p for p in picked if p[0].id != pick[0].id]
-            picked = (rest[:pos] + [(pick[2], "новое для тебя — исследуем твой вкус")]
-                      + rest[pos:])[:n]
+            picked = (rest[:pos] + [(pick[2], why_new)] + rest[pos:])[:n]
 
     # маленький каталог/длинная сессия: разрешаем и уже игравшее (не трогая
     # лайки/дисклайки), чтобы волна никогда не замолкала
@@ -281,7 +336,7 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
         for t in pool.values():
             if not usable(t, False) or any(p[0].id == t.id for p in picked):
                 continue
-            score, why = _score(t, kb, ws)
+            score, why = _score(t, kb, ws, popul_mult)
             if t.id in kb.skip_ids:
                 score += SKIP_SCORE
             extra.append((score, t.id, t, "снова в волне — из твоих настойчивых"))

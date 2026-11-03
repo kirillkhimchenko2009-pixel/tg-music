@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from bot import runtime
 from server.auth import CurrentUser, tg_user
-from services.wave import service
+from services.wave import prefetch, service
 
 LOG = logging.getLogger("routes.wave")
 router = APIRouter(prefix="/api/wave", tags=["wave"])
@@ -46,13 +46,17 @@ class SettingsBody(BaseModel):
 @router.post("/start")
 async def wave_start(body: StartBody, user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
-        return await service.start(s, int(user.id), body.engine)
+        resp = await service.start(s, int(user.id), body.engine)
+    prefetch.kick(int(user.id), resp)          # М3: стримы + следующая партия B — заранее
+    return resp
 
 
 @router.post("/next")
 async def wave_next(body: NextBody, user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
-        return await service.next_batch(s, int(user.id), int(body.session_id), body.last)
+        resp = await service.next_batch(s, int(user.id), int(body.session_id), body.last)
+    prefetch.kick(int(user.id), resp)
+    return resp
 
 
 @router.post("/feedback")

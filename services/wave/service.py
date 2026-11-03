@@ -95,6 +95,7 @@ async def update_settings(s, user_id: int, patch: dict) -> dict:
             else:
                 setattr(ws, lst, [str(x)[:32] for x in v][:12])
     ws.updated_at = utcnow()
+    await _invalidate_prefetch(s, user_id)     # заготовки B под старую формулу — мимо
     await s.commit()
     return settings_dto_of(ws)
 
@@ -235,6 +236,62 @@ async def _ext_id(s, track_id: int | None) -> str | None:
     return None
 
 
+# -------------------------------- prefetch (М3) --------------------------------
+
+async def _hydrate_prefetch(s, user_id: int, ws, sess: WaveSession):
+    """Готовая партия из wave_sessions.prefetch (движок B) с ревалидацией:
+    дисклайкнутых, 18+ и уже отыгранных исключаем; недобор — полный пересчёт."""
+    entries = [(int(e.get("id")), (e.get("why") or "").strip())
+               for e in (sess.prefetch or [])
+               if isinstance(e, dict) and e.get("id")]
+    sess.prefetch = []                   # потребляем всегда — иначе живёт вечно
+    if len(entries) < 2:
+        return None
+
+    ids = [i for i, _ in entries]
+    tracks = {t.id: t for t in (await s.execute(
+        select(Track).where(Track.id.in_(ids)))).scalars()}
+
+    # лёгкая ревалидация вкуса: только дисклайки по этим трекам + их артисты
+    dq = (select(TrackFeedback.track_id, Track.artist)
+          .join(Track, Track.id == TrackFeedback.track_id)
+          .where(TrackFeedback.user_id == user_id, TrackFeedback.kind == -1,
+                 TrackFeedback.track_id.in_(ids)))
+    ds_track = set()
+    ds_artist = set()
+    for tid, artist in (await s.execute(dq)).all():
+        ds_track.add(int(tid))
+        ak = own_engine.artist_key(artist) if artist else None
+        if ak:
+            ds_artist.add(ak)
+    played_set = set(int(x) for x in (sess.played_track_ids or []))
+
+    pairs: list[tuple[Track, str]] = []
+    for tid, why in entries:
+        t = tracks.get(int(tid))
+        if t is None or t.id in played_set or t.id in ds_track:
+            continue
+        ak = own_engine.artist_key(t.artist)
+        if ak and ak in ds_artist:
+            continue
+        if not getattr(ws, "allow_explicit", True) and t.explicit:
+            continue
+        pairs.append((t, why or "подобрано по твоей формуле"))
+        if len(pairs) == (own_engine.BATCH or 3):
+            break
+    if len(pairs) < 2:
+        return None                      # тощий prefetch лучше честного подсчёта
+    return pairs
+
+
+async def _invalidate_prefetch(s, user_id: int) -> None:
+    """Формула/дизлайк изменились — заготовленная партия B больше не истина."""
+    await s.execute(update(WaveSession)
+                    .where(WaveSession.user_id == user_id,
+                           WaveSession.active.is_(True))
+                    .values(prefetch=[]))
+
+
 # -------------------------------- старт --------------------------------
 
 async def start(s, user_id: int, engine_pref: str | None) -> dict:
@@ -359,7 +416,9 @@ async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dic
             sess.engine = "own"          # бесшовно на B, не роняя сессию
 
     if sess.engine == "own":
-        pairs = await own_engine.next_batch(s, user_id, ws, sess)
+        pairs = await _hydrate_prefetch(s, user_id, ws, sess)
+        if pairs is None:
+            pairs = await own_engine.next_batch(s, user_id, ws, sess)
         if not pairs:
             await s.commit()
             raise HTTPException(503, "волна временно иссякла — доступно позже")
@@ -426,6 +485,7 @@ async def feedback(s, user_id: int, session_id: int, event: str,
         await _open_play_event(s, user_id, sess.id, track_id)
     elif event == "dislike" and track_id:
         await _add_feedback(s, user_id, track_id, -1)
+        await _invalidate_prefetch(s, user_id)   # вкус изменился — заготовки B в мусор
     elif event == "undislike" and track_id:
         await _del_feedback(s, user_id, track_id, -1)
     elif event == "like" and track_id:
