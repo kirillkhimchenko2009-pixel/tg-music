@@ -326,7 +326,7 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
             pos = random.randint(1, max(1, n - 1)) if n > 1 else 0
             why_new = ("новое для тебя — исследуем твой вкус"
                        if div != "discover" else "широта — режим «Новое»")
-            rest = [p for p in picked if p[0].id != pick[0].id]
+            rest = [p for p in picked if p[0].id != pick[2].id]   # pick[0]=score!
             picked = (rest[:pos] + [(pick[2], why_new)] + rest[pos:])[:n]
 
     # маленький каталог/длинная сессия: разрешаем и уже игравшее (не трогая
