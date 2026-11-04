@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings } from '../api.js';
 import * as P from '../player.js';
+import { usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
 import { coverOr, IcoNext, PlayPause } from '../App.jsx';
 import { toggleLike, useLikes } from '../likes.js';

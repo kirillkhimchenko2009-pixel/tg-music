@@ -28,12 +28,15 @@ const TABS = [
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default function App() {
-  const [tab, setTab] = useState('library');
+  // #wave из внешних точек входа (кнопка «🌊 Волна» в боте) — стартуем сразу с волны
+  const [tab, setTab] = useState(() =>
+    /wave/i.test(location.hash || '') ? 'wave' : 'library');
   const [ok, setOk] = useState('boot');
   const [name, setName] = useState('');
   const [playingTrack, setPlayingTrack] = useState(null);
 
   useEffect(() => {
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     let dead = false;
     const boot = async () => {
       // 1) Telegram: initData обычно есть сразу; на всякий случай до ~1.2 c

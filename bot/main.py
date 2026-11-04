@@ -29,6 +29,7 @@ async def set_commands(bot: Bot):
     from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
     commands = [
         BotCommand(command="get", description="Скачать трек: /get Название — Исполнитель"),
+        BotCommand(command="wave", description="🌊 Моя волна — бесконечный поток музыки"),
         BotCommand(command="fav", description="❤ Мои любимые треки"),
         BotCommand(command="newplaylist", description="Создать плейлист"),
         BotCommand(command="playlists", description="Мои плейлисты"),

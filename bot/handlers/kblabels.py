@@ -62,6 +62,11 @@ async def on_label(message: types.Message, state: Optional[FSMContext] = None):
         from bot.handlers.start import cmd_help
         await cmd_help(message)
         return
+    # только командная форма: голое слово «Волна» — это вероятный поисковый запрос
+    if key in ("волна", "моя волна") and (message.text or "").lstrip().startswith("/"):
+        from bot.handlers.wave import cmd_wave
+        await cmd_wave(message)
+        return
 
     # Это не подпись кнопки — пропускаем дальше (поиск по тексту и т.д.)
     raise SkipHandler
