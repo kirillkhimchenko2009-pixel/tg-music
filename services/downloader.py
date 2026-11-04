@@ -37,15 +37,20 @@ async def _run(cmd: list[str], on_progress=None) -> None:
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     pct_re = re.compile(r"(\d{1,3}(?:\.\d)?)%")
     assert proc.stdout
+    last_out = ""
     async for raw in proc.stdout:
         line = raw.decode(errors="ignore")
+        if line.strip():
+            last_out = line
         if on_progress:
             m = pct_re.search(line)
             if m:
                 _report(on_progress, float(m.group(1)))
     await proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError(f"скачивание завершилось с кодом {proc.returncode}")
+        raise RuntimeError(
+            f"скачивание завершилось с кодом {proc.returncode}"
+            f" (последний вывод: {last_out.strip()[:160]})")
 
 async def download_track(meta: TrackMeta, quality: str = "aac320",
                          file_name: str | None = None,

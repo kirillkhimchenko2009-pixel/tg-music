@@ -338,7 +338,7 @@ async def _resolve_online_audio(track_id: int, t: Track,
                     await session.commit()
                 except Exception:
                     pass
-            url = await YandexProvider(tok).track_url(m, "")   # 320/aac — стримабельно
+            url = await _ya.YandexProvider(tok).track_url(m, "")  # 320/aac — стримабельно
             if url:
                 log.info("онлайн-звук «%s» → yandex: %s (18+: %s)",
                          query, m.display(), expl18)
