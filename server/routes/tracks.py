@@ -877,6 +877,11 @@ async def relay_response(url: str, rng: str | None, proxy: str | None):
     if up.headers.get("content-range"):
         out["Content-Range"] = up.headers["content-range"]
     ct = up.headers.get("content-type") or "audio/mpeg"
+    # строгие мобильные WebView (особенно iOS) отказываются декодировать
+    # octet-stream как аудио: звук стартует и умирает при буферизации.
+    # Источник отдаёт mp3 — приводим к честному аудио-типу.
+    if "audio/" not in ct:
+        ct = "audio/mpeg"
 
     async def gen():
         try:
