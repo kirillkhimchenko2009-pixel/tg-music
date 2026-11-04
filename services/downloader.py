@@ -75,6 +75,74 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
              path.name, path.stat().st_size)
     return DownloadResult(path=path, quality="aac320", size_bytes=path.stat().st_size)
 
+async def download_ffmpeg_hls(playlist_url: str, meta: TrackMeta,
+                              on_progress=None) -> "DownloadResult | None":
+    """SoundCloud HLS (fMP4-плейлист) → mp3 на диск напрямую через ffmpeg.
+
+    yt-dlp на датацентровых IP у SoundCloud регулярно спотыкается, а вот
+    сам плейлист (m3u8, ссылка живёт 2–6 ч) ffmpeg отлично читает — этим и
+    стрим-роут пользуется. Прогресс здесь грубый: 30 % на старте, 90 % после
+    конвертации (длительность неизвестна заранее)."""
+    import os
+    import shutil
+
+    if shutil.which("ffmpeg") is None:
+        log.info("ffmpeg не найден — ffmpeg-hls недоступен")
+        return None
+    settings.AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"\W+", "_", meta.external_id)[:90]
+    out_path = settings.AUDIO_DIR / f"{meta.source}_{stem}.mp3"
+    if out_path.exists() and out_path.stat().st_size > 96 * 1024:
+        return DownloadResult(path=out_path, quality="aac320",
+                              size_bytes=out_path.stat().st_size)
+
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+        "-protocol_whitelist", "http,https,tls,tcp,applehttps,httpproxy",
+        "-multiple_requests", "1",
+        "-i", playlist_url,
+        "-vn", "-map", "0:a", "-c:a", "libmp3lame", "-b:a", "160k",
+        "-y", out_path.as_posix(),
+    ]
+    env = dict(os.environ)
+    if settings.PROXY_URL:
+        env["http_proxy"] = env["https_proxy"] = settings.PROXY_URL
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL, env=env)
+    if on_progress:
+        try:
+            on_progress(30.0)
+        except Exception:
+            pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=420)
+    except asyncio.TimeoutError:
+        if proc.returncode is None:
+            proc.kill()
+        log.info("ffmpeg-hls %s: таймаут 420 с", meta.display())
+        return None
+    if proc.returncode != 0:
+        log.info("ffmpeg-hls %s: код %s", meta.display(), proc.returncode)
+        out_path.unlink(missing_ok=True)
+        return None
+    size = out_path.stat().st_size
+    if size < 96 * 1024:              # обрезка/ошибка — пустышку не отдаём
+        log.info("ffmpeg-hls %s: подозрительно малый файл (%s байт)",
+                 meta.display(), size)
+        out_path.unlink(missing_ok=True)
+        return None
+    if on_progress:
+        try:
+            on_progress(90.0)
+        except Exception:
+            pass
+    log.info("ffmpeg-hls %s: ok (%s байт)", meta.display(), size)
+    return DownloadResult(path=out_path, quality="aac320", size_bytes=size)
+
+
 async def download_direct(url: str, meta: TrackMeta, quality: str,
                           on_progress=None, headers: dict | None = None,
                           use_proxy: bool = True) -> DownloadResult | None:

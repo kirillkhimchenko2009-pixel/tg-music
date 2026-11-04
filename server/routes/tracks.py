@@ -242,7 +242,9 @@ async def stream_user(
         uid = check_stream_token(t)
         if uid is not None:
             return CurrentUser(id=uid, username=None, first_name="player")
-    return await tg_user(init_data=x_init_data, authorization=authorization)
+    # tg_user синхронный (def, не async) — вызов без await; await здесь ломал
+    # каждый запрос с просроченным/невалидным ?t= в 500 вместо 401
+    return tg_user(init_data=x_init_data, authorization=authorization)
 
 
 @router.get("/player/{track_id}")

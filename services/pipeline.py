@@ -6,6 +6,7 @@ from core.config import settings
 from services import downloader
 from services.providers import yandex as ymx
 from services.providers import zvuk as zv
+from services.providers import soundcloud as scc
 from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
 from services.providers import hotplayer as hpl
@@ -117,4 +118,16 @@ async def _download_inner(dl_meta, quality, token, on_progress):
         if res:
             return res
         # yt-dlp как запасной путь ниже
+    if dl_meta.source == "soundcloud":
+        # yt-dlp у SC на датацентровых IP регулярно падает — берём HLS-плейлист
+        # и транскодим ffmpeg'ом (тот же путь, что у стрим-роута)
+        try:
+            playlist = await scc.hls_stream(dl_meta.external_id)
+        except Exception:
+            playlist = None
+        if playlist:
+            res = await downloader.download_ffmpeg_hls(
+                playlist, dl_meta, on_progress=on_progress)
+            if res:
+                return res
     return await downloader.download_track(dl_meta, quality, on_progress=on_progress)
