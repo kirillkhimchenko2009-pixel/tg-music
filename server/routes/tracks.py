@@ -637,14 +637,18 @@ async def _sc_hls_iter(playlist_url: str):
 
 
 @router.get("/diag/hls")
-async def diag_hls(url: str, user: CurrentUser = Depends(tg_user)):
-    """Отладка: резолв SC HLS с прод-IP → свежий m3u8 для локальных тестов."""
+async def diag_hls(url: str, mode: str = "m3u8",
+                   user: CurrentUser = Depends(tg_user)):
+    """Отладка SoundCloud: mode=m3u8 → свежий плейлист; mode=trans → список
+    transcodings с прод-IP (есть ли progressive вне FairPlay-схемы)."""
     from services.providers import soundcloud as scc
 
+    if mode == "trans":
+        res = await asyncio.to_thread(scc._default._trans_sync, url)
+        return res
     playlist = await scc.hls_stream(url)
     if not playlist:
-        return {"ok": False, "reason": "hls_stream вернул None",
-                "client_id_hint": getattr(scc, "_CLIENT_ID", None)}
+        return {"ok": False, "reason": "hls_stream вернул None"}
     return {"ok": True, "m3u8": playlist}
 
 

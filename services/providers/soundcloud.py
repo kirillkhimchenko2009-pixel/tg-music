@@ -139,6 +139,27 @@ class SoundCloudProvider:
             log.info("soundcloud поиск не удался (%s)", type(e).__name__)
         return pool[:limit]
 
+    def _trans_sync(self, permalink: str) -> dict:
+        """Диагностика: список transcodings с текущим client_id."""
+        for attempt in (0, 1):
+            cid = self._client_id(force=attempt > 0)
+            if not cid:
+                return {"client_id": None}
+            r = self._c().get(_API + "/resolve", params={
+                "url": permalink, "client_id": cid})
+            if r.status_code != 200:
+                if attempt == 0:
+                    continue
+                return {"resolve_status": r.status_code, "client_id": cid}
+            j = r.json()
+            trans = ((j.get("media") or {}).get("transcodings")) or []
+            return {"client_id": cid,
+                    "transcodings": [{"preset": t.get("preset"),
+                                      "protocol": (t.get("format") or {}).get("protocol"),
+                                      "url": (t.get("url") or "")[:100]}
+                                     for t in trans]}
+        return {"error": "resolve не удался"}
+
     def _hls_sync(self, permalink: str) -> str | None:
         """m3u8-плейлист полного трека: resolve → transcodings → aac_160k."""
         for attempt in (0, 1):
