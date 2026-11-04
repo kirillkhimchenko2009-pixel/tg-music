@@ -131,9 +131,13 @@ async def download_ffmpeg_hls(playlist_url: str, meta: TrackMeta,
         log.info("ffmpeg-hls %s: таймаут 420 с", meta.display())
         return None
     if proc.returncode != 0:
-        tail = (err or b"").decode(errors="replace").strip()[-300:]
-        log.info("ffmpeg-hls %s: код %s, ffmpeg: %s",
-                 meta.display(), proc.returncode, tail or "<без вывода>")
+        tail = (err or b"").decode(errors="replace").strip()
+        # SC m3u8 содержит гигантские подписи в URI — берём УМНЫЙ срез: и
+        # начало ошибок (контекст), и конец (финальный вердикт)
+        head = tail[:400].replace("\n", " | ")
+        last = tail[-250:].replace("\n", " | ")
+        log.info("ffmpeg-hls %s: код %s, ffmpeg head: %s … ffmpeg tail: %s",
+                 meta.display(), proc.returncode, head, last)
         out_path.unlink(missing_ok=True)
         return None
     size = out_path.stat().st_size
