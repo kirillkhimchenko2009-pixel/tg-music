@@ -58,7 +58,7 @@ export default function Wave() {
   const [phase, setPhase] = useState('boot');   // boot | ready | err
   const [err, setErr] = useState('');
   const [ws, setWs] = useState(null);           // формула (settings DTO)
-  const [sess, setSess] = useState(null);       // { session_id, engine, skips_* }
+  const [sess, setSess] = useState(null);       // { session_id, engine }
   const [sheet, setSheet] = useState(false);
   const [dirty, setDirty] = useState(false);    // формула изменилась — жмёт перезапуск
   const booted = useRef(false);
@@ -67,16 +67,13 @@ export default function Wave() {
     setPhase('boot'); setErr('');
     try {
       const j = await waveStart(engine || ws?.engine || 'auto');
-      setSess({ session_id: j.session_id, engine: j.engine,
-        skips_per_hour: j.skips_per_hour, skips_used: j.skips_used || 0 });
+      setSess({ session_id: j.session_id, engine: j.engine });
       // порядок важен: play() сбрасывает wave-источник — волну включаем ПОСЛЕ
       await P.play(j.tracks || [], 0);
       P.setWaveSource({
         sessionId: j.session_id,
         fetchMore: async (last) => {
           const r = await waveNext(j.session_id, last);
-          if (r.skips_per_hour !== undefined) setSess(p => ({ ...p,
-            skips_per_hour: r.skips_per_hour, skips_used: r.skips_used || 0 }));
           return r.tracks || [];
         },
         onEvent: (kind, track, played) => {
@@ -105,11 +102,8 @@ export default function Wave() {
     })();
   }, []);
 
-  /* live-обновление счётчика скипов из ответов /next приходит через setSess; */
   const cur = st.queue[st.index];
   const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
-  const skipsSoon = !!sess?.skips_per_hour
-    && (sess.skips_used || 0) + 1 >= sess.skips_per_hour;
 
   const dislike = () => {
     haptic('medium');
@@ -182,10 +176,6 @@ export default function Wave() {
           <span className={'wave-engine ' + (sess?.engine === 'yandex' ? 'ym' : 'own')}>
             {sess?.engine === 'yandex' ? '⚡ Волна ЯМ' : '◈ Свой движок'}
           </span>
-          {sess?.skips_per_hour ? (
-            <span className={'skips' + (skipsSoon ? ' soon' : '')}>
-              Скипы: {sess.skips_used || 0}/{sess.skips_per_hour} в час
-            </span>) : null}
           {st.loading && <span className="minispinner" />}
         </div>
       </> : phase === 'err' ? <>

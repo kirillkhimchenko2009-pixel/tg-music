@@ -14,10 +14,9 @@ trackStarted для движка A отправляет сервер при вы
 """
 import logging
 import time
-from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 
 from core.models import (PlayEvent, Track, TrackFeedback, WaveSession, WaveSettings,
                          utcnow)
@@ -31,8 +30,6 @@ BATCH = 3
 ROTOR_COOLDOWN_S = 30 * 60          # после падения rotor движок A отдыхает
 
 _rotor_unwell_until = 0.0           # monotonic-подобный cooldown (wall clock)
-_sph_value: int | None = None       # кеш skipsPerHour ЯМ (10 мин)
-_sph_until = 0.0
 
 
 # ------------------------------ формула (settings) ------------------------------
@@ -123,30 +120,6 @@ async def resolve_engine(s, user_id: int, pref: str | None) -> str:
         if tok:
             return "yandex"
     return "own"
-
-
-async def _skips_per_hour(tok: str | None) -> int | None:
-    """skipsPerHour из rotor/account/status с 10-минутным кешем."""
-    global _sph_value, _sph_until
-    if not tok:
-        return None
-    if _sph_value is not None and time.time() < _sph_until:
-        return _sph_value
-    try:
-        st = await yandex_rotor.account_status(tok)
-        _sph_value = int(st.get("skips_per_hour") or 0) or None
-        _sph_until = time.time() + 600
-    except Exception:
-        return _sph_value          # старое значение лучше ошибки
-    return _sph_value
-
-
-async def _skips_used(s, user_id: int) -> int:
-    since = utcnow() - timedelta(hours=1)
-    q = (select(func.count()).select_from(PlayEvent)
-         .where(PlayEvent.user_id == user_id, PlayEvent.origin == "wave",
-                PlayEvent.skipped.is_(True), PlayEvent.finished_at >= since))
-    return int((await s.execute(q)).scalar_one() or 0)
 
 
 # ---------------------------------- DTO ----------------------------------
@@ -353,8 +326,6 @@ async def start(s, user_id: int, engine_pref: str | None) -> dict:
         "session_id": sess.id,
         "engine": sess.engine,
         "tracks": [_dto(t, why) for t, why in pairs],
-        "skips_per_hour": await _skips_per_hour(tok if sess.engine == "yandex" else None),
-        "skips_used": 0,
     }
     return out
 
@@ -432,8 +403,6 @@ async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dic
         "engine": sess.engine,
         "tracks": [_dto(t, why) for t, why in pairs],
         "batch_id": sess.batch_id,
-        "skips_per_hour": await _skips_per_hour(tok if sess.engine == "yandex" else None),
-        "skips_used": await _skips_used(s, user_id),
     }
     return out
 

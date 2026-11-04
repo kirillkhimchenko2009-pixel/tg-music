@@ -1021,7 +1021,6 @@ body {
 .wave-hist-glyph { color: rgba(255, 219, 77, .4); font-size: 1.2rem; font-weight: 900; }
 
 /* скип-лимит на исходе */
-.wave-foot .skips.soon { color: #FF9C6D; font-weight: 800; }
 
 /* формула «дышит», когда её надо перезапустить */
 .wave-formula.dirty { animation: wbreathe 2.4s ease-in-out infinite; }
