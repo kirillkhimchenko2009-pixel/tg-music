@@ -905,20 +905,25 @@ body {
 .wave-seek { width: 100%; margin-top: 14px; }
 
 .wave-ctrl {
-  display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 16px;
+  display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px;
 }
-.wave-no, .wave-next { width: 62px; height: 62px; font-size: 1.3rem; }
+.wave-no, .wave-dl, .wave-next { width: 58px; height: 58px; font-size: 1.25rem; }
+.wave-ctrl .cbtn.big { width: 62px; height: 62px; font-size: 1.4rem; }
 .wave-no[disabled] { opacity: .35; pointer-events: none; }
+.wave-dl { display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; flex-shrink: 0; }
+.wave-dl svg { width: 24px; height: 24px; }
 .wave-next {
   background: linear-gradient(160deg, #FFDB4D 0%, #FFB33C 100%); color: #1A1200;
   box-shadow: 0 12px 32px rgba(255, 200, 60, .3), inset 0 1px 0 rgba(255,255,255,.35);
 }
 .wave-ctrl .heart.lg {
-  width: 62px; height: 62px; padding: 0;
+  width: 58px; height: 58px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, .08); border: 0; border-radius: 50%;
+  flex-shrink: 0;
 }
-.wave-ctrl .heart.lg svg { width: 27px; height: 27px; }
+.wave-ctrl .heart.lg svg { width: 26px; height: 26px; }
 
 .wave-foot {
   display: flex; align-items: center; gap: 10px; margin-top: 18px;

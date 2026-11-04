@@ -2,11 +2,11 @@
    Гибрид: движок A — rotor ЯМ (у владельцев /token), движок B — наш подбор.
    Формула в bottom-sheet: настроение, занятие, жанры, разнообразие, язык, 18+. */
 import React, { useEffect, useRef, useState } from 'react';
-import { waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings } from '../api.js';
+import { api, waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings } from '../api.js';
 import * as P from '../player.js';
 import { usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, IcoNext, PlayPause } from '../App.jsx';
+import { coverOr, IcoDownload, IcoNext, PlayPause } from '../App.jsx';
 import { toggleLike, useLikes } from '../likes.js';
 
 const MOODS = [
@@ -111,6 +111,24 @@ export default function Wave() {
     P.next();
   };
 
+  /* Скачать трек в чат (тот же путь, что кнопка ⤓ в полном плеере) */
+  const [dl, setDl] = useState('');
+  const download = async () => {
+    if (!cur || dl === 'busy') return;
+    haptic('medium'); setDl('busy');
+    try {
+      const { job } = await api('/api/download?track_id=' + cur.id, { method: 'POST' });
+      let it = 0;
+      while (it++ < 400) {
+        const s2 = await api('/api/jobs/' + job);
+        if (s2.status === 'done') { setDl('done'); break; }
+        if (s2.status === 'error') { setDl('err'); break; }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    } catch { setDl('err'); }
+    setTimeout(() => setDl(''), 4000);
+  };
+
   const patchFormula = async (patch) => {
     haptic('select');
     try {
@@ -160,6 +178,11 @@ export default function Wave() {
             <WaveNoIcon />
           </button>
           <WaveHeart id={cur.id} big session={sess?.session_id} />
+          <button className="cbtn glass wave-dl" aria-label="Скачать в чат"
+                  onClick={download}>
+            {dl === 'busy' ? <span className="minispinner" />
+              : dl === 'done' ? '✓' : dl === 'err' ? '!' : <IcoDownload />}
+          </button>
           <button className="cbtn big wave-next" aria-label="Другой трек"
                   onClick={() => { haptic('medium'); P.next(); }}>
             <IcoNext />
