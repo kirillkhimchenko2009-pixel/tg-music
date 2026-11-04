@@ -19,6 +19,19 @@ class DownloadResult:
 
 _YT_URL = "https://music.youtube.com/watch?v={vid}"
 
+def _report(on_progress, pct: float) -> None:
+    """Прогресс-колбэк бывает и async (роут-джобы), и sync — шлём как умеем."""
+    if not on_progress:
+        return
+    try:
+        if asyncio.iscoroutinefunction(on_progress):
+            asyncio.get_running_loop().create_task(on_progress(pct))
+        else:
+            on_progress(pct)
+    except Exception:
+        pass
+
+
 async def _run(cmd: list[str], on_progress=None) -> None:
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
@@ -29,10 +42,7 @@ async def _run(cmd: list[str], on_progress=None) -> None:
         if on_progress:
             m = pct_re.search(line)
             if m:
-                try:
-                    on_progress(float(m.group(1)))
-                except Exception:
-                    pass
+                _report(on_progress, float(m.group(1)))
     await proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"скачивание завершилось с кодом {proc.returncode}")
@@ -111,21 +121,19 @@ async def download_ffmpeg_hls(playlist_url: str, meta: TrackMeta,
         env["http_proxy"] = env["https_proxy"] = settings.PROXY_URL
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL, env=env)
-    if on_progress:
-        try:
-            on_progress(30.0)
-        except Exception:
-            pass
+        stderr=asyncio.subprocess.PIPE, env=env)
+    _report(on_progress, 30.0)
     try:
-        await asyncio.wait_for(proc.wait(), timeout=420)
+        _out, err = await asyncio.wait_for(proc.communicate(), timeout=420)
     except asyncio.TimeoutError:
         if proc.returncode is None:
             proc.kill()
         log.info("ffmpeg-hls %s: таймаут 420 с", meta.display())
         return None
     if proc.returncode != 0:
-        log.info("ffmpeg-hls %s: код %s", meta.display(), proc.returncode)
+        tail = (err or b"").decode(errors="replace").strip()[-300:]
+        log.info("ffmpeg-hls %s: код %s, ffmpeg: %s",
+                 meta.display(), proc.returncode, tail or "<без вывода>")
         out_path.unlink(missing_ok=True)
         return None
     size = out_path.stat().st_size
@@ -135,10 +143,7 @@ async def download_ffmpeg_hls(playlist_url: str, meta: TrackMeta,
         out_path.unlink(missing_ok=True)
         return None
     if on_progress:
-        try:
-            on_progress(90.0)
-        except Exception:
-            pass
+        _report(on_progress, 90.0)
     log.info("ffmpeg-hls %s: ok (%s байт)", meta.display(), size)
     return DownloadResult(path=out_path, quality="aac320", size_bytes=size)
 
