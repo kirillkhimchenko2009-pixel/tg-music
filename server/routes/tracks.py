@@ -636,6 +636,29 @@ async def _sc_hls_iter(playlist_url: str):
                 pass
 
 
+@router.get("/diag/hls")
+async def diag_hls(url: str, user: CurrentUser = Depends(tg_user)):
+    """Отладка ffmpeg-hls: разово сконвертить указанный m3u8 в файл и вернуть итог.
+
+    Диагностика обрыва «код 183» в прод: тот же код, что у downloader."""
+    import os as _os
+    from services import downloader
+    from services.providers.base import TrackMeta
+
+    meta = TrackMeta(source="soundcloud", external_id="diag",
+                     artist="diag", title=url[:40], duration=0)
+    res = await downloader.download_ffmpeg_hls(url, meta)
+    if res is None:
+        # дерём живой stderr из последней попытки: логи уже в stdout-логах
+        from services import downloader as d2
+        tmp = settings.AUDIO_DIR / "soundcloud_diag.mp3"
+        if tmp.exists():
+            tmp.unlink()
+        return {"ok": False, "playlist": url[:80], "см": "логи render"}
+    return {"ok": True, "path": res.path.name, "size": res.size_bytes,
+            "exists": _os.path.exists(res.path)}
+
+
 @router.get("/diag/sources")
 async def diag_sources(q: str = "баста сансара", user: CurrentUser = Depends(tg_user)):
     """Проверка источников с IP продакшна: поиск → ссылка → реальные байты."""
