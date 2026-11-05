@@ -211,6 +211,9 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                     return
                 st.update(status="error", error="файл не доступен")
     except Exception as e:  # noqa: BLE001
+        # полный трейс в логи: str(e) в job-статусе часто лишь «rolled back»,
+        # а исходное место падения видно только здесь
+        log.exception("deliver job %s упал (track %s):", job_id, track_id)
         # часто тут TelegramEntityTooLarge (>50 MB) — превью-файл крошечный,
         # его отправка всё равно реально сработает
         try:

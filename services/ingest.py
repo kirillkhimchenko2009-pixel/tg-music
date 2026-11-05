@@ -275,9 +275,12 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
         await session.commit()
         # удаляем заглушку из другого источника, если она без файла
         if dl_track.id != track.id and not (track.local_path or track.file_id):
+            # заглушку удаляем в SAVEPOINT: FK без CASCADE (playlist_tracks,
+            # play_events…) гонит IntegrityError на flush — откатываем только
+            # точку, иначе сессия остаётся отравленной (PendingRollbackError)
             try:
-                await session.delete(track)
-                await session.flush()
+                async with session.begin_nested():
+                    await session.delete(track)
             except Exception:
                 pass
         return Resolved(track=dl_track, file_path=res.path,
@@ -295,9 +298,12 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
         dl_track.local_path = res.path.as_posix()
         await session.commit()
         if dl_track.id != track.id and not (track.local_path or track.file_id):
+            # заглушку удаляем в SAVEPOINT: FK без CASCADE (playlist_tracks,
+            # play_events…) гонит IntegrityError на flush — откатываем только
+            # точку, иначе сессия остаётся отравленной (PendingRollbackError)
             try:
-                await session.delete(track)
-                await session.flush()
+                async with session.begin_nested():
+                    await session.delete(track)
             except Exception:
                 pass
         return Resolved(track=dl_track, file_path=res.path,

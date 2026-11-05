@@ -3,6 +3,7 @@ import json
 from dataclasses import asdict
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import Track
@@ -23,9 +24,20 @@ async def upsert_track(session: AsyncSession, meta: TrackMeta) -> Track:
         track.year = meta.year
         track.explicit = bool(getattr(meta, "explicit", False))
         return track
+    # INSERT тоже в SAVEPOINT: гонка двух джобов на один (source, external_id)
+    # валит flush IntegrityError — откатываем точку и перечитываем, а не
+    # отравляем сессию (иначе любой следующий доступ к атрибутам строк
+    # этого каталога даёт PendingRollbackError, и джоба умирает целиком)
     track = Track(**asdict(meta))
     session.add(track)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            await session.flush()
+    except IntegrityError:
+        existing = (await session.execute(q)).scalar_one_or_none()
+        if existing:
+            return existing
+        raise
     return track
 
 async def upsert_by_playlist_item(session: AsyncSession, meta: TrackMeta,
