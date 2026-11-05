@@ -287,7 +287,7 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
         # все источники отдали цензурные заливки — отдаём наименее замученную
         res, dl_meta = bad["res"], bad["meta"]
         log.warning("ingest: все источники отдали цензурные заливки — "
-                    "отдаю наименее замученную (%s бипов/мутов=%s, %s)",
+                    "отдаю наименее замученную (%s бипов/мутов, %s)",
                     bad["offenders"], dl_meta.display())
         dl_track = await _upsert(session, dl_meta)
         dl_track.quality = res.quality
