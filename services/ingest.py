@@ -279,6 +279,16 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                         chk["beeps"], chk["mutes"])
             if bad is None or offenders < bad["offenders"]:
                 bad = {"res": res, "meta": dl_meta, "offenders": offenders}
+            # файл уже на диске — запоминаем его на строке источника,
+            # чтобы повторное нажатие «скачать» не перекачивало заливку
+            try:
+                ctrack = await _upsert(session, dl_meta)
+                ctrack.quality = res.quality
+                ctrack.size_bytes = res.size_bytes
+                ctrack.local_path = res.path.as_posix()
+                await session.commit()
+            except Exception:  # noqa: BLE001
+                pass
             continue
         dl_track = await _upsert(session, dl_meta)
         dl_track.quality = res.quality
