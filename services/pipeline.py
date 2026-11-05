@@ -54,8 +54,8 @@ async def download(dl_meta: TrackMeta, quality: str, token: str = "",
         try:
             return await _download_inner(dl_meta, quality, token, on_progress)
         except Exception as e1:
-            log.info("скачивание %s сорвалось (%s) — ретрай через 2 с",
-                     dl_meta.display(), type(e1).__name__)
+            log.info("скачивание %s сорвалось (%s: %s) — ретрай через 2 с",
+                     dl_meta.display(), type(e1).__name__, str(e1)[:180])
             await asyncio.sleep(2)
             try:
                 return await _download_inner(dl_meta, quality, token, on_progress)
