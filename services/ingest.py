@@ -250,6 +250,18 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
 
     bad: dict | None = None            # наименее зацензуренный кандидат
     for dl_meta, token in chain:
+        # если этот источник уже качался раньше и файл кеширован в ТГ —
+        # отдаём мгновенно (иначе повторное нажатие «скачать» снова гоняет
+        # весь конвейер пару минут, а юзер видит «вечную загрузку»)
+        prev = await _upsert(session, dl_meta)
+        if prev.id != track.id:
+            if prev.file_id:
+                return Resolved(track=prev, file_path=None,
+                                quality=prev.quality, status="cached")
+            local_p = Path(prev.local_path) if prev.local_path else None
+            if local_p and local_p.exists():
+                return Resolved(track=prev, file_path=local_p,
+                                quality=prev.quality, status="downloaded")
         res = await pipeline.download(dl_meta, quality, token, on_progress=on_progress)
         if not res:
             log.warning("skip %s: скачивание не удалось на %-6s (%s)",
