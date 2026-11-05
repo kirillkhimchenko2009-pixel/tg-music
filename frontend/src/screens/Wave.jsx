@@ -119,14 +119,17 @@ export default function Wave() {
     try {
       const { job } = await api('/api/download?track_id=' + cur.id, { method: 'POST' });
       let it = 0;
-      while (it++ < 400) {
+      // джобы теперь быстрые; после ~3.5 мин перестаём крутить спиннер —
+      // файл всё равно готовится на сервере и придёт сообщением в чат
+      while (it++ < 175) {
         const s2 = await api('/api/jobs/' + job);
         if (s2.status === 'done') { setDl('done'); break; }
         if (s2.status === 'error') { setDl('err'); break; }
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 1200));
       }
+      if (it >= 175) setDl('');
     } catch { setDl('err'); }
-    setTimeout(() => setDl(''), 4000);
+    setTimeout(() => { if (dl !== 'busy') return; setDl(''); }, 2500);
   };
 
   const patchFormula = async (patch) => {
