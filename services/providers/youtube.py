@@ -1,9 +1,41 @@
-"""YouTube Music: поиск через ytmusicapi (гостевой), fallback — yt-dlp (учитывает PROXY_URL)."""
+"""YouTube Music: поиск через ytmusicapi (гостевой), fallback — yt-dlp (учитывает PROXY_URL).
+
+Плейлисты читаются АНОНИМНО через innertube browse (WEB_REMIX) — открыто
+даже для datacenter-IP (проверено 2026-11), без токенов и bot-check."""
 import asyncio
+import logging
 from typing import Any
 
 from services.providers.base import TrackMeta, parse_duration
 from services.net import yt_dlp_search, cover_from_yt
+
+log = logging.getLogger("providers.yt")
+
+_YTI = "https://music.youtube.com/youtubei/v1/browse"
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "Chrome/126.0 Safari/537.36")
+
+
+def _walk(o: Any, key: str):
+    """Рекурсивный сборщик значений по ключу в любом JSON от innertube."""
+    if isinstance(o, dict):
+        if key in o:
+            yield o[key]
+        for v in o.values():
+            yield from _walk(v, key)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _walk(v, key)
+
+
+def _runs_text(textobj: dict) -> str:
+    """simpleText | runs[] → единый текст."""
+    if not isinstance(textobj, dict):
+        return ""
+    if textobj.get("simpleText"):
+        return str(textobj["simpleText"])
+    return "".join(str(r.get("text") or "")
+                   for r in (textobj.get("runs") or []))
 
 class YouTubeProvider:
     def __init__(self):
@@ -77,10 +109,97 @@ class YouTubeProvider:
                 artist=artist, album=album, duration=dur, cover_url=cover))
         return out
 
+    async def _innertube_playlist(self, playlist_id: str,
+                                  limit: int | None = None) -> list[TrackMeta]:
+        """Анонимный innertube-бридж: публичные плейлисты YTM/YouTube без токенов.
+
+        WEB_REMIX-броум не проходит bot-check игрального API — и работает
+        с серверных IP (проверено). Возвращает TrackMeta; пустой список — если
+        плейлист приватный/недоступен."""
+        from services.net import httpx_client
+
+        body = {
+            "context": {"client": {"clientName": "WEB_REMIX",
+                                   "clientVersion": "1.20260101.01.00",
+                                   "hl": "ru", "gl": "RU"}},
+            "browseId": f"VL{playlist_id}",
+        }
+        # прокси-aware клиент: на серверных IP innertube отдаёт обрывок (botwall),
+        # через PROXY_URL — полный browse 200 (диагностика 347КБ против 836Б)
+        async with httpx_client(timeout=35, follow_redirects=True,
+                                trust_env=False) as c:
+            r = await c.post(_YTI, params={"prettyPrint": "false"},
+                             json=body, headers={"User-Agent": _UA})
+        r.raise_for_status()
+        if r.status_code != 200:
+            log.info("ytm innertube browse %s: HTTP %s", playlist_id[:20],
+                     r.status_code)
+            return []
+        j = r.json()
+        if j.get("alertRenderer") or j.get("error"):
+            return []
+        out: list[TrackMeta] = []
+        seen: set[str] = set()
+
+        def add(meta: TrackMeta) -> None:
+            if meta.external_id and meta.external_id not in seen \
+                    and meta.title:
+                seen.add(meta.external_id)
+                out.append(meta)
+
+        for pi in _walk(j, "playlistItemRenderer"):           # yt-стиль (RD-/PL-)
+            vid = pi.get("videoId") or ""
+            title = _runs_text(pi.get("title") or {})
+            artist = _runs_text((pi.get("shortBylineText") or {})) or \
+                _runs_text((pi.get("byline") or {}))
+            dur = parse_duration((pi.get("lengthText") or {}).get("simpleText"))
+            thumbs = ((pi.get("thumbnail") or {}).get("thumbnails") or [])
+            add(TrackMeta(source="ytmusic", external_id=vid, title=title,
+                          artist=artist, duration=dur,
+                          cover_url=thumbs[-1]["url"] if thumbs else None))
+
+        for ri in _walk(j, "musicResponsiveListItemRenderer"):  # ytm-стиль
+            vid = ((ri.get("playlistItemData") or {}).get("videoId")
+                   or ri.get("videoId") or "")
+            cols = ri.get("flexColumns") or []
+
+            def col(i: int) -> str:
+                if i >= len(cols):
+                    return ""
+                txt = ((cols[i].get("musicResponsiveListItemFlexColumnRenderer")
+                        or {}).get("text") or {})
+                return _runs_text(txt)
+
+            fixed = ri.get("fixedColumns") or []
+            dur = ""
+            if fixed:
+                ft = ((fixed[0].get("musicResponsiveListItemFixedColumnRenderer")
+                       or {}).get("text") or {})
+                dur = _runs_text(ft)
+            thumbs = (((ri.get("thumbnail") or {})
+                       .get("musicThumbnailRenderer") or {})
+                      .get("thumbnail") or {}).get("thumbnails") or []
+            add(TrackMeta(source="ytmusic", external_id=vid, title=col(0),
+                          artist=col(1), duration=parse_duration(dur),
+                          cover_url=thumbs[-1]["url"] if thumbs else None))
+
+        return out[:limit] if limit else out
+
     async def playlist(self, playlist_id: str, limit: int | None = None) -> list[TrackMeta]:
-        """Публичный плейлист YouTube Music (id из ссылки)."""
+        """Публичный плейлист YouTube Music (id из ссылки).
+
+        1) анонимный innertube-броум (нет bot-check, работает и без токенов);
+        2) ytmusicapi гостевой;
+        3) yt-dlp flat (последний резерв)."""
+        out: list[TrackMeta] = []
+        try:
+            out = await self._innertube_playlist(playlist_id, limit)
+        except Exception as e:
+            log.info("innertube playlist %s: %s", playlist_id[:24],
+                     type(e).__name__)
+            out = []
         raw: list[dict] = []
-        if not self._ytm_dead:
+        if not out and not self._ytm_dead:
             try:
                 data = await asyncio.to_thread(
                     lambda: self._client().get_playlist(playlist_id, limit or 200))
@@ -88,7 +207,7 @@ class YouTubeProvider:
             except Exception:
                 self._ytm_dead = True
                 raw = []
-        out = self._parse(raw)
+        out = out or self._parse(raw)
         if not out:
             # fallback yt-dlp: flat playlist (работает и для youtube.com/playlist)
             try:

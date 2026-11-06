@@ -9,11 +9,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from bot import runtime
 from core.config import settings
-from core.models import Track
+from core.models import Track, PlayEvent
 from server.auth import CurrentUser, tg_user
 from services import catalog
 from services.providers.base import TrackMeta
@@ -123,6 +124,51 @@ async def library(limit: int = 100, offset: int = 0,
              .limit(min(limit, 500)).offset(offset))
         rows = list((await s.execute(q)).scalars())
     return {"tracks": [track_dict(t) for t in rows]}
+
+
+# ---------------- история прослушивания (продолжить слушать / недавнее) ----------------
+
+class HistoryIn(BaseModel):
+    track_id: int
+    finished: bool = False
+    played_seconds: float = 0.0
+
+
+@router.get("/history")
+async def history(limit: int = 24, user: CurrentUser = Depends(tg_user)):
+    """Недавно прослушанное: последний факт по каждому треку, свежие сверху."""
+    limit = max(1, min(limit, 50))
+    from sqlalchemy import func
+    async with runtime.get_session() as s:
+        latest = (select(PlayEvent.track_id,
+                         func.max(PlayEvent.id).label("lid"))
+                  .where(PlayEvent.user_id == int(user.id),
+                         PlayEvent.track_id.isnot(None))
+                  .group_by(PlayEvent.track_id).subquery())
+        rows = list((await s.execute(
+            select(Track)
+            .join(latest, latest.c.track_id == Track.id)
+            .order_by(latest.c.lid.desc())
+            .limit(limit))).scalars())
+    return {"tracks": [track_dict(t) for t in rows]}
+
+
+@router.post("/history")
+async def history_add(body: HistoryIn, user: CurrentUser = Depends(tg_user)):
+    """Beacon веб-плеера: старт/окончание трека вне волны (origin=web).
+
+    Волна пишет свои события сама (по session) — здесь только обычный список."""
+    if body.played_seconds and body.played_seconds > 4 * 3600:
+        raise HTTPException(400, "недопустимая длительность")
+    async with runtime.get_session() as s:
+        t = await s.get(Track, body.track_id)
+        if not t:
+            raise HTTPException(404, "нет такого трека")
+        s.add(PlayEvent(user_id=int(user.id), track_id=body.track_id,
+                        origin="web", finished=bool(body.finished),
+                        played_seconds=max(0.0, float(body.played_seconds or 0))))
+        await s.commit()
+    return {"ok": True}
 
 @router.get("/tracks/{track_id}")
 async def get_track(track_id: int, user: CurrentUser = Depends(tg_user)):

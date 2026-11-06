@@ -25,6 +25,8 @@ SPOTIFY_PAT = re.compile(
     r"(?P<kind>playlist|track|album|artist)[/:](?P<id>[A-Za-z0-9]+)")
 ZVUK_PAT = re.compile(
     r"zvuk\.com/(?:playlist/(?P<pl>\w+)|track/(?P<trk>\d+)|(?:album|release)/(?P<alb>\d+))")
+SOUNDCLOUD_PAT = re.compile(
+    r"soundcloud\.com/(?P<user>[\w\-]+)/sets/(?P<slug>[\w\-]+)")
 YOUTUBE_PAT = re.compile(
     r"(?:youtube\.com/playlist\?|music\.youtube\.com/playlist\?)[^\s]*?list=(?P<pl>[\w\-]+)")
 
@@ -57,6 +59,10 @@ def parse(url: str) -> Link | None:
             return Link("zvuk", "track", m.group("trk"))
         if m.group("alb"):
             return Link("zvuk", "release", m.group("alb"))
+    m = SOUNDCLOUD_PAT.search(url)
+    if m:
+        permalink = f"https://soundcloud.com/{m.group('user')}/sets/{m.group('slug')}"
+        return Link("soundcloud", "playlist", permalink)
     m = YOUTUBE_PAT.search(url)
     if m:
         return Link("youtube", "playlist", m.group("pl"))

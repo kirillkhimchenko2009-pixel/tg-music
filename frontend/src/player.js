@@ -1,9 +1,13 @@
 /* Плеер: singleton audio + очередь + подписка на состояние. */
 import { useSyncExternalStore } from 'react';
-import { playerSrc } from './api.js';
+import { api, playerSrc } from './api.js';
 
 const audio = new Audio();
 audio.preload = 'metadata';
+
+const savedVol = parseFloat(localStorage.getItem('vol'));
+const initVolume = isNaN(savedVol) ? 1 : Math.min(1, Math.max(0, savedVol));
+try { audio.volume = initVolume; } catch { /* webview strictness */ }
 
 let state = {
   queue: [],
@@ -16,6 +20,7 @@ let state = {
   duration: 0,
   shuffle: false,
   loop: false,
+  volume: initVolume,
 };
 
 const listeners = new Set();
@@ -58,6 +63,7 @@ async function loadAndPlay() {
   state.loading = true;
   state.error = null;
   state.attempts = 0;
+  beaconUid = null;               // новый трек → свежий старт-беакон
   emit();
   await startUrl(track.id);
 }
@@ -168,14 +174,42 @@ export function seek(p) {
 export function setShuffle(v) { state.shuffle = v; emit(); }
 export function setLoop(v) { state.loop = v; emit(); }
 
+export function setVolume(v) {
+  state.volume = Math.min(1, Math.max(0, +v || 0));
+  try { audio.volume = state.volume; } catch { /* webview */ }
+  localStorage.setItem('vol', String(state.volume));
+  emit();
+}
+
+/* ---------------- история: беакон веб-плеера (вне волны) ----------------
+   Волна пишет свои события (/feedback), здесь только обычные списки:
+   started — при первом воспроизведении трека, finished — по завершении. */
+let beaconUid = null;
+
+function beacon(finished, played) {
+  const t = current();
+  if (!t) return;
+  if (!finished) {
+    if (beaconUid === t.id) return;
+    beaconUid = t.id;
+  }
+  api('/api/history', { method: 'POST', body: JSON.stringify({
+    track_id: t.id, finished: !!finished,
+    played_seconds: Math.max(0, Math.round(played || 0)) }) }).catch(() => {});
+}
+
 audio.addEventListener('play', () => {
   state.attempts = 0;
   if (wave && current()) wave.onEvent?.('started', current(), 0);
+  else beacon(false, 0);
   emit();
 });
 audio.addEventListener('pause', emit);
 audio.addEventListener('timeupdate', emit);
-audio.addEventListener('ended', () => { next(false); });
+audio.addEventListener('ended', () => {
+  if (!wave && current()) beacon(true, audio.duration || audio.currentTime);
+  next(false);
+});
 audio.addEventListener('error', async () => {
   // умный ретрай: гонка туннеля / устаревший токен — попробуем свежий URL
   if (state.attempts < 2 && current()) {

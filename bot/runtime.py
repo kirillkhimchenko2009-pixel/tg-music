@@ -192,10 +192,13 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
     return (audio.file_id if audio else None)
 
 async def get_or_create_playlist(session: AsyncSession, user_id: int, title: str) -> Playlist:
-    pl = (await session.execute(select(Playlist).where(
-        Playlist.owner_id == user_id, Playlist.title == title))).scalar_one_or_none()
-    if pl:
-        return pl
+    """ tolerant-выборка: у юзера могло скопиться 2+ плейлиста с одним именем
+        (гонки/лайк-плейлист до миграции) — берём старейший, не роняя /api. """
+    rows = (await session.execute(
+        select(Playlist).where(Playlist.owner_id == user_id, Playlist.title == title)
+        .order_by(Playlist.id.asc()))).scalars().all()
+    if rows:
+        return rows[0]
     pl = Playlist(owner_id=user_id, title=title)
     session.add(pl)
     await session.flush()

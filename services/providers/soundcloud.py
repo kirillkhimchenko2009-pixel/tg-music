@@ -24,8 +24,11 @@ _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 _ASSETS = re.compile(r'src="(https://a-v2\.sndcdn\.com/assets/[\w./-]+\.js)"')
 _CID_RE = re.compile(r'(?:client_id|clientId)["\s:]{0,4}["\']([a-zA-Z0-9]{25,40})["\']')
 
-# резервные client_id (известные рабочие; график смены у SC редкий)
-_FALLBACK_CIDS = ("OGA0P5R5U4CpyooNe9OUcnjIMxao2hB2",)
+# резервные client_id (проверенные; swtEGNK… — свежий, полный resolve 163 треков)
+_FALLBACK_CIDS = (
+    "swtEGNKrP2w6Z5B8DVvAurWCwNQBlgMd",
+    "OGA0P5R5U4CpyooNe9OUcnjIMxao2hB2",
+)
 
 
 def _variants(q: str) -> list[str]:
@@ -58,25 +61,47 @@ class SoundCloudProvider:
         return self._client
 
     def _client_id(self, force: bool = False) -> str | None:
-        """Гостевой client_id: кеш 22 ч; при форс-обновлении — из asset-JS."""
+        """Гостевой client_id: кеш 22 ч; force → ротация по списку резервных.
+
+        Скрейп asset-JS в последнюю очередь: в 11.2026 в main.js cid не лежит
+        (диагностика: 8 ассетов — ни одного совпадения), а известные резервы
+        покрывают потребность."""
         if self._cid and not force and time.time() - self._cid_at < 22 * 3600:
             return self._cid
-        if force or self._cid is None:
-            try:
-                r = self._c().get(_BASE)
-                for js in _ASSETS.findall(r.text):
-                    try:
-                        rj = self._c().get(js)
-                    except Exception:
-                        continue
-                    m = _CID_RE.search(rj.text)
-                    if m:
-                        self._cid = m.group(1)
-                        self._cid_at = time.time()
-                        break
-            except Exception as e:
-                log.info("sc client_id не добыт (%s)", type(e).__name__)
-        return self._cid or (_FALLBACK_CIDS[-1] if not self._cid else self._cid)
+        if force:
+            # ротация: forced-запрос даёт СЛЕДУЮЩИЙ после текущего cid
+            # (текущая уже не сработала — повторять её бессмысленно), скрейп
+            # удерживается последним резервом: в 11.2026 main.js cid не отдаёт
+            self._rot = getattr(self, "_rot", -1)
+            cands = list(_FALLBACK_CIDS)
+            scraped = self._scrape_cid()
+            if scraped and scraped not in cands:
+                cands.append(scraped)
+            if self._cid in cands and len(cands) > 1:
+                i = cands.index(self._cid)
+                cands = cands[i + 1:] + cands[:i + 1]
+            self._cid = cands[0]
+            self._rot += 1
+            self._cid_at = time.time()
+        elif self._cid is None:
+            self._cid = _FALLBACK_CIDS[0]
+            self._cid_at = time.time()
+        return self._cid
+
+    def _scrape_cid(self) -> str | None:
+        try:
+            r = self._c().get(_BASE)
+            for js in _ASSETS.findall(r.text)[:12]:
+                try:
+                    rj = self._c().get(js)
+                except Exception:
+                    continue
+                m = _CID_RE.search(rj.text)
+                if m:
+                    return m.group(1)
+        except Exception as e:
+            log.info("sc client_id не добыт (%s)", type(e).__name__)
+        return None
 
     def _meta_of(self, it: dict) -> TrackMeta | None:
         dur = int(it.get("duration") or 0)
@@ -138,6 +163,47 @@ class SoundCloudProvider:
         except Exception as e:
             log.info("soundcloud поиск не удался (%s)", type(e).__name__)
         return pool[:limit]
+
+    def _playlist_sync(self, permalink: str) -> tuple[str, list[TrackMeta]] | None:
+        """Публичный плейлист SC: resolve → kind=playlist (+ треки без пагинации).
+
+        Полностью анонимно (гостевой client_id) — токены не нужны."""
+        for attempt in (0, 1):
+            cid = self._client_id(force=attempt > 0)
+            if not cid:
+                break
+            r = self._c().get(_API + "/resolve", params={
+                "url": permalink, "client_id": cid})
+            if r.status_code != 200:
+                if attempt == 0:
+                    continue
+                log.info("sc playlist resolve %s: HTTP %s",
+                         permalink[-30:], r.status_code)
+                return None
+            j = r.json()
+            if (j.get("kind") or "") != "playlist":
+                return None
+            out: list[TrackMeta] = []
+            for t in j.get("tracks") or []:
+                m = self._meta_of(t)
+                if m:
+                    out.append(m)
+            # со сдохшим cid resolve бывает 200, но отдаёт урезанный список
+            # (тональности-заглушки) — ждём полноценный track_count, ретраим
+            want = int(j.get("track_count") or 0)
+            if want > len(out) and attempt == 0:
+                continue
+            return (j.get("title") or "SoundCloud плейлист"), out
+        return None
+
+    async def playlist_by_url(self, permalink: str) -> tuple[str, list[TrackMeta]] | None:
+        if not (permalink or "").startswith("https://soundcloud.com/"):
+            return None
+        try:
+            return await asyncio.to_thread(self._playlist_sync, permalink)
+        except Exception as e:
+            log.info("sc playlist не удался (%s)", type(e).__name__)
+            return None
 
     def _trans_sync(self, permalink: str) -> dict:
         """Диагностика: список transcodings с текущим client_id."""
@@ -208,3 +274,7 @@ async def search(query: str, limit: int = 6) -> list[TrackMeta]:
 
 async def hls_stream(external_id: str) -> str | None:
     return await _default.hls_stream(external_id)
+
+
+async def playlist_by_url(permalink: str) -> tuple[str, list[TrackMeta]] | None:
+    return await _default.playlist_by_url(permalink)

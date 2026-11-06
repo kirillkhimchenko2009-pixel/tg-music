@@ -38,7 +38,7 @@ export function initTelegram() {
     const wa = window.Telegram?.WebApp;
     if (wa) {
       try { wa.expand(); } catch { /* noop */ }
-      try { wa.setHeaderColor('#0E0A12'); wa.setBackgroundColor('#0E0A12'); }
+      try { wa.setHeaderColor('#101113'); wa.setBackgroundColor('#101113'); }
       catch { /* noop */ }
     }
   } catch { /* noop */ }

@@ -6,7 +6,7 @@ import { api, waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings 
 import * as P from '../player.js';
 import { usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, IcoDownload, IcoNext, PlayPause } from '../App.jsx';
+import { coverOr, IcoDownload, IcoNext, PlayPause } from '../ui.jsx';
 import { toggleLike, useLikes } from '../likes.js';
 
 const MOODS = [

@@ -33,11 +33,13 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
     from services.providers import youtube as yt
     from services.providers import yandex as ymx
     from services.providers import zvuk as zv
+    from services.providers import soundcloud as scx
     from services.providers.spotify import SpotifyProvider
 
     link = parse_link(url)
     if link is None:
-        raise _exc(400, "не удалось разобрать ссылку (ЯМ / Spotify / Звук / YouTube)")
+        raise _exc(400, "не удалось разобрать ссылку "
+                        "(ЯМ / Spotify / Звук / SoundCloud / YouTube)")
     if link.kind != "playlist":
         raise _exc(400, "пока поддерживаются ссылки на плейлисты")
 
@@ -68,6 +70,13 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
         res = await SpotifyProvider().playlist(link.id)
         if res:
             return res
+
+    if link.service == "soundcloud":
+        res = await scx.playlist_by_url(link.id)
+        if res:
+            return res
+        raise _exc(404, "SoundCloud не отдал плейлист "
+                        "(приватные списки недоступны)")
 
     if link.service == "zvuk":
         res = await zv.get_playlist(link.id, token=zv_tok or None)

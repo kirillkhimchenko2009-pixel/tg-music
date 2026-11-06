@@ -14,6 +14,7 @@ from services.authstore import get_token
 from services.links import parse as parse_link
 from services.providers.base import TrackMeta
 from services.providers import yandex as ymx
+from services.providers import soundcloud as scx
 from services.providers import zvuk as zv
 from services.providers.spotify import SpotifyProvider
 from services.providers.youtube import YouTubeProvider
@@ -34,7 +35,7 @@ class IsLinkLike(BaseFilter):
         if parse_link(text):
             return False
         return bool(re.search(
-            r"music\.yandex\.|ym://|zvuk\.com|" +
+            r"music\.yandex\.|ym://|zvuk\.com|soundcloud\.com|" +
             r"(?:open\.)?spotify\.com|spotify:",
             text, re.IGNORECASE))
 
@@ -61,6 +62,11 @@ async def _fetch(link, ym_tok: str, zv_tok: str) -> tuple[str, list[TrackMeta]] 
         return await sp.playlist(link.id)
     if link.service == "zvuk" and link.kind == "playlist":
         return await zv.get_playlist(link.id, token=zv_tok or None)
+    if link.service == "soundcloud" and link.kind == "playlist":
+        res = await scx.playlist_by_url(link.id)
+        if res:
+            return res
+        return None
     if link.service == "youtube" and link.kind == "playlist":
         metas = await yt.playlist(link.id)
         return (f"YouTube · {len(metas)} треков", metas)
