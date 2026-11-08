@@ -30,12 +30,12 @@ from ..db import AsyncSessionLocal
 from ..domain import DownloadOutcome, TrackCandidate, fmt_duration, human_size
 from ..downloader.queue import queue
 from ..enums import PermissionStatus, TrackVersion
-from ..errors import QueueFullError, UserLimitError
+from ..errors import DuplicateJobError, QueueFullError, UserLimitError
 from ..models import MusicDownloadHistory, MusicTrack, MusicUserFavorite
 from ..providers import get_provider, registry
 from ..search.engine import engine as search_engine
-from ..storage import (ensure_not_executable, guess_extension, new_job_id,
-                       sanitize_filename, workspace_for)
+from ..storage import (cleanup_job_dir, ensure_not_executable, guess_extension,
+                       new_job_id, sanitize_filename, workspace_for)
 from . import keyboards as kb
 from . import sender
 from .progress import ProgressView
@@ -634,6 +634,10 @@ async def _start_download(cb: types.CallbackQuery, candidate: TrackCandidate,
                                 disable_web_page_preview=True)
         return
 
+    if queue.find_active(cb.from_user.id, candidate) is not None:
+        await cb.answer("⏳ Эта загрузка уже выполняется", show_alert=True)
+        return
+
     await cb.answer("Ставлю в очередь…")
     try:
         await _ensure_user(cb.from_user)
@@ -654,6 +658,10 @@ async def _start_download(cb: types.CallbackQuery, candidate: TrackCandidate,
             user_id, candidate, on_progress=view.update, on_done=on_done)
     except UserLimitError as exc:
         await view.finish(f"⏳ {_esc(str(exc))}", reply_markup=kb.back_menu_kb())
+        return
+    except DuplicateJobError:
+        await view.finish("⏳ Эта загрузка уже выполняется…",
+                          reply_markup=kb.back_menu_kb())
         return
     except QueueFullError:
         await view.finish("⏳ Очередь переполнена. Попробуй чуть позже.",
@@ -780,6 +788,7 @@ async def upload_file(message: types.Message, state: FSMContext):
         await message.bot.download(media, destination=dest)
     except Exception as exc:  # noqa: BLE001
         log.info("upload download: %s", exc)
+        cleanup_job_dir(seed)
         await message.answer("⚠️ Не удалось скачать файл из Telegram. Попробуй ещё раз.")
         return
 
@@ -796,25 +805,41 @@ async def upload_file(message: types.Message, state: FSMContext):
             duration=int(getattr(media, "duration", 0) or 0))
     except Exception as exc:  # noqa: BLE001
         log.exception("upload describe")
+        cleanup_job_dir(seed)
         await status.edit_text("⚠️ Файл не похож на поддерживаемое аудио.")
         return
 
     candidate.extra["force_upload"] = True
-    view = ProgressView(status, title=candidate.display)
     user_id = message.from_user.id
     chat_id = message.chat.id
+    if queue.find_active(user_id, candidate) is not None:
+        cleanup_job_dir(seed)
+        await status.edit_text("⏳ Этот файл уже обрабатывается…")
+        return
+    view = ProgressView(status, title=candidate.display)
 
     async def on_done(outcome: DownloadOutcome) -> None:
-        await _deliver(message.bot, chat_id, user_id, view, outcome, "")
+        try:
+            await _deliver(message.bot, chat_id, user_id, view, outcome, "")
+        finally:
+            # seed-каталог больше не нужен: менеджер уже скопировал файл
+            cleanup_job_dir(seed)
 
     try:
         job = await queue.enqueue(
             user_id, candidate, on_progress=view.update, on_done=on_done)
     except UserLimitError as exc:
+        cleanup_job_dir(seed)
         await view.finish(f"⏳ {_esc(str(exc))}", reply_markup=kb.back_menu_kb())
+        return
+    except DuplicateJobError:
+        cleanup_job_dir(seed)
+        await view.finish("⏳ Этот файл уже обрабатывается…",
+                          reply_markup=kb.back_menu_kb())
         return
     except Exception as exc:  # noqa: BLE001
         log.exception("upload enqueue")
+        cleanup_job_dir(seed)
         await view.finish(f"⚠️ Не удалось поставить задачу: {_esc(type(exc).__name__)}",
                           reply_markup=kb.back_menu_kb())
         return

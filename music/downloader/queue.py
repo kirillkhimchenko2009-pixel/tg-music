@@ -15,7 +15,8 @@ from ..config import MusicSettings, music_settings
 from ..db import AsyncSessionLocal
 from ..domain import DownloadOutcome, TrackCandidate
 from ..enums import JobStatus
-from ..errors import ProviderUnavailable, QueueFullError, UserLimitError
+from ..errors import (DuplicateJobError, ProviderUnavailable, QueueFullError,
+                      UserLimitError)
 from ..models import MusicDownloadJob, utcnow
 from ..providers import get_provider
 from ..repository import count_active_jobs, count_daily_downloads, record_job, update_job
@@ -66,6 +67,7 @@ class DownloadQueue:
         self._running: dict[str, asyncio.Task] = {}
         self._workers: list[asyncio.Task] = []
         self._maintenance: asyncio.Task | None = None
+        self._enqueue_lock = asyncio.Lock()
         self._closing = False
         self._started = False
 
@@ -103,48 +105,57 @@ class DownloadQueue:
                 f"Источник {provider_name or candidate.provider} недоступен",
                 code="PROVIDER_DISABLED")
 
-        async with AsyncSessionLocal() as session:
-            active = await count_active_jobs(session, user_id)
-            if active >= self.settings.user_active_jobs:
-                raise UserLimitError(
-                    f"У тебя уже {active} активных загрузок. Дождись завершения "
-                    f"или отмени задачу.", code="USER_ACTIVE_LIMIT")
-            if self.settings.user_daily_jobs:
-                daily = await count_daily_downloads(session, user_id)
-                if daily >= self.settings.user_daily_jobs:
-                    raise UserLimitError(
-                        f"Дневной лимит загрузок: {self.settings.user_daily_jobs}",
-                        code="USER_DAILY_LIMIT")
-            job_id = str(uuid.uuid4())
-            await record_job(session, job_id, user_id, candidate,
-                             status=JobStatus.QUEUED, payload=payload)
-            await session.commit()
+        # Проверка + вставка под одним lock: два одновременных нажатия не
+        # создадут две одинаковые задачи (find_active снаружи — только UX).
+        async with self._enqueue_lock:
+            existing = self.find_active(user_id, candidate)
+            if existing is not None:
+                raise DuplicateJobError(
+                    f"Загрузка уже выполняется: {candidate.display}",
+                    job_id=existing.id)
 
-        job = QueueJob(id=job_id, user_id=int(user_id), candidate=candidate,
-                       provider=provider)
-        if on_progress is not None:
-            async def wrapped(step: str, percent: int, detail: str = "") -> None:
-                job.step = step
-                job.progress = max(0, min(100, int(percent)))
-                try:
-                    result = on_progress(step, percent, detail)
-                    if asyncio.iscoroutine(result):
-                        await result
-                except Exception as exc:  # noqa: BLE001
-                    log.debug("job %s: progress: %s", job.id, exc)
-            job.on_progress = wrapped
-        job.on_done = on_done
-        self._jobs[job.id] = job
-        try:
-            self._queue.put_nowait(job)
-        except asyncio.QueueFull as exc:
-            job.status = JobStatus.FAILED.value
             async with AsyncSessionLocal() as session:
-                await update_job(session, job.id, status=JobStatus.FAILED,
-                                 error="Очередь переполнена", finished_at=utcnow())
+                active = await count_active_jobs(session, user_id)
+                if active >= self.settings.user_active_jobs:
+                    raise UserLimitError(
+                        f"У тебя уже {active} активных загрузок. Дождись завершения "
+                        f"или отмени задачу.", code="USER_ACTIVE_LIMIT")
+                if self.settings.user_daily_jobs:
+                    daily = await count_daily_downloads(session, user_id)
+                    if daily >= self.settings.user_daily_jobs:
+                        raise UserLimitError(
+                            f"Дневной лимит загрузок: {self.settings.user_daily_jobs}",
+                            code="USER_DAILY_LIMIT")
+                job_id = str(uuid.uuid4())
+                await record_job(session, job_id, user_id, candidate,
+                                 status=JobStatus.QUEUED, payload=payload)
                 await session.commit()
-            raise QueueFullError("Очередь загрузок переполнена") from exc
-        return job
+
+            job = QueueJob(id=job_id, user_id=int(user_id), candidate=candidate,
+                           provider=provider)
+            if on_progress is not None:
+                async def wrapped(step: str, percent: int, detail: str = "") -> None:
+                    job.step = step
+                    job.progress = max(0, min(100, int(percent)))
+                    try:
+                        result = on_progress(step, percent, detail)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("job %s: progress: %s", job.id, exc)
+                job.on_progress = wrapped
+            job.on_done = on_done
+            self._jobs[job.id] = job
+            try:
+                self._queue.put_nowait(job)
+            except asyncio.QueueFull as exc:
+                job.status = JobStatus.FAILED.value
+                async with AsyncSessionLocal() as session:
+                    await update_job(session, job.id, status=JobStatus.FAILED,
+                                     error="Очередь переполнена", finished_at=utcnow())
+                    await session.commit()
+                raise QueueFullError("Очередь загрузок переполнена") from exc
+            return job
 
     async def cancel(self, job_id: str, user_id: int | None = None) -> bool:
         job = self._jobs.get(job_id)
@@ -176,6 +187,22 @@ class DownloadQueue:
         if not job or (user_id is not None and job.user_id != int(user_id)):
             return None
         return job
+
+    def find_active(self, user_id: int, candidate: TrackCandidate) -> QueueJob | None:
+        """Живая задача того же пользователя и трека.
+
+        Нужна для защиты от двойного нажатия: повторный клик не должен
+        скачивать и отправлять один и тот же файл дважды.
+        """
+        key = candidate.dedupe_key
+        for job in self._jobs.values():
+            if job.user_id != int(user_id):
+                continue
+            if job.status not in (JobStatus.QUEUED.value, JobStatus.RUNNING.value):
+                continue
+            if job.candidate.dedupe_key == key:
+                return job
+        return None
 
     def stats(self) -> dict[str, Any]:
         return {"queued": self._queue.qsize(), "active": len(self._running),

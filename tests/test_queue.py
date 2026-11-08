@@ -11,7 +11,7 @@ import importlib
 from music.config import MusicSettings
 from music.domain import DownloadOutcome, TrackCandidate
 from music.enums import JobStatus
-from music.errors import ProviderUnavailable, UserLimitError
+from music.errors import DuplicateJobError, ProviderUnavailable, UserLimitError
 from music.models import MusicDownloadHistory, MusicDownloadJob, utcnow
 from music import repository
 
@@ -127,6 +127,43 @@ class TestEnqueueAndLimits:
         assert prepared_queue.get(job.id, user_id=10) is job
         assert prepared_queue.get(job.id, user_id=11) is None
         assert prepared_queue.status("missing") is None
+
+
+class TestDuplicateEnqueue:
+    async def test_second_enqueue_of_same_track_is_rejected(self, prepared_queue):
+        job = await prepared_queue.enqueue(50, _candidate())
+        with pytest.raises(DuplicateJobError) as exc:
+            await prepared_queue.enqueue(50, _candidate())
+        assert exc.value.job_id == job.id
+        assert exc.value.code == "DUPLICATE_JOB"
+
+    async def test_other_user_can_enqueue_same_track(self, prepared_queue):
+        first = await prepared_queue.enqueue(51, _candidate())
+        second = await prepared_queue.enqueue(52, _candidate())
+        assert second.id != first.id
+
+    async def test_different_external_id_is_not_duplicate(self, prepared_queue):
+        first = await prepared_queue.enqueue(53, _candidate())
+        second = await prepared_queue.enqueue(53, _candidate(external_id="2"))
+        assert second.id != first.id
+
+    async def test_enqueue_allowed_after_job_finished(self, prepared_queue):
+        job = await prepared_queue.enqueue(54, _candidate())
+        assert await prepared_queue.cancel(job.id, user_id=54) is True
+        again = await prepared_queue.enqueue(54, _candidate())
+        assert again.id != job.id
+
+    async def test_concurrent_enqueue_creates_only_one_job(self, prepared_queue):
+        results = await asyncio.gather(
+            prepared_queue.enqueue(55, _candidate()),
+            prepared_queue.enqueue(55, _candidate()),
+            return_exceptions=True)
+        jobs = [item for item in results if isinstance(item, QueueJob)]
+        errors = [item for item in results
+                  if isinstance(item, DuplicateJobError)]
+        assert len(jobs) == 1
+        assert len(errors) == 1
+        assert errors[0].job_id == jobs[0].id
 
 
 class TestCancel:

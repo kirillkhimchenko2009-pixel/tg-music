@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json as _json
+import os
 import time as _time
 import uuid
 
@@ -23,6 +24,13 @@ from services.providers.youtube import YouTubeProvider
 router = APIRouter(prefix="/api", tags=["tracks"])
 yt = YouTubeProvider()
 JOB_STATUS: dict[str, dict] = {}
+_TERMINAL_STATUSES = ("done", "error")
+_JOB_TTL_SEC = float(os.getenv("WEBAPP_JOB_TTL_SEC", "1800"))
+_JOB_LIMIT = max(100, int(os.getenv("WEBAPP_JOB_CACHE_LIMIT", "2000")))
+_MAX_ACTIVE_DOWNLOADS = max(1, int(os.getenv("WEBAPP_MAX_ACTIVE_DOWNLOADS", "3")))
+# strong references: иначе event loop может собрать задачу до завершения
+_ACTIVE_TASKS: set[asyncio.Task] = set()
+_INFLIGHT: dict[tuple[int, int, str], str] = {}
 log = __import__("logging").getLogger("routes.tracks")
 
 
@@ -178,14 +186,84 @@ async def get_track(track_id: int, user: CurrentUser = Depends(tg_user)):
             raise HTTPException(404, "нет такого трека")
         return track_dict(t)
 
+def _now() -> float:
+    return _time.time()
+
+
+def _is_terminal(status: str) -> bool:
+    return status in _TERMINAL_STATUSES
+
+
+def _touch(payload: dict, **fields) -> None:
+    payload.update(fields)
+    payload["updated_at"] = _now()
+
+
+def _public_job(status: dict) -> dict:
+    """Наружу не отдаём владельца и служебные метки времени."""
+    return {k: v for k, v in status.items()
+            if k not in ("user", "created_at", "updated_at")}
+
+
+def _prune_jobs(now: float | None = None) -> None:
+    """Не даём JOB_STATUS расти бесконечно (и чистим завершённые дубли)."""
+    now = _now() if now is None else now
+    for job_id, status in list(JOB_STATUS.items()):
+        updated = status.get("updated_at") or status.get("created_at") or now
+        if _is_terminal(status.get("status", "")) and now - updated > _JOB_TTL_SEC:
+            JOB_STATUS.pop(job_id, None)
+    if len(JOB_STATUS) > _JOB_LIMIT:
+        ordered = sorted(JOB_STATUS.items(),
+                         key=lambda item: item[1].get("created_at", 0))
+        for job_id, status in ordered:
+            if len(JOB_STATUS) <= _JOB_LIMIT:
+                break
+            if _is_terminal(status.get("status", "")):
+                JOB_STATUS.pop(job_id, None)
+    for key, job_id in list(_INFLIGHT.items()):
+        status = JOB_STATUS.get(job_id)
+        if status is None or _is_terminal(status.get("status", "")):
+            _INFLIGHT.pop(key, None)
+
+
 @router.post("/download")
 async def download(track_id: int, quality: str = "",
                    user: CurrentUser = Depends(tg_user)):
-    """Фоновая доставка трека в чат пользователя (с шагом прогресса)."""
+    """Фоновая доставка трека в чат пользователя (с шагом прогресса).
+
+    Повторное нажатие, пока задача жива, возвращает тот же job: файл не
+    скачивается и не отправляется дважды. Лимит активных задач на юзера
+    защищает Telegram и диск от лавины параллельных загрузок.
+    """
+    _prune_jobs()
     quality = quality or settings.DEFAULT_QUALITY
+    uid = int(user.id)
+    key = (uid, int(track_id), quality)
+
+    existing = _INFLIGHT.get(key)
+    if existing:
+        status = JOB_STATUS.get(existing)
+        if status and not _is_terminal(status.get("status", "")):
+            return {"job": existing, "deduplicated": True}
+        _INFLIGHT.pop(key, None)
+
+    active = 0
+    for job_id in _INFLIGHT.values():
+        status = JOB_STATUS.get(job_id) or {}
+        if status.get("user") == uid and not _is_terminal(status.get("status", "")):
+            active += 1
+    if active >= _MAX_ACTIVE_DOWNLOADS:
+        raise HTTPException(429, "Слишком много одновременных загрузок. "
+                                 "Дождись завершения текущих.")
+
     job_id = uuid.uuid4().hex[:12]
-    JOB_STATUS[job_id] = {"status": "queued", "progress": 0.0, "user": user.id}
-    asyncio.create_task(_deliver_job(job_id, int(user.id), track_id, quality))
+    now = _now()
+    JOB_STATUS[job_id] = {"status": "queued", "progress": 0.0, "user": uid,
+                          "created_at": now, "updated_at": now}
+    _INFLIGHT[key] = job_id
+    task = asyncio.create_task(_deliver_job(job_id, uid, track_id, quality))
+    _ACTIVE_TASKS.add(task)
+    task.add_done_callback(_ACTIVE_TASKS.discard)
     return {"job": job_id}
 
 _BOT = None
@@ -199,9 +277,15 @@ async def _bot():
 
 async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
     from services import catalog, ingest
-    st = JOB_STATUS[job_id]
-    bot = await _bot()
+    st = JOB_STATUS.get(job_id)
+    if st is None:
+        return
+    key = (int(user_id), int(track_id), quality)
+    bot = None
     t = None
+
+    def update(**fields) -> None:
+        _touch(st, **fields)
 
     async def send_fallback() -> bool:
         """В чат должен прийти хоть какой-то файл: 30-сек фрагмент.
@@ -209,53 +293,64 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
         Сторонние ТГ-боты больше не используются: Telegram запрещает
         обмен сообщениями между ботами (USER_BOT_TO_BOT_DISABLED)."""
         nonlocal t
-        if t is None:
+        if bot is None or t is None:
             return False
         from bot.runtime import send_preview_file
         ok = await send_preview_file(bot, user_id, t)
         if ok:
-            st.update(status="done", progress=100.0, telegram=True,
-                      preview=True)
+            update(status="done", progress=100.0, telegram=True,
+                   preview=True)
         return ok
 
     try:
+        bot = await _bot()
         from services.catalog import meta_of
         async with runtime.get_session() as s:
             t = await catalog.get_track(s, track_id)
             if not t:
-                st.update(status="error", error="нет такого трека")
+                update(status="error", error="нет такого трека")
                 return
 
             async def on_progress(p):
                 if p - st.get("progress", 0.0) >= 2.0 or p >= 100:
-                    st.update(progress=p, status="downloading")
+                    update(progress=p, status="downloading")
 
             res = await ingest.resolve(s, meta_of(t), quality, user_id=user_id,
                                        on_progress=on_progress)
             if res.status == "not_found" or not (res.file_path or res.track):
                 if await send_fallback():
                     return
-                st.update(status="error", error=res.error or "не удалось скачать")
+                update(status="error", error=res.error or "не удалось скачать")
                 return
             target = res.track or (await catalog.get_track(s, track_id))
             if res.file_path and target and res.file_path.exists():
-                from bot.runtime import send_audio_file, save_file_id_retry
+                from bot.runtime import save_file_id_retry, send_audio_file
                 fid = await send_audio_file(bot, user_id, target, res.file_path)
-                st.update(status="done", progress=100.0,
-                          telegram=fid is not None)
-                # кеш file_id обязательно пишем: иначе следующий раз качается заново
                 if fid:
-                    await save_file_id_retry(target.id, fid, res.quality,
-                                             size=res.file_path.stat().st_size,
-                                             local_path=res.file_path.as_posix())
+                    update(status="done", progress=100.0, telegram=True)
+                    # кеш file_id обязательно пишем: иначе следующий раз качается заново
+                    await save_file_id_retry(
+                        target.id, fid, res.quality,
+                        size=res.file_path.stat().st_size,
+                        local_path=res.file_path.as_posix())
+                elif await send_fallback():
+                    return
+                else:
+                    # Нельзя писать done, если в чат реально ничего не ушло.
+                    update(status="error",
+                           error="Telegram не принял файл (возможно, больше лимита)")
             elif target and target.file_id:
                 from bot.runtime import send_track_cached
-                st.update(status="done", progress=100.0,
-                          telegram=True if await send_track_cached(bot, user_id, target) else False)
+                if await send_track_cached(bot, user_id, target):
+                    update(status="done", progress=100.0, telegram=True)
+                elif await send_fallback():
+                    return
+                else:
+                    update(status="error", error="файл не доступен")
             else:
                 if await send_fallback():
                     return
-                st.update(status="error", error="файл не доступен")
+                update(status="error", error="файл не доступен")
     except Exception as e:  # noqa: BLE001
         # полный трейс в логи: str(e) в job-статусе часто лишь «rolled back»,
         # а исходное место падения видно только здесь
@@ -263,18 +358,24 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
         # часто тут TelegramEntityTooLarge (>50 MB) — превью-файл крошечный,
         # его отправка всё равно реально сработает
         try:
-            if await send_fallback():
+            if bot is not None and await send_fallback():
                 return
         except Exception:
             pass
-        st.update(status="error", error=str(e)[:200])
+        update(status="error", error=str(e)[:200])
+    finally:
+        _INFLIGHT.pop(key, None)
+        _touch(st)
+        _prune_jobs()
 
 @router.get("/jobs/{job_id}")
 async def job_status(job_id: str, user: CurrentUser = Depends(tg_user)):
+    _prune_jobs()
     status = JOB_STATUS.get(job_id)
-    if not status:
+    if not status or int(status.get("user", -1)) != int(user.id):
+        # Чужой job неотличим от несуществующего: не раскрываем id.
         raise HTTPException(404, "нет такой задачи")
-    return status
+    return _public_job(status)
 
 # ---------------- потоковый плеер ----------------
 _FILE_PATH_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (tg file_path, expire)

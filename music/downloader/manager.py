@@ -63,8 +63,10 @@ class DownloadManager:
         workspace = workspace_for(job_id)
         moved_to_cache = False
         keep_workspace = False
+        keep_cover = False
         official_url = candidate.source_url or ""
         permission: PermissionInfo | None = None
+        cover_path: str | None = None
         try:
             self._check_cancel(cancel)
             check_disk_space()
@@ -237,6 +239,7 @@ class DownloadManager:
                     prepared.notes.append("История не сохранена")
 
             await emit(progress, "done", 100, "✅ Готово")
+            keep_cover = cover_path not in (None, "")
             return DownloadOutcome(ok=True, job_id=job_id, prepared=prepared,
                                    permission=permission)
         except JobCancelled:
@@ -264,6 +267,11 @@ class DownloadManager:
                                    error=f"{type(exc).__name__}: {exc}",
                                    retryable=True)
         finally:
+            if cover_path and not keep_cover:
+                try:
+                    Path(cover_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
             if not keep_workspace:
                 cleanup_job_dir(job_id)
 
@@ -276,6 +284,13 @@ class DownloadManager:
         if not has_file and not cached.telegram_file_id:
             return None
         fmt = cached.format or candidate.file_format or "mp3"
+        limit = self.settings.max_upload_mb * 1024 * 1024
+        if has_file and limit > 0 and path.stat().st_size > limit:
+            # Локальный файл не пройдёт sendDocument/sendAudio: пусть пайплайн
+            # заново скачает и вернёт понятную ошибку UPLOAD_TOO_LARGE.
+            log.info("cache: %s больше лимита отправки %s МБ",
+                     path, self.settings.max_upload_mb)
+            return None
         if has_file:
             try:
                 analysis = await analyze_audio(path, deep=False)
@@ -294,6 +309,8 @@ class DownloadManager:
             analysis = AudioAnalysis(probe=probe, category=_category(cached.quality_category),
                                      score=60)
         kind = MediaKind.DOCUMENT if cached.media_kind == "document" else MediaKind.AUDIO
+        if (candidate.extra or {}).get("force_document"):
+            kind = MediaKind.DOCUMENT
         return PreparedTrack(
             path=str(path) if has_file else "",
             media_kind=kind, mime_type=mime_for(fmt), file_format=fmt,

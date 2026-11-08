@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 from pathlib import Path
@@ -12,7 +13,8 @@ from urllib.parse import urlsplit
 
 from aiogram import types
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import (TelegramBadRequest, TelegramNetworkError,
+                                TelegramRetryAfter, TelegramServerError)
 from aiogram.types import BufferedInputFile, FSInputFile
 
 from ..cache.music_cache import set_telegram_file
@@ -26,6 +28,74 @@ from ..storage import cleanup_job_dir
 from .. import repository
 
 log = logging.getLogger("music.telegram.sender")
+
+_MAX_SEND_ATTEMPTS = 3
+_MAX_RETRY_WAIT = 10.0
+_FILE_ID_ERROR_MARKERS = (
+    "wrong file identifier", "file reference", "file_id", "file id",
+    "invalid file", "file is not found", "file not found",
+)
+
+
+async def _call_with_retry(call, **kwargs):
+    """Retry только для временных ошибок Telegram (429/сеть/5xx).
+
+    `TelegramBadRequest` не повторяем: это постоянная ошибка (например,
+    устаревший file_id), для неё вызывающий код делает fallback.
+    """
+    last: Exception | None = None
+    for attempt in range(1, _MAX_SEND_ATTEMPTS + 1):
+        try:
+            return await call(**kwargs)
+        except TelegramRetryAfter as exc:
+            last = exc
+            if attempt >= _MAX_SEND_ATTEMPTS:
+                break
+            delay = min(max(float(exc.retry_after or 0), 0.0), _MAX_RETRY_WAIT)
+            log.info("send: 429, повтор через %.1fс (попытка %d)", delay, attempt)
+            await asyncio.sleep(delay)
+        except (TelegramNetworkError, TelegramServerError) as exc:
+            last = exc
+            if attempt >= _MAX_SEND_ATTEMPTS:
+                break
+            delay = min(0.5 * (2 ** (attempt - 1)), _MAX_RETRY_WAIT)
+            log.info("send: %s, повтор через %.1fс (попытка %d)",
+                     type(exc).__name__, delay, attempt)
+            await asyncio.sleep(delay)
+    if last is None:
+        raise RuntimeError("send retry failed without an exception")
+    raise last
+
+
+def _has_local_file(prepared: PreparedTrack) -> bool:
+    return bool(prepared.path and Path(prepared.path).exists())
+
+
+def _local_source(prepared: PreparedTrack) -> FSInputFile:
+    filename = telegram_filename(prepared.artist, prepared.title,
+                                 prepared.file_format)
+    return FSInputFile(prepared.path, filename=filename)
+
+
+def _looks_like_file_id_error(exc: TelegramBadRequest) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _FILE_ID_ERROR_MARKERS)
+
+
+async def _forget_file_id(prepared: PreparedTrack) -> None:
+    """Устаревший file_id больше не должен использоваться."""
+    prepared.telegram_file_id = None
+    prepared.telegram_file_unique_id = None
+    try:
+        async with AsyncSessionLocal() as session:
+            if prepared.cache_key:
+                await set_telegram_file(session, prepared.cache_key, "", "")
+            if prepared.history_id:
+                await repository.update_history_telegram(
+                    session, prepared.history_id, "", "")
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("file_id reset: %s", exc)
 
 
 def safe_url(url: str | None) -> str:
@@ -169,34 +239,58 @@ async def send_prepared(bot: types.Bot, chat_id: int, prepared: PreparedTrack, *
         kwargs["reply_to_message_id"] = reply_to_message_id
         kwargs["allow_sending_without_reply"] = True
 
-    if document:
-        try:
-            sent = await bot.send_document(
-                document=source,
-                filename=telegram_filename(prepared.artist, prepared.title,
-                                           prepared.file_format),
-                **kwargs)
-        except TypeError:
-            # filename не принимается для file_id — повторяем без него
-            sent = await bot.send_document(document=source, **kwargs)
-    else:
+    thumb = None if document else _thumbnail(prepared)
+
+    async def try_send(media_source, use_thumb: bool):
+        if document:
+            # Bot.send_document в aiogram 3 не принимает filename: имя уже
+            # задано внутри FSInputFile; для file_id имя не нужно вовсе.
+            return await _call_with_retry(bot.send_document,
+                                          document=media_source, **kwargs)
         audio_kwargs = dict(
-            audio=source,
+            audio=media_source,
             title=_title(prepared),
             performer=_performer(prepared),
             duration=int(prepared.duration or 0),
             **kwargs)
-        thumb = _thumbnail(prepared)
-        if thumb is not None:
+        if use_thumb and thumb is not None:
             audio_kwargs["thumbnail"] = thumb
-        try:
-            sent = await bot.send_audio(**audio_kwargs)
-        except TelegramBadRequest as exc:
-            if thumb is None:
-                raise
-            log.info("send_audio: thumbnail отклонён, повтор без него: %s", exc)
-            audio_kwargs.pop("thumbnail", None)
-            sent = await bot.send_audio(**audio_kwargs)
+        return await _call_with_retry(bot.send_audio, **audio_kwargs)
+
+    # Порядок fallback: тот же источник без обложки → локальный файл
+    # (если file_id устарел) → локальный файл без обложки.
+    fallbacks: list[tuple[object, bool]] = []
+    if not document and thumb is not None:
+        fallbacks.append((source, False))
+    if isinstance(source, str) and _has_local_file(prepared):
+        fallbacks.append((None, thumb is not None))
+        if not document and thumb is not None:
+            fallbacks.append((None, False))
+
+    try:
+        sent = await try_send(source, thumb is not None)
+    except TelegramBadRequest as exc:
+        if not fallbacks:
+            raise
+        last_exc = exc
+        sent = None
+        local_source: FSInputFile | None = None
+        for next_source, use_thumb in fallbacks:
+            if next_source is None:
+                if local_source is None:
+                    if _looks_like_file_id_error(exc):
+                        log.warning("send: file_id устарел, беру локальный файл")
+                    await _forget_file_id(prepared)
+                    local_source = _local_source(prepared)
+                next_source = local_source
+            try:
+                sent = await try_send(next_source, use_thumb)
+                break
+            except TelegramBadRequest as retry_exc:
+                log.info("send: fallback отклонён: %s", retry_exc)
+                last_exc = retry_exc
+        if sent is None:
+            raise last_exc
 
     media = sent.audio or sent.document
     file_id = getattr(media, "file_id", "") if media else ""
@@ -241,29 +335,36 @@ async def send_history_entry(bot: types.Bot, chat_id: int, history, *,
     if not file_id and not (path and Path(path).exists()):
         raise FileNotFoundError("Файл уже удалён из кэша")
 
-    source: str | FSInputFile = file_id or FSInputFile(
-        path, filename=telegram_filename(history.artist, history.title,
-                                         history.audio_format or "audio"))
+    local_path = path if path and Path(path).exists() else ""
+    filename = telegram_filename(history.artist, history.title,
+                                 history.audio_format or "audio")
+    source: str | FSInputFile = file_id or FSInputFile(local_path,
+                                                       filename=filename)
     caption = _history_caption(history)
     document = (history.media_kind or "audio") == "document"
 
-    if document:
-        try:
-            sent = await bot.send_document(
-                document=source, caption=caption, parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                filename=telegram_filename(history.artist, history.title,
-                                           history.audio_format or "audio"))
-        except TypeError:
-            sent = await bot.send_document(
-                document=source, caption=caption, parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup)
-    else:
-        sent = await bot.send_audio(
-            audio=source, title=_clip(history.title or "", 64),
+    async def try_send(media_source):
+        if document:
+            return await _call_with_retry(
+                bot.send_document, document=media_source, caption=caption,
+                parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+        return await _call_with_retry(
+            bot.send_audio, audio=media_source,
+            title=_clip(history.title or "", 64),
             performer=_clip(history.artist or "", 64),
             duration=int(history.duration or 0), caption=caption,
             parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+    if file_id:
+        try:
+            sent = await try_send(file_id)
+        except TelegramBadRequest:
+            if not local_path:
+                raise
+            log.warning("history: file_id устарел, отправляю локальный файл")
+            sent = await try_send(FSInputFile(local_path, filename=filename))
+    else:
+        sent = await try_send(source)
 
     media = sent.audio or sent.document
     new_id = getattr(media, "file_id", "") if media else ""

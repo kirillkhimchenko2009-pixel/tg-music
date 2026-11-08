@@ -141,7 +141,20 @@ class TestSendPrepared:
         assert bot.calls[0][0] == "document"
         kwargs = bot.calls[0][1]
         assert kwargs["document"] == "FILEID"
-        assert kwargs["filename"].endswith(".flac")
+        # filename — не аргумент Bot.send_document; иначе TypeError на каждом файле
+        assert "filename" not in kwargs
+
+    async def test_local_flac_document_filename_comes_from_input_file(self, tmp_path):
+        bot = FakeBot()
+        path = tmp_path / "track.flac"
+        path.write_bytes(b"fLaC" + b"\x00" * 100)
+        prepared = _prepared(media_kind=MediaKind.DOCUMENT, file_format="flac",
+                             mime_type="audio/flac", telegram_file_id=None,
+                             path=str(path), size=path.stat().st_size)
+        await sender.send_prepared(bot, 10, prepared)
+        kwargs = bot.calls[0][1]
+        assert "filename" not in kwargs
+        assert getattr(kwargs["document"], "filename", "").endswith(".flac")
 
     async def test_send_mode_document_overrides_mp3(self):
         bot = FakeBot()
@@ -216,7 +229,20 @@ class TestHistory:
         await sender.send_history_entry(
             bot, 10, self._history(media_kind="document", audio_format="flac"))
         assert bot.calls[0][0] == "document"
-        assert bot.calls[0][1]["filename"].endswith(".flac")
+        kwargs = bot.calls[0][1]
+        assert kwargs["document"] == "FILEID"
+        assert "filename" not in kwargs
+
+    async def test_local_document_history_filename_from_input_file(self, tmp_path):
+        bot = FakeBot()
+        path = tmp_path / "song.flac"
+        path.write_bytes(b"fLaC" + b"\x00" * 100)
+        history = self._history(media_kind="document", audio_format="flac",
+                                telegram_file_id="")
+        await sender.send_history_entry(bot, 10, history, cached_path=str(path))
+        kwargs = bot.calls[0][1]
+        assert "filename" not in kwargs
+        assert getattr(kwargs["document"], "filename", "").endswith(".flac")
 
     async def test_missing_history_file(self, tmp_path):
         bot = FakeBot()

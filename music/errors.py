@@ -77,6 +77,16 @@ class UserLimitError(MusicError):
     code = "USER_LIMIT"
 
 
+class DuplicateJobError(MusicError):
+    """Такая же загрузка уже стоит в очереди или выполняется."""
+    code = "DUPLICATE_JOB"
+
+    def __init__(self, message: str = "", *, job_id: str = "",
+                 code: str | None = None, retryable: bool | None = None):
+        super().__init__(message, code=code, retryable=retryable)
+        self.job_id = job_id
+
+
 class CancelledError(MusicError):
     code = "CANCELLED"
 

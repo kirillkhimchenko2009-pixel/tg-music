@@ -208,7 +208,7 @@ function bindTrackItems(container, list) {
       const track = list.find(t => t.id === id);
       if (!track) return;
       if (act === 'add') { openAddToPlaylist(track); return; }
-      if (act === 'tg') { downloadToTG(track, ev.target); return; }
+      if (act === 'tg') { downloadToTG(track, ev.target.closest('[data-act="tg"]')); return; }
       await playTrack(track, list);
     });
   });
@@ -220,8 +220,20 @@ function highlight() {
 }
 
 /* ---------------- actions ---------------- */
+const tgInFlight = new Set();
+
 async function downloadToTG(track, btn) {
-  if (btn) btn.innerHTML = '<span class="sp"></span>';
+  const key = String(track.id);
+  if (tgInFlight.has(key)) {
+    toast('Этот трек уже отправляется в чат…');
+    return;
+  }
+  tgInFlight.add(key);
+  const oldHTML = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="sp"></span>';
+  }
   try {
     const { job } = await api('/api/download?track_id=' + track.id, { method: 'POST' });
     let st = null;
@@ -229,14 +241,22 @@ async function downloadToTG(track, btn) {
       st = await api('/api/jobs/' + job);
       if (st.status === 'done' || st.status === 'error') break;
       await new Promise(r => setTimeout(r, 800));
-      if (btn) btn.textContent = Math.round(st.progress) + '%';
+      if (btn) btn.textContent = Math.round(st.progress || 0) + '%';
     }
-    if (btn) btn.textContent = '⬇';
-    if (st?.status === 'done') toast('Скачано и отправлено в Telegram ✅');
-    else toast('Ошибка: ' + (st?.error || 'неизвестно'), true);
+    if (st?.status === 'done') {
+      toast(st.preview ? 'Полная версия недоступна — отправил фрагмент'
+                       : 'Скачано и отправлено в Telegram ✅');
+    } else {
+      toast('Ошибка: ' + (st?.error || 'неизвестно'), true);
+    }
   } catch (e) {
-    if (btn) btn.textContent = '⬇';
     toast('Ошибка: ' + e.message, true);
+  } finally {
+    tgInFlight.delete(key);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHTML || '⬇';
+    }
   }
 }
 
