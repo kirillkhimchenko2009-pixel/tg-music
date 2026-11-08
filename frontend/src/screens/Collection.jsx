@@ -2,16 +2,18 @@
    исполнители, история — самоё «библиотека» Vibe.
    Экран плейлиста (PlaylistScreen) публичен: открывается и со «Главная». */
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { api, API_BASE } from '../api.js';
 import * as P from '../player.js';
 import { haptic } from '../tg.js';
-import { createPortal } from 'react-dom';
 import {
   Rail, PlayCard, ArtistCard, SectionHead, TrackRow, TrackMenu, Skeletons,
-  fmtTime, plural, groupAlbums, gradFor, dominantColor, coverOr,
+  FadeImg, fmtTime, plural, groupAlbums, gradFor, dominantColor, coverOr,
   IcoHeart, IcoPlus, IcoDl, IcoChevR, IcoNote, IcoCheck, IcoX, IcoWave,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
+import { Sheet, layoutSpring, toast } from '../motion/index.js';
+import Reveal from '../motion/components/Reveal.jsx';
 
 const cimg = u => (!u ? '' : (u.startsWith('http') ? u : API_BASE + u));
 
@@ -88,30 +90,38 @@ export default function Collection({ sub }) {
               <div className="seg">
                 <button className={'segbtn' + (tab === 'mine' ? ' on' : '')}
                         onClick={() => { haptic('soft'); setTab('mine'); }}>
-                  Вы собрали ({mine.length})
+                  {tab === 'mine' && <motion.span layoutId="coll-seg" className="segind" transition={layoutSpring} />}
+                  <span className="seg-lbl">Вы собрали ({mine.length})</span>
                 </button>
                 <button className={'segbtn' + (tab === 'liked' ? ' on' : '')}
                         onClick={() => { haptic('soft'); setTab('liked'); }}>
-                  Импортированные ({imported.length})
+                  {tab === 'liked' && <motion.span layoutId="coll-seg" className="segind" transition={layoutSpring} />}
+                  <span className="seg-lbl">Импортированные ({imported.length})</span>
                 </button>
               </div>
             </div>
           )}
-          <div className="albgrid">
-            <button className="newpl rise" onClick={() => { haptic('medium'); setCreating(true); }}>
-              <span className="np-ic"><IcoPlus width="1em" height="1em" /></span>
-              <span className="np-t"><span>Новый плейлист</span>
-                <span className="np-s">Собрать список</span></span>
-            </button>
-            {list.map((p, i) => (
-              <PlayCard key={p.id} title={(p.title || '').replace(/^❤\s*/, '')}
-                        sub={plural(p.count, 'трек', 'трека', 'треков')}
-                        onOpen={() => { haptic('light'); setOpen(p.id); }}
-                        t={p.cover_url ? { cover_url: p.cover_url } : null}
-                        grad={gradFor(p.title)}
-                        cellDelay={i * 40} />
-            ))}
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={tab} className="albgrid"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: .22, ease: [.16, 1, .3, 1] }}>
+              <button className="newpl" onClick={() => { haptic('medium'); setCreating(true); }}>
+                <span className="np-ic"><IcoPlus width="1em" height="1em" /></span>
+                <span className="np-t"><span>Новый плейлист</span>
+                  <span className="np-s">Собрать список</span></span>
+              </button>
+              {list.map((p, i) => (
+                <PlayCard key={p.id} title={(p.title || '').replace(/^❤\s*/, '')}
+                          sub={plural(p.count, 'трек', 'трека', 'треков')}
+                          onOpen={() => { haptic('light'); setOpen(p.id); }}
+                          t={p.cover_url ? { cover_url: p.cover_url } : null}
+                          grad={gradFor(p.title)}
+                          cellDelay={Math.min(i, 6) * 40} />
+              ))}
+            </motion.div>
+          </AnimatePresence>
           {(sub === 'playlists' && list.length === 0) && (
             tab === 'liked' ? (
               <div className="empty" style={{ marginTop: 22 }}>
@@ -127,9 +137,9 @@ export default function Collection({ sub }) {
         </section>
       ) : null}
 
-      {creating && (
-        <CreateSheet onClose={() => setCreating(false)} onCreated={() => { setCreating(false); reload(); }} />
-      )}
+      <CreateSheet open={creating}
+                   onClose={() => setCreating(false)}
+                   onCreated={() => { setCreating(false); reload(); }} />
     </div>
   );
 }
@@ -148,7 +158,7 @@ function AlbumsSection({ compact }) {
 
   const show = albums.slice(0, compact ? 8 : 40);
   return (
-    <section>
+    <Reveal>
       <SectionHead title="Альбомы" action={compact ? 'Все' : null}
                    onAction={compact ? () => routes.goTab('collection', 'albums') : null} />
       {compact ? (
@@ -156,7 +166,7 @@ function AlbumsSection({ compact }) {
           {show.map((a, i) => (
             <PlayCard key={a.key} title={a.title} sub={a.artist}
                       onOpen={() => routes.goAlbum(a)}
-                      onPlay={() => P.play(a.tracks, 0)} cellDelay={i * 40} />
+                      onPlay={() => P.play(a.tracks, 0)} cellDelay={Math.min(i, 6) * 40} />
           ))}
         </Rail>
       ) : (
@@ -164,11 +174,11 @@ function AlbumsSection({ compact }) {
           {show.map((a, i) => (
             <PlayCard key={a.key} title={a.title} sub={`${a.artist}${a.year ? ' · ' + a.year : ''}`}
                       onOpen={() => routes.goAlbum(a)}
-                      onPlay={() => P.play(a.tracks, 0)} cellDelay={i * 40} />
+                      onPlay={() => P.play(a.tracks, 0)} cellDelay={Math.min(i, 6) * 40} />
           ))}
         </div>
       )}
-    </section>
+    </Reveal>
   );
 }
 
@@ -183,7 +193,7 @@ function ArtistsSection({ compact }) {
 
   const show = artists.slice(0, compact ? 10 : 20);
   return (
-    <section>
+    <Reveal>
       <SectionHead title="Исполнители" action={compact ? 'Все' : null}
                    onAction={compact ? () => routes.goTab('collection', 'artists') : null} />
       {compact ? (
@@ -191,7 +201,7 @@ function ArtistsSection({ compact }) {
           {show.map((a, i) => (
             <ArtistCard key={a.name} name={a.name} cover={a.cover_url}
                         sub={plural(a.count, 'трек', 'трека', 'треков')}
-                        onOpen={() => routes.goArtist(a.name, a.cover_url)} delay={i * 40} />
+                        onOpen={() => routes.goArtist(a.name, a.cover_url)} delay={Math.min(i, 6) * 40} />
           ))}
         </Rail>
       ) : (
@@ -199,11 +209,11 @@ function ArtistsSection({ compact }) {
           {show.map((a, i) => (
             <ArtistCard key={a.name} name={a.name} cover={a.cover_url}
                         sub={plural(a.count, 'трек', 'трека', 'треков')}
-                        onOpen={() => routes.goArtist(a.name, a.cover_url)} delay={i * 40} />
+                        onOpen={() => routes.goArtist(a.name, a.cover_url)} delay={Math.min(i, 6) * 40} />
           ))}
         </div>
       )}
-    </section>
+    </Reveal>
   );
 }
 
@@ -230,40 +240,44 @@ function HistorySection() {
 }
 
 /* ---------------- шторка создания ---------------- */
-function CreateSheet({ onClose, onCreated }) {
+function CreateSheet({ open, onClose, onCreated }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const ref = React.useRef(null);
-  useEffect(() => { setTimeout(() => ref.current?.focus(), 120); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => ref.current?.focus(), 160);
+    return () => clearTimeout(t);
+  }, [open]);
   const submit = async () => {
     const title = name.trim();
     if (!title || busy) return;
     setBusy(true);
+    setErr('');
     try {
       await api('/api/playlists', { method: 'POST', body: JSON.stringify({ title }) });
-      haptic('ok'); onCreated();
+      haptic('ok');
+      toast('Плейлист создан', { kind: 'success' });
+      setName('');
+      onCreated();
     } catch (e) { setErr(e.message || 'Не получилось'); setBusy(false); }
   };
-  return createPortal(
-    <div className="shovl" onClick={onClose}>
-      <div className="sheet" onClick={e => e.stopPropagation()}>
-        <span className="shgrab" />
-        <div className="sht">Новый плейлист</div>
-        <input ref={ref} className="shinput" placeholder="Название плейлиста"
-               value={name} maxLength={120}
-               onChange={e => setName(e.target.value)}
-               onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
-        {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
-        <div className="btnrow">
-          <button className="bigbtn" onClick={onClose}>Отмена</button>
-          <button className="bigbtn primary" disabled={!name.trim() || busy} onClick={submit}>
-            {busy ? <span className="minispinner" /> : 'Создать'}
-          </button>
-        </div>
+  return (
+    <Sheet open={open} onClose={onClose} labelledBy="create-pl-title">
+      <div className="sht" id="create-pl-title">Новый плейлист</div>
+      <input ref={ref} className="shinput" placeholder="Название плейлиста"
+             value={name} maxLength={120}
+             onChange={e => setName(e.target.value)}
+             onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
+      {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+      <div className="btnrow">
+        <button className="bigbtn" onClick={onClose}>Отмена</button>
+        <button className="bigbtn primary" disabled={!name.trim() || busy} onClick={submit}>
+          {busy ? <span className="minispinner" /> : 'Создать'}
+        </button>
       </div>
-    </div>,
-    document.body,
+    </Sheet>
   );
 }
 
@@ -316,6 +330,7 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
       setProg({ done, total: tracks.length });
     }
     haptic('ok');
+    toast('Плейлист скачан в чат', { kind: 'success' });
     setProg(null);
   };
 
@@ -328,11 +343,17 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
           <button className="page-back" onClick={back}>‹ Коллекция</button>
         </div>
       )}
-      <div className="ahero-card rise" style={{ '--g1': glow || '#2a2d35', marginTop: back ? 12 : 8 }}>
+      <motion.div
+        className="ahero-card"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: .32, ease: [.16, 1, .3, 1] }}
+        style={{ '--g1': glow || '#2a2d35', marginTop: back ? 12 : 8 }}
+      >
         <div className="ahero-top">
           <span className="ahero-cover">
             {meta?.cover_url
-              ? <img src={cimg(meta.cover_url)} alt="" />
+              ? <FadeImg src={cimg(meta.cover_url)} alt="" />
               : <span className="cph" style={{ background: gradFor(meta?.title || 'pl') }}><IcoNote width="1em" height="1em" style={{ width: '30%', height: '30%' }} /></span>}
           </span>
           <div className="ahero-meta">
@@ -359,7 +380,7 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
         </div>
         {prog && <div className="np-chip" style={{ marginTop: 12 }}><span className="np-dot" /> Скачиваю: {prog.done}/{prog.total}</div>}
         {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
-      </div>
+      </motion.div>
 
       {!tracks && <Skeletons n={5} />}
       {tracks && !tracks.length && (
@@ -369,16 +390,17 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
         </div>
       )}
       <div className="tracks">
-        {(tracks || []).map((t, i) => (
-          <TrackRow key={t.id + ':' + t.pt_id} t={t} i={i} num={i + 1} time={t.duration}
-                    onPlay={() => P.play(tracks, i)}
-                    onMenu={() => setMenu(t)} />
-        ))}
+        <AnimatePresence initial={false}>
+          {(tracks || []).map((t, i) => (
+            <TrackRow key={t.id + ':' + t.pt_id} t={t} i={i} num={i + 1} time={t.duration}
+                      onPlay={() => P.play(tracks, i)}
+                      onMenu={() => setMenu(t)} />
+          ))}
+        </AnimatePresence>
       </div>
-      {menu && (
-        <TrackMenu t={menu} onClose={() => setMenu(null)} playlistId={plId} ptId={menu.pt_id}
-                   onOpenArtist={name => { setMenu(null); routes.goArtist(name, menu.cover_url); }} />
-      )}
+      <TrackMenu t={menu} open={!!menu} onClose={() => setMenu(null)}
+                 playlistId={plId} ptId={menu?.pt_id} onChanged={reload}
+                 onOpenArtist={name => { setMenu(null); routes.goArtist(name, menu.cover_url); }} />
     </div>
   );
 }

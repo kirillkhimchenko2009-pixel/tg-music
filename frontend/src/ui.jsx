@@ -1,11 +1,15 @@
 /* Общий UI-слой Vibe v3: иконки (единый штрих), карточки, рельсы,
    ряды треков, контекст-меню, шоты, скелетоны, визуальные утилиты. */
-import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useAnimationControls } from 'motion/react';
 import { api, coverUrl } from './api.js';
 import { haptic } from './tg.js';
 import { toggleLike, useLikes } from './likes.js';
 import * as P from './player.js';
+import AnimatedCard from './motion/components/AnimatedCard.jsx';
+import AnimatedIcon from './motion/components/AnimatedIcon.jsx';
+import Sheet from './motion/components/Sheet.jsx';
+import { toast } from './motion/utils/toast.js';
 
 /* ---------------- иконки (stroke 2, единый оптический ритм) ---------------- */
 const Icon = ({ d, children, ...props }) => (
@@ -53,6 +57,43 @@ export function coverOr(t) {
   const u = t && (t.cover || t.cover_url);
   const r = coverUrl(u ? { cover_url: u } : null);
   return r || t?.gradient || null;
+}
+
+/* Обложка проявляется после загрузки: без резкой замены пустого блока
+   на яркое изображение. */
+export function FadeImg({ src, alt = '', className = '', onError, ...rest }) {
+  const ref = useRef(null);
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    setOk(false);
+    const el = ref.current;
+    if (el && el.complete && el.naturalWidth) setOk(true);
+  }, [src]);
+
+  if (!src) return null;
+  return (
+    <img
+      ref={ref}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className={'fadeimg' + (ok ? ' on' : '') + (className ? ' ' + className : '')}
+      onLoad={() => setOk(true)}
+      onError={e => { e.currentTarget.style.visibility = 'hidden'; onError?.(e); }}
+      {...rest}
+    />
+  );
+}
+
+/* Эквалайзер — только индикатор реального воспроизведения.
+   При паузе не исчезает скачком, а замирает в спокойном состоянии. */
+export function Eq({ playing = true, big = false }) {
+  return (
+    <span className={'eq' + (big ? ' eq-lg' : '') + (playing ? '' : ' paused')} aria-hidden="true">
+      <i /><i /><i />
+    </span>
+  );
 }
 
 /* детерминированные градиенты для плейсхолдеров (без картинок) */
@@ -133,43 +174,48 @@ export function fmtTime(sec) {
 /* ---------------- обложечная плитка (built into PlayCard) ---------------- */
 
 /* ---------------- карточка контента (альбом / плейлист / подкаст) ---------------- */
-export function PlayCard({ title, sub, t, grad, glyph, badge, onOpen, onPlay, cellDelay, ratio, radius }) {
+export function PlayCard({ title, sub, t, grad, glyph, badge, onOpen, onPlay, cellDelay, ratio, radius, instant }) {
   const src = coverOr(t);
   return (
-    <div className="card rise" style={cellDelay != null ? { animationDelay: cellDelay + 'ms' } : undefined}>
+    <AnimatedCard className="card" instant={instant}
+                  delay={cellDelay != null ? Math.round(cellDelay / 40) : 0}>
       <div className="cardcov" style={radius ? { borderRadius: radius } : undefined} onClick={onOpen}>
         {src
-          ? <img src={src} alt="" loading="lazy" style={{ width: '100%', height: ratio ? '100%' : undefined }} />
+          ? <FadeImg src={src} alt="" style={{ width: '100%', height: ratio ? '100%' : undefined }} />
           : <span className="cph" style={{ background: grad || gradFor(title || 'v') }}>
               {glyph || <IcoNote width="1em" height="1em" style={{ width: '28%', height: '28%' }} />}
             </span>}
         {badge && <span className="badge">{badge}</span>}
         <span className="cardclick" onClick={onOpen} />
         {onPlay && (
-          <button className="cplay" aria-label={`Слушать: ${title || ''}`} onPointerDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); haptic('light'); onPlay(e); }}>
+          <motion.button className="cplay" aria-label={`Слушать: ${title || ''}`}
+                         whileHover={{ scale: 1.07 }} whileTap={{ scale: 0.88 }}
+                         transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+                         onPointerDown={e => e.stopPropagation()}
+                         onClick={e => { e.stopPropagation(); haptic('light'); onPlay(e); }}>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.5 5.2v13.6L19.2 12z" /></svg>
-          </button>
+          </motion.button>
         )}
       </div>
       <span className="cardname" onClick={onOpen}>{title}</span>
       {sub != null && <span className="cardsub" onClick={onOpen}>{sub}</span>}
-    </div>
+    </AnimatedCard>
   );
 }
 
 /* карточка исполнителя (круглый аватар) */
-export function ArtistCard({ name, sub, cover, onOpen, delay }) {
+export function ArtistCard({ name, sub, cover, onOpen, delay, instant }) {
   return (
-    <div className="artcard rise" onClick={() => { haptic('light'); onOpen?.(); }}
-         style={delay != null ? { animationDelay: delay + 'ms' } : undefined}>
+    <AnimatedCard className="artcard" instant={instant}
+                  delay={delay != null ? Math.round(delay / 40) : 0}
+                  onClick={() => { haptic('light'); onOpen?.(); }}>
       <span className="artava">
-        {cover ? <img src={coverOr({ cover_url: cover })} alt="" loading="lazy" />
+        {cover ? <FadeImg src={coverOr({ cover_url: cover })} alt="" />
                : <span className="artinit">{(name || '?').slice(0, 1).toUpperCase()}</span>}
       </span>
       <span className="artname">{name}</span>
       {sub && <span className="artsub">{sub}</span>}
-    </div>
+    </AnimatedCard>
   );
 }
 
@@ -191,18 +237,34 @@ export function Rail({ children }) {
 }
 
 /* ---------------- ряд трека ---------------- */
-export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, children }) {
+export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, children, layout = true }) {
   const st = P.usePlayerSnap();
   const cur = st.queue[st.index];
-  const playing = cur && cur.id === t.id && st.playing;
+  const isCur = cur && cur.id === t.id;
+  const playing = isCur && st.playing;
   const cov = coverOr(t);
   return (
-    <div className={'trow' + (playing ? ' playing' : '')}
-         style={i != null ? { animationDelay: Math.min(i, 14) * 26 + 'ms' } : undefined}
-         onClick={() => { haptic('light'); onPlay?.(); }}>
-      {num && <span className="num">{playing ? <span className="eq"><i /><i /><i /></span> : num}</span>}
+    <motion.div
+      layout={layout}
+      className={'trow' + (playing ? ' playing' : '')}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.985, transition: { duration: .16, ease: [.4, 0, 1, 1] } }}
+      transition={{ duration: .22, ease: [.16, 1, .3, 1], delay: Math.min(i ?? 0, 12) * 0.022 }}
+      onClick={() => { haptic('light'); onPlay?.(); }}
+    >
+      {num && (
+        <span className="num">
+          {playing ? <Eq /> : <>
+            <span className="num-n">{num}</span>
+            <span className="num-play" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
+            </span>
+          </>}
+        </span>
+      )}
       {cov
-        ? <img className="cov" src={cov} alt="" loading="lazy" />
+        ? <FadeImg className="cov" src={cov} alt="" loading="lazy" />
         : <span className="cph" style={{ borderRadius: 8, flex: '0 0 auto',
                                          background: gradFor(t.title || t.album || 'x') }}
                 aria-hidden="true"><IcoNote width="1em" height="1em" /></span>}
@@ -219,36 +281,58 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
           <IcoMore />
         </button>
       )}
-    </div>
+    </motion.div>
   );
 }
 
 export function HeartBtn({ id, big }) {
   const liked = useLikes().has(id);
+  const controls = useAnimationControls();
   return (
-    <button className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
-            aria-label="В любимое"
-            onClick={e => { e.stopPropagation(); haptic(liked ? 'soft' : 'light'); toggleLike(id); }}>
+    <motion.button
+      className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
+      aria-label="В любимое"
+      whileTap={{ scale: 0.8 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 30, mass: .8 }}
+      onClick={async e => {
+        e.stopPropagation();
+        haptic(liked ? 'soft' : 'light');
+        const now = await toggleLike(id);
+        if (now) {
+          controls.start({ scale: [1, 1.18, 1] }, { duration: .32, ease: [.2, .8, .2, 1] });
+        }
+      }}
+      animate={controls}
+    >
       <svg viewBox="0 0 24 24">
         <path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"
               d="M12 21c-4.6-4-8.7-7-8.7-10.8C3.3 7 5.6 4.7 8.4 4.7c1.6 0 3.1.8 4.1 2 1-1.2 2.4-2 4-2 2.8 0 5.1 2.3 5.1 5.5 0 3.8-4.1 6.8-8.7 10.8z" />
       </svg>
-    </button>
+    </motion.button>
   );
 }
 
-/* морф play/pause */
+/* морф play/pause: обе иконки живут одновременно, переход — crossfade */
 export function PlayPause({ playing, loading, big }) {
   return (
-    <span className={'ppm' + (big ? ' lg' : '') + (playing ? ' on' : '')}>
+    <span className={'ppm' + (big ? ' lg' : '') + (playing ? ' on' : '')} aria-hidden="true">
       {loading
-        ? <span className="spinner" />
+        ? <motion.span className="spinner"
+                       initial={{ opacity: 0, scale: .8 }}
+                       animate={{ opacity: 1, scale: 1 }}
+                       transition={{ duration: .16, ease: [.16, 1, .3, 1] }} />
         : <>
-          <svg className="pp-ico pp-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.6v12.8L18.6 12z" /></svg>
-          <svg className="pp-ico pp-pause" viewBox="0 0 24 24" fill="currentColor">
+          <motion.svg className="pp-ico pp-play" viewBox="0 0 24 24" fill="currentColor"
+                      animate={{ opacity: playing ? 0 : 1, scale: playing ? .62 : 1, rotate: playing ? 7 : 0 }}
+                      transition={{ duration: .17, ease: [.16, 1, .3, 1] }}>
+            <path d="M8.2 5.6v12.8L18.6 12z" />
+          </motion.svg>
+          <motion.svg className="pp-ico pp-pause" viewBox="0 0 24 24" fill="currentColor"
+                      animate={{ opacity: playing ? 1 : 0, scale: playing ? 1 : .62, rotate: playing ? 0 : -7 }}
+                      transition={{ duration: .17, ease: [.16, 1, .3, 1] }}>
             <rect x="6.6" y="5.4" width="3.6" height="13.2" rx="1.7" />
             <rect x="13.8" y="5.4" width="3.6" height="13.2" rx="1.7" />
-          </svg>
+          </motion.svg>
         </>}
     </span>
   );
@@ -278,75 +362,103 @@ export async function downloadTrack(track, onStatus) {
 }
 
 /* ---------------- шит-меню трека ---------------- */
-export function TrackMenu({ t, onClose, ptId, playlistId, onOpenArtist, extraRows }) {
+export function TrackMenu({
+  t, open, onClose, ptId, playlistId, onOpenArtist, onChanged, extraRows,
+}) {
   const [pls, setPls] = useState(null);
   const [dpid, setDpid] = useState('');           // статус скачивания
   const [adding, setAdding] = useState(0);        // id плейлиста, куда идёт добавление
+  const track = t || null;
+  const shown = open ?? !!track;
+
   useEffect(() => {
+    if (!shown) return;
     api('/api/playlists').then(d => setPls(d.playlists || [])).catch(() => setPls([]));
-  }, []);
+  }, [shown]);
 
   const add = async (pl) => {
+    if (!track) return;
     setAdding(pl.id);
     try {
-      await api(`/api/playlists/${pl.id}/tracks`, { method: 'POST', body: JSON.stringify({ track_id: t.id }) });
-      haptic('ok'); onClose();
-    } catch { setAdding(0); }
+      await api(`/api/playlists/${pl.id}/tracks`, { method: 'POST', body: JSON.stringify({ track_id: track.id }) });
+      haptic('ok');
+      toast(`Добавлено в «${pl.title}»`, { kind: 'success' });
+      onChanged?.();
+      onClose();
+    } catch { setAdding(0); toast('Не удалось добавить трек', { kind: 'error' }); }
   };
 
   const remove = async () => {
     if (!ptId || !playlistId) return;
     try {
       await api(`/api/playlists/${playlistId}/tracks/${ptId}`, { method: 'DELETE' });
-      haptic('ok'); onClose();
-    } catch { /* молча */ }
+      haptic('ok');
+      toast('Трек убран из плейлиста', { kind: 'success' });
+      onChanged?.();
+      onClose();
+    } catch { toast('Не удалось убрать трек', { kind: 'error' }); }
   };
 
-  const liked = useLikes().has(t.id);
-  return createPortal(
-    <div className="shovl" onClick={onClose}>
-      <div className="sheet" onClick={e => e.stopPropagation()}>
-        <span className="shgrab" />
-        <div className="shrow" style={{ pointerEvents: 'none' }}>
-          <img style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover' }} src={coverOr(t) || undefined} alt="" />
-          <div className="tmeta">
-            <div className="tt">{t.title}</div>
-            <div className="ta">{t.artist}</div>
+  const liked = useLikes().has(track?.id);
+
+  return (
+    <Sheet open={!!shown && !!track} onClose={onClose} labelledBy="track-menu-title">
+      {track && (
+        <>
+          <div id="track-menu-title" className="sr-only">Действия с треком</div>
+          <div className="shrow" style={{ pointerEvents: 'none' }}>
+            <FadeImg style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover' }}
+                     src={coverOr(track)} alt="" />
+            <div className="tmeta">
+              <div className="tt">{track.title}</div>
+              <div className="ta">{track.artist}</div>
+            </div>
           </div>
-        </div>
 
-        <button className="shrow" onClick={() => { haptic('light'); toggleLike(t.id); onClose(); }}>
-          <IcoHeart filled={liked} /> {liked ? 'Убрать из «Любимого»' : 'В «Любимое»'}
-        </button>
-        <button className="shrow" onClick={async () => {
-          haptic('medium');
-          const fin = await downloadTrack(t, setDpid);
-          if (fin.startsWith('✓')) onClose();
-        }}>
-          <IcoDl /> {dpid || 'Скачать в чат'}
-        </button>
-        {onOpenArtist && t.artist && (
-          <button className="shrow" onClick={() => { haptic('select'); onOpenArtist(t.artist); }}>
-            <IcoMic /> Исполнитель · {t.artist}
+          <button className="shrow" onClick={() => {
+            haptic('light');
+            toggleLike(track.id);
+            toast(liked ? 'Убрано из «Любимого»' : 'Добавлено в «Любимое»', { kind: 'success' });
+            onClose();
+          }}>
+            <IcoHeart filled={liked} /> {liked ? 'Убрать из «Любимого»' : 'В «Любимое»'}
           </button>
-        )}
-        {extraRows}
-        {ptId && playlistId && (
-          <button className="shrow danger" onClick={remove}>
-            <IcoX /> Убрать из плейлиста
-          </button>
-        )}
 
-        <div className="shhead">Добавить в плейлист</div>
-        {(pls || []).filter(p => p.id !== playlistId).slice(0, 12).map(pl => (
-          <button key={pl.id} className="shrow" disabled={adding === pl.id} onClick={() => add(pl)}>
-            <IcoPlus /> {adding === pl.id ? 'Добавляю…' : pl.title}
+          <button className="shrow" onClick={async () => {
+            haptic('medium');
+            const fin = await downloadTrack(track, setDpid);
+            if (fin.startsWith('✓')) {
+              toast('Файл отправлен в чат', { kind: 'success' });
+              onClose();
+            } else if (fin === 'ошибка') {
+              toast('Не удалось подготовить файл', { kind: 'error' });
+            }
+          }}>
+            <IcoDl /> {dpid || 'Скачать в чат'}
           </button>
-        ))}
-        {pls && !pls.length && <div className="pop-empty">Создай первый плейлист в Коллекции</div>}
-      </div>
-    </div>,
-    document.body,
+
+          {onOpenArtist && track.artist && (
+            <button className="shrow" onClick={() => { haptic('select'); onOpenArtist(track.artist); }}>
+              <IcoMic /> Исполнитель · {track.artist}
+            </button>
+          )}
+          {extraRows}
+          {ptId && playlistId && (
+            <button className="shrow danger" onClick={remove}>
+              <IcoX /> Убрать из плейлиста
+            </button>
+          )}
+
+          <div className="shhead">Добавить в плейлист</div>
+          {(pls || []).filter(p => p.id !== playlistId).slice(0, 12).map(pl => (
+            <button key={pl.id} className="shrow" disabled={adding === pl.id} onClick={() => add(pl)}>
+              <IcoPlus /> {adding === pl.id ? 'Добавляю…' : pl.title}
+            </button>
+          ))}
+          {pls && !pls.length && <div className="pop-empty">Создай первый плейлист в Коллекции</div>}
+        </>
+      )}
+    </Sheet>
   );
 }
 

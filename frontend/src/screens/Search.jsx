@@ -1,6 +1,7 @@
 /* Поиск v3: большое поле, жанры-чипы, популярные запросы,
    результат — треки (локал+сеть), альбомы, исполнители (клиентская группировка). */
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { api } from '../api.js';
 import * as P from '../player.js';
 import { haptic } from '../tg.js';
@@ -8,6 +9,7 @@ import {
   PlayCard, ArtistCard, TrackRow, TrackMenu, Skeletons, groupAlbums, gradFor, IcoX, IcoSearch,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
+import Reveal from '../motion/components/Reveal.jsx';
 
 const GENRES = [
   { q: 'русские хиты', t: 'Русские хиты', g: 'linear-gradient(140deg,#42506a,#1e2634)', ic: '🇷🇺' },
@@ -59,6 +61,12 @@ export default function SearchScreen({ initial = '' }) {
     }
   }
 
+  const clear = () => {
+    setQ('');
+    setRes({ local: [], web: [] });
+    inputRef.current?.focus();
+  };
+
   return (
     <div>
       <div className="searchbar">
@@ -67,97 +75,127 @@ export default function SearchScreen({ initial = '' }) {
                value={q} autoFocus autoComplete="off" spellCheck="false"
                onChange={e => onChange(e.target.value)}
                onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timer.current); run(q); inputRef.current?.blur(); } }} />
-        {q && (
-          <button className="searchclr" aria-label="Очистить"
-                  onClick={() => { setQ(''); setRes({ local: [], web: [] }); inputRef.current?.focus(); }}>
-            <IcoX width="1em" height="1em" />
-          </button>
-        )}
+        <AnimatePresence initial={false}>
+          {q && (
+            <motion.button
+              className="searchclr"
+              aria-label="Очистить"
+              initial={{ opacity: 0, scale: .7, rotate: -8 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: .7, rotate: 8 }}
+              transition={{ duration: .16, ease: [.16, 1, .3, 1] }}
+              onClick={clear}
+            >
+              <IcoX width="1em" height="1em" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* пустой запрос: жанры + популярное */}
       {!q && (
         <>
-          <div className="cap" style={{ marginTop: 20 }}>Жанры</div>
-          <div className="moodgrid">
-            {GENRES.map((g, i) => (
-              <button key={g.q} className="mood" style={{ '--g': g.g, animationDelay: i * 30 + 'ms' }}
-                      onClick={() => { haptic('medium'); setQ(g.q); run(g.q); }}>
-                <span className="ic">{g.ic}</span>{g.t}
-              </button>
-            ))}
-          </div>
-          <div className="cap">Популярные запросы</div>
-          <div className="tagcloud">
-            {POPULAR.map(p => (
-              <button key={p} className="chip" onClick={() => { haptic('medium'); setQ(p); run(p); }}>{p}</button>
-            ))}
-          </div>
+          <Reveal>
+            <div className="cap" style={{ marginTop: 20 }}>Жанры</div>
+            <div className="moodgrid">
+              {GENRES.map(g => (
+                <button key={g.q} className="mood" style={{ '--g': g.g }}
+                        onClick={() => { haptic('medium'); setQ(g.q); run(g.q); }}>
+                  <span className="ic">{g.ic}</span>{g.t}
+                </button>
+              ))}
+            </div>
+          </Reveal>
+          <Reveal>
+            <div className="cap">Популярные запросы</div>
+            <div className="tagcloud">
+              {POPULAR.map(p => (
+                <button key={p} className="chip" onClick={() => { haptic('medium'); setQ(p); run(p); }}>{p}</button>
+              ))}
+            </div>
+          </Reveal>
         </>
       )}
 
       {/* результаты */}
-      {q && busy && !all.length && <div style={{ marginTop: 20 }}><Skeletons n={5} /></div>}
+      <AnimatePresence mode="wait" initial={false}>
+        {q && busy && !all.length && (
+          <motion.div key="search-busy" style={{ marginTop: 20 }}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <Skeletons n={5} />
+          </motion.div>
+        )}
 
-      {q && !busy && (
-        <>
-          {albums.length > 0 && (
-            <section>
-              <div className="cap">Альбомы</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {albums.map((a, i) => (
-                  <AlbumMini key={a.key} a={a} i={i} />
-                ))}
+        {q && !busy && (
+          <motion.div
+            key={'search-results'}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: .22, ease: [.16, 1, .3, 1] }}
+          >
+            {albums.length > 0 && (
+              <Reveal>
+                <div className="cap">Альбомы</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {albums.map((a, i) => (
+                    <AlbumMini key={a.key} a={a} i={i} />
+                  ))}
+                </div>
+              </Reveal>
+            )}
+            {artistNames.slice(0, 8).length > 0 && (
+              <Reveal>
+                <div className="cap">Исполнители</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px 12px' }}>
+                  {artistNames.slice(0, 8).map((name, i) => (
+                    <ArtistCard key={name} name={name}
+                                onOpen={() => routes.goArtist(name)}
+                                delay={Math.min(i, 6) * 30} />
+                  ))}
+                </div>
+              </Reveal>
+            )}
+            {(res.local || []).length > 0 && (
+              <Reveal>
+                <div className="cap">Из скачанного</div>
+                <div className="tracks">
+                  <AnimatePresence initial={false}>
+                    {res.local.map((t, i) => (
+                      <TrackRow key={'l' + t.id} t={t} i={i} time={t.duration}
+                                onPlay={() => P.play(res.local, i)}
+                                onMenu={() => setMenu(t)} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </Reveal>
+            )}
+            {(res.web || []).length > 0 && (
+              <Reveal>
+                <div className="cap">Из сети</div>
+                <div className="tracks">
+                  <AnimatePresence initial={false}>
+                    {res.web.map((t, i) => (
+                      <TrackRow key={'w' + t.id} t={t} i={i} time={t.duration}
+                                onPlay={() => P.play(res.web, i)}
+                                onMenu={() => setMenu(t)} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </Reveal>
+            )}
+            {res.err && <div className="err" style={{ marginTop: 12 }}>{res.err}</div>}
+            {!all.length && !albums.length && !res.err && (
+              <div className="empty">
+                <div className="big float">🔎</div>
+                Ничего не нашлось. Попробуй короче: «артист — трек» или просто «название песни».
               </div>
-            </section>
-          )}
-          {artistNames.slice(0, 8).length > 0 && (
-            <section>
-              <div className="cap">Исполнители</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px 12px' }}>
-                {artistNames.slice(0, 8).map((name, i) => (
-                  <ArtistCard key={name} name={name}
-                              onOpen={() => routes.goArtist(name)}
-                              delay={i * 30} />
-                ))}
-              </div>
-            </section>
-          )}
-          {(res.local || []).length > 0 && (
-            <section>
-              <div className="cap">Из скачанного</div>
-              <div className="tracks">
-                {res.local.map((t, i) => (
-                  <TrackRow key={'l' + t.id} t={t} i={i} time={t.duration}
-                            onPlay={() => P.play(res.local, i)}
-                            onMenu={() => setMenu(t)} />
-                ))}
-              </div>
-            </section>
-          )}
-          {(res.web || []).length > 0 && (
-            <section>
-              <div className="cap">Из сети</div>
-              <div className="tracks">
-                {res.web.map((t, i) => (
-                  <TrackRow key={'w' + t.id} t={t} i={i} time={t.duration}
-                            onPlay={() => P.play(res.web, i)}
-                            onMenu={() => setMenu(t)} />
-                ))}
-              </div>
-            </section>
-          )}
-          {res.err && <div className="err" style={{ marginTop: 12 }}>{res.err}</div>}
-          {!all.length && !albums.length && !res.err && (
-            <div className="empty">
-              <div className="big float">🔎</div>
-              Ничего не нашлось. Попробуй короче: «артист — трек» или просто «название песни».
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {menu && <TrackMenu t={menu} onClose={() => setMenu(null)} />}
+      <TrackMenu t={menu} open={!!menu} onClose={() => setMenu(null)} />
     </div>
   );
 }
@@ -165,8 +203,12 @@ export default function SearchScreen({ initial = '' }) {
 /* мини-карточка альбома в выдаче — стиль .albert в theme.css */
 function AlbumMini({ a, i }) {
   return (
-    <div className="albert rise" style={{ animationDelay: Math.min(i, 8) * 30 + 'ms' }}
-         onClick={() => routes.goAlbum(a)}>
+    <motion.div className="albert"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileTap={{ scale: .995 }}
+                transition={{ duration: .22, ease: [.16, 1, .3, 1], delay: Math.min(i, 8) * 0.03 }}
+                onClick={() => routes.goAlbum(a)}>
       <span className="albert-cov">
         {a.cover
           ? <img src={a.cover.startsWith('http') ? a.cover : a.cover} alt="" loading="lazy" />
@@ -179,6 +221,6 @@ function AlbumMini({ a, i }) {
       <span className="albert-play" onClick={e => { e.stopPropagation(); haptic('light'); P.play(a.tracks, 0); }}>
         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8.2 5.6v12.8L18.6 12z" /></svg>
       </span>
-    </div>
+    </motion.div>
   );
 }

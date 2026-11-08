@@ -1,20 +1,27 @@
 /* Vibe Music v3 — премиальная оболочка: сайдбар (десктоп), топбар,
    нижний плеер-бар, полноэкранный нау-плей, таб-бар (мобайл).
-   Маршруты живут в стек-роутере nav.js (назад/вперёд/buttons). */
-import React, { useEffect, useState } from 'react';
+   Маршруты живут в стек-роутере nav.js (назад/вперёд/buttons).
+   Вся моторика — из единой системы src/motion. */
+import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, MotionConfig, animate, motion, useMotionValue } from 'motion/react';
 import * as P from './player.js';
-import { api, API_BASE, ensureGuestToken, hasAuth, setUnauthorizedHandler } from './api.js';
+import { api, ensureGuestToken, hasAuth, setUnauthorizedHandler } from './api.js';
 import { loadLikes, useLikes } from './likes.js';
 import { setAuthToken, initDataRaw } from './store.js';
 import { firstUserName, haptic } from './tg.js';
 import { navInit, navPush, navBack, navFwd, useNav, useNavMeta } from './nav.js';
 import {
-  coverOr, HeartBtn, PlayPause, fmtTime, gradFor, dominantColor,
+  coverOr, FadeImg, Eq, HeartBtn, PlayPause, fmtTime, gradFor, dominantColor,
   IcoHome, IcoWave, IcoSearch, IcoLib, IcoImport, IcoPodcast,
   IcoChevL, IcoChevR, IcoBell, IcoX, IcoCheck,
   IcoPrev, IcoNext, IcoShuffle, IcoRepeat, IcoVol, IcoVolOff,
   IcoExpand, IcoDl, IcoHeart, IcoClock, IcoNote,
 } from './ui.jsx';
+import {
+  AnimatedDropdown, AnimatedIcon, Seek, ToastHost,
+  layoutSpring, motionConfig, pageVariants, toast,
+  usePlayerMotion, useSharedTransition,
+} from './motion/index.js';
 
 import Home from './screens/Home.jsx';
 import Collection, { PlaylistScreen } from './screens/Collection.jsx';
@@ -88,18 +95,32 @@ export default function App() {
   if (ok !== true) return <BootSplash />;
 
   return (
-    <div className="app">
-      <Sidebar view={view} />
-      <div className="content">
-        <TopBar name={name} />
-        <main className="page" key={viewKey(view)}>
-          <Screen view={view} />
-        </main>
+    <MotionConfig {...motionConfig}>
+      <div className="app">
+        <Sidebar view={view} />
+        <div className="content">
+          <TopBar name={name} />
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.main
+              key={viewKey(view)}
+              className="page"
+              variants={pageVariants}
+              initial="initial"
+              animate="enter"
+              exit="exit"
+            >
+              <Screen view={view} />
+            </motion.main>
+          </AnimatePresence>
+        </div>
+        <PlayerBar onExpand={() => setExpanded(true)} />
+        <AnimatePresence>
+          {expanded && <NowPlaying onClose={() => setExpanded(false)} />}
+        </AnimatePresence>
+        <TabBar tab={view} />
+        <ToastHost />
       </div>
-      <PlayerBar onExpand={() => setExpanded(true)} />
-      {expanded && <NowPlaying onClose={() => setExpanded(false)} />}
-      <TabBar tab={view} />
-    </div>
+    </MotionConfig>
   );
 }
 
@@ -134,12 +155,17 @@ function SideItem({ view, item }) {
   const on = isActive(view, item);
   const Ico = item.icon;
   return (
-    <button className={'side-item' + (on ? ' on' : '')}
-            onClick={() => { haptic('soft'); navPush({ tab: item.tab, sub: item.sub || null }); }}>
+    <motion.button
+      className={'side-item' + (on ? ' on' : '')}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+      onClick={() => { haptic('soft'); navPush({ tab: item.tab, sub: item.sub || null }); }}
+    >
+      {on && <motion.span layoutId="side-active" className="side-plate" transition={layoutSpring} />}
       <span className="si"><Ico width="1em" height="1em" /></span>
-      <span>{item.label}</span>
+      <span className="side-lbl">{item.label}</span>
       {item.soon && <span className="badge-dot" />}
-    </button>
+    </motion.button>
   );
 }
 
@@ -201,12 +227,10 @@ function TopBar({ name }) {
                 onClick={e => { e.stopPropagation(); setPop(p => p === 'bell' ? null : 'bell'); }}>
           <IcoBell />
         </button>
-        {pop === 'bell' && (
-          <div className="pop" onClick={e => e.stopPropagation()}>
-            <div className="pop-head"><div className="pop-title">Уведомления</div></div>
-            <div className="pop-empty">Пока тихо: релизы и новости появятся здесь позже.</div>
-          </div>
-        )}
+        <AnimatedDropdown show={pop === 'bell'} onClick={e => e.stopPropagation()}>
+          <div className="pop-head"><div className="pop-title">Уведомления</div></div>
+          <div className="pop-empty">Пока тихо: релизы и новости появятся здесь позже.</div>
+        </AnimatedDropdown>
       </div>
 
       <div className="popwrap">
@@ -214,20 +238,18 @@ function TopBar({ name }) {
           <span className="tb-ava">{(name || 'Г').slice(0, 1).toUpperCase()}</span>
           <span className="tb-name">{name}</span>
         </button>
-        {pop === 'user' && (
-          <div className="pop" onClick={e => e.stopPropagation()}>
-            <div className="pop-head">
-              <div className="pop-title">{name || 'Гость'}</div>
-              <div className="pop-sub">{initDataRaw.value ? 'Аккаунт Telegram' : 'Гостевая сессия этого устройства'}</div>
-            </div>
-            <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'likes' }); setPop(null); }}>
-              <IcoHeart width="1em" height="1em" /> Любимое
-            </button>
-            <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'history' }); setPop(null); }}>
-              <IcoClock width="1em" height="1em" /> История
-            </button>
+        <AnimatedDropdown show={pop === 'user'} onClick={e => e.stopPropagation()}>
+          <div className="pop-head">
+            <div className="pop-title">{name || 'Гость'}</div>
+            <div className="pop-sub">{initDataRaw.value ? 'Аккаунт Telegram' : 'Гостевая сессия этого устройства'}</div>
           </div>
-        )}
+          <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'likes' }); setPop(null); }}>
+            <IcoHeart width="1em" height="1em" /> Любимое
+          </button>
+          <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'history' }); setPop(null); }}>
+            <IcoClock width="1em" height="1em" /> История
+          </button>
+        </AnimatedDropdown>
       </div>
     </header>
   );
@@ -236,7 +258,12 @@ function TopBar({ name }) {
 /* ---------------- boot ---------------- */
 function BootSplash() {
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg)' }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: .22, ease: [.16, 1, .3, 1] }}
+      style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg)' }}
+    >
       <div className="cardbox" style={{ width: 'min(88vw, 340px)' }}>
         <div className="login">
           <div className="boot-eq"><i /><i /><i /></div>
@@ -244,7 +271,7 @@ function BootSplash() {
           <p className="muted">Подключаюсь к музыкальному серверу</p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -255,12 +282,19 @@ function TabBar({ tab }) {
     <nav className="tabbar">
       {TABS_M.map(t => {
         const Ico = t.icon;
+        const active = on === t.id;
         return (
-          <button key={t.id} className={'tab' + (on === t.id ? ' on' : '')}
-                  onClick={() => { haptic('soft'); navPush({ tab: t.id, sub: null }); }}>
-            <Ico width="1em" height="1em" />
-            <span>{t.label}</span>
-          </button>
+          <motion.button
+            key={t.id}
+            className={'tab' + (active ? ' on' : '')}
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+            onClick={() => { haptic('soft'); navPush({ tab: t.id, sub: null }); }}
+          >
+            {active && <motion.span layoutId="tab-active" className="tab-plate" transition={layoutSpring} />}
+            <span className="tab-ico"><Ico width="1em" height="1em" /></span>
+            <span className="tab-lbl">{t.label}</span>
+          </motion.button>
         );
       })}
     </nav>
@@ -270,19 +304,44 @@ function TabBar({ tab }) {
 /* ---------------- плеер-бар ---------------- */
 function PlayerBar({ onExpand }) {
   const st = P.usePlayerSnap();
+  const { sharedCover } = useSharedTransition();
   const cur = st.queue[st.index];
   if (!cur) return null;
-  const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
   return (
-    <div className="pbar">
-      <div className="pcovwrap" onClick={onExpand}>
-        <img src={coverOr(cur) || undefined} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
-        {st.playing && <span className="eq"><i /><i /><i /></span>}
-      </div>
+    <motion.div
+      className="pbar"
+      initial={{ opacity: 0, y: 26 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 30, mass: 1 }}
+    >
+      <motion.div
+        className="pcovwrap"
+        layoutId="np-cover"
+        transition={sharedCover}
+        onClick={onExpand}
+        role="button"
+        tabIndex={0}
+        aria-label="Открыть плеер"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onExpand(); }}
+      >
+        <FadeImg src={coverOr(cur)} alt="" />
+        <Eq playing={st.playing} />
+      </motion.div>
 
       <div className="pl-meta" onClick={onExpand}>
-        <div className="pl-title">{cur.title}</div>
-        <div className="pl-artist">{cur.artist}</div>
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={cur.id}
+            className="plmeta-in"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: .22, ease: [.16, 1, .3, 1] }}
+          >
+            <div className="pl-title">{cur.title}</div>
+            <div className="pl-artist">{cur.artist}</div>
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <div className="pl-heart" onClick={e => e.stopPropagation()}><HeartBtn id={cur.id} /></div>
@@ -290,20 +349,18 @@ function PlayerBar({ onExpand }) {
       {/* десктоп: центр — прогресс + контролы */}
       <div className="pl-omni" onClick={e => e.stopPropagation()}>
         <div className="pl-lines">
-          <span>{P.fmt(st.currentTime)}</span>
-          <input className="seek" type="range" min="0" max="1000" value={Math.round(pct * 10)}
-                 style={{ '--fill': pct.toFixed(1) + '%' }}
-                 aria-label="Позиция трека"
-                 onChange={e => P.seek(+e.target.value / 1000)} />
-          <span>{P.fmt(st.duration)}</span>
+          <Seek showTime ariaLabel="Позиция трека" />
         </div>
         <div className="pl-center">
           <button className={'pl-ctl' + (st.shuffle ? ' on' : '')} aria-label="Перемешать"
                   onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}><IcoShuffle /></button>
           <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
-          <button className="pl-play" aria-label="Играть/пауза" onClick={() => { haptic('medium'); P.toggle(); }}>
+          <motion.button className="pl-play" aria-label="Играть/пауза"
+                         whileTap={{ scale: 0.9 }}
+                         transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+                         onClick={() => { haptic('medium'); P.toggle(); }}>
             <PlayPause playing={st.playing} loading={st.loading} />
-          </button>
+          </motion.button>
           <button className="pl-ctl" aria-label="Следующий" onClick={() => { haptic('light'); P.next(); }}><IcoNext /></button>
           <button className={'pl-ctl' + (st.loop ? ' on' : '')} aria-label="Повтор"
                   onClick={() => { haptic('light'); P.setLoop(!st.loop); }}><IcoRepeat /></button>
@@ -313,9 +370,12 @@ function PlayerBar({ onExpand }) {
       {/* мобильный: компактные контролы */}
       <div className="pl-mctl" onClick={e => e.stopPropagation()}>
         <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
-        <button className="pl-play" aria-label="Играть/пауза" onClick={() => { haptic('medium'); P.toggle(); }}>
+        <motion.button className="pl-play" aria-label="Играть/пауза"
+                       whileTap={{ scale: 0.9 }}
+                       transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+                       onClick={() => { haptic('medium'); P.toggle(); }}>
           <PlayPause playing={st.playing} loading={st.loading} />
-        </button>
+        </motion.button>
         <button className="pl-ctl" aria-label="Следующий" onClick={() => { haptic('light'); P.next(); }}><IcoNext /></button>
       </div>
 
@@ -334,7 +394,7 @@ function PlayerBar({ onExpand }) {
         </div>
         <button className="pl-ctl" aria-label="Раскрыть плеер" onClick={onExpand}><IcoExpand /></button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -342,8 +402,13 @@ function PlayerBar({ onExpand }) {
 function NowPlaying({ onClose }) {
   const st = P.usePlayerSnap();
   const cur = st.queue[st.index];
+  const { sharedCover } = useSharedTransition();
+  const { surfaceVariants, trackVariants, queueVariants, player } = usePlayerMotion();
   const [dl, setDl] = useState('');
   const [glow, setGlow] = useState(null);
+  const y = useMotionValue(0);
+  const scrollRef = useRef(null);
+  const touch = useRef({ active: false, locked: false, startX: 0, startY: 0 });
 
   useEffect(() => {
     const esc = e => { if (e.key === 'Escape') onClose(); };
@@ -359,41 +424,117 @@ function NowPlaying({ onClose }) {
     return () => { dead = true; };
   }, [cur?.id]);
 
+  /* Свайп вниз закрывает плеер только от верхней кромки скролла;
+     горизонтальный жест отпускает событие — вертикальный скролл не ломается. */
+  const onTouchStart = e => {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0) return;
+    const t = e.touches[0];
+    touch.current = { active: true, locked: false, startX: t.clientX, startY: t.clientY };
+  };
+  const onTouchMove = e => {
+    const d = touch.current;
+    if (!d.active) return;
+    const t = e.touches[0];
+    const dy = t.clientY - d.startY;
+    const dx = t.clientX - d.startX;
+    if (!d.locked) {
+      if (Math.abs(dy) < 8 && Math.abs(dx) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy) * 1.2) { d.active = false; return; }
+      d.locked = true;
+    }
+    if (dy > 0) y.set(Math.min(dy * 0.85, 240));
+  };
+  const onTouchEnd = () => {
+    const d = touch.current;
+    if (!d.active) return;
+    d.active = false;
+    if (!d.locked) return;
+    if (y.get() > 110) { haptic('soft'); onClose(); }
+    else animate(y, 0, { type: 'spring', stiffness: 260, damping: 30, mass: 1 });
+  };
+
   if (!cur) return null;
 
   const download = async () => {
     if (!cur || dl) return;
     haptic('medium');
-    await downloadJob(cur, setDl);
+    const fin = await downloadJob(cur, setDl);
+    if (fin && fin.startsWith('✓')) toast('Файл отправлен в чат', { kind: 'success' });
+    else if (fin === 'Ошибка сети') toast('Не удалось скачать трек', { kind: 'error' });
     setTimeout(() => setDl(''), 4000);
   };
 
+  const dlBusy = dl && !dl.startsWith('✓');
+  const dlDone = !!dl && dl.startsWith('✓');
+
   return (
-    <div className="np"
-         style={{ '--g': glow ? `radial-gradient(120% 90% at 50% -8%, ${glow}, transparent 68%)` : undefined }}>
+    <motion.div
+      ref={scrollRef}
+      className="np"
+      style={{ y, '--g': glow ? `radial-gradient(120% 90% at 50% -8%, ${glow}, transparent 68%)` : undefined }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: .22, ease: [.2, 0, 0, 1] }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Сейчас играет"
+    >
+      <motion.div
+        className="np-bg"
+        variants={surfaceVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      />
       <div className="np-in">
         <div className="np-head">
-          <span className="np-kicker">Сейчас играет</span>
-          <button className="np-x" onClick={onClose} aria-label="Свернуть плеер"><IcoChevL style={{ transform: 'rotate(-90deg)' }} /></button>
+          <span className="np-kicker">
+            <span className="np-now"><Eq playing={st.playing} /></span>
+            Сейчас играет
+          </span>
+          <motion.button className="np-x" whileTap={{ scale: 0.9 }} onClick={onClose}
+                         aria-label="Свернуть плеер"><IcoChevL style={{ transform: 'rotate(-90deg)' }} /></motion.button>
         </div>
 
-        <div className="np-covwrap">
-          <img className={'np-cover' + (st.playing ? ' kb' : '')} src={coverOr(cur) || undefined} alt="" />
-        </div>
+        <motion.div className="np-covwrap" layoutId="np-cover" transition={sharedCover}>
+          <FadeImg className={'np-cover' + (st.playing ? ' kb' : '')} src={coverOr(cur)} alt="" />
+        </motion.div>
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="np-tname">{cur.title}</div>
-            <div className="np-tartist">{cur.artist}</div>
-            {cur.album && <div className="pl-artist" style={{ marginTop: 2 }}>{cur.album}{cur.year ? ' · ' + cur.year : ''}</div>}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.div
+                key={cur.id}
+                variants={trackVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+              >
+                <div className="np-tname">{cur.title}</div>
+                <div className="np-tartist">{cur.artist}</div>
+                {cur.album && <div className="pl-artist" style={{ marginTop: 2 }}>{cur.album}{cur.year ? ' · ' + cur.year : ''}</div>}
+              </motion.div>
+            </AnimatePresence>
           </div>
           <HeartBtn id={cur.id} big />
           <button className="iconact" aria-label="Скачать в чат" onClick={download}>
-            {dl && !dl.startsWith('✓') ? <span className="spinner" style={{ width: 15, height: 15 }} />
-              : (dl ? <IcoCheck width="1em" height="1em" /> : <IcoDl width="1em" height="1em" />)}
+            <AnimatedIcon name={dlBusy ? 'busy' : dlDone ? 'done' : 'idle'}>
+              {dlBusy ? <span className="spinner" style={{ width: 15, height: 15 }} />
+                : dlDone ? <IcoCheck width="1em" height="1em" /> : <IcoDl width="1em" height="1em" />}
+            </AnimatedIcon>
           </button>
         </div>
-        {dl && <div className="np-chip"><span className="np-dot" /> {dl}</div>}
+        {dl && (
+          <motion.div className="np-chip" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}>
+            <span className="np-dot" /> {dl}
+          </motion.div>
+        )}
 
         {st.error && <div className="err" style={{ marginTop: 12 }}>{st.error}</div>}
 
@@ -405,21 +546,18 @@ function NowPlaying({ onClose }) {
         </div>
 
         <div className="seekrow" style={{ marginTop: 18 }}>
-          <span className="ttime">{P.fmt(st.currentTime)}</span>
-          <input className="seek" type="range" min="0" max="1000"
-                 value={Math.round((st.duration ? st.currentTime / st.duration * 100 : 0) * 10)}
-                 style={{ '--fill': st.duration ? (st.currentTime / st.duration * 100).toFixed(1) + '%' : '0%' }}
-                 aria-label="Позиция"
-                 onChange={e => P.seek(+e.target.value / 1000)} />
-          <span className="ttime">{P.fmt(st.duration)}</span>
+          <Seek showTime timeClass="ttime" ariaLabel="Позиция" />
         </div>
 
         <div className="np-btns">
-          <button className="cbtn glass" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
-          <button className="cbtn big" aria-label="Играть/пауза" onClick={() => { haptic('medium'); P.toggle(); }}>
+          <motion.button className="cbtn glass" whileTap={{ scale: .88 }} aria-label="Предыдущий"
+                         onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></motion.button>
+          <motion.button className="cbtn big" whileTap={{ scale: .9 }} aria-label="Играть/пауза"
+                         onClick={() => { haptic('medium'); P.toggle(); }}>
             <PlayPause playing={st.playing} loading={st.loading} big />
-          </button>
-          <button className="cbtn glass" aria-label="Следующий" onClick={() => { haptic('light'); P.next(); }}><IcoNext /></button>
+          </motion.button>
+          <motion.button className="cbtn glass" whileTap={{ scale: .88 }} aria-label="Следующий"
+                         onClick={() => { haptic('light'); P.next(); }}><IcoNext /></motion.button>
         </div>
 
         <div className="minirow">
@@ -431,17 +569,31 @@ function NowPlaying({ onClose }) {
 
         <div className="np-queue">
           <div className="npq-cap">Очередь · {st.queue.length}</div>
-          {st.queue.map((t, i) => (
-            <button key={t.id} className={'npq' + (i === st.index ? ' on' : '')}
-                    style={{ animationDelay: Math.min(i, 12) * 30 + 'ms' }}
-                    onClick={() => { haptic('select'); P.play(st.queue, i); }}>
-              <span className="npq-n">{i === st.index ? (st.playing ? <span className="eq"><i /><i /><i /></span> : '▶') : i + 1}</span>
-              <span className="npq-t">{t.title} — {t.artist}</span>
-            </button>
-          ))}
+          <AnimatePresence initial={false}>
+            {st.queue.map((t, i) => (
+              <motion.button
+                key={t.id + ':' + i}
+                layout
+                className={'npq' + (i === st.index ? ' on' : '')}
+                variants={queueVariants}
+                custom={i}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ layout: player.queue }}
+                onClick={() => { haptic('select'); P.play(st.queue, i); }}
+              >
+                {i === st.index && (
+                  <motion.span layoutId="npq-active" className="npq-bg" transition={player.queue} />
+                )}
+                <span className="npq-n">{i === st.index ? (st.playing ? <Eq /> : '▶') : i + 1}</span>
+                <span className="npq-t">{t.title} — {t.artist}</span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -452,13 +604,15 @@ async function downloadJob(track, setDl) {
     let it = 0;
     while (it++ < 175) {
       const s = await api('/api/jobs/' + job);
-      if (s.status === 'done') { setDl('✓ файл отправлен в чат'); return; }
-      if (s.status === 'error') { setDl('Не получилось · попробуй ещё раз'); return; }
+      if (s.status === 'done') { setDl('✓ файл отправлен в чат'); return '✓ файл отправлен в чат'; }
+      if (s.status === 'error') { setDl('Не получилось · попробуй ещё раз'); return 'ошибка'; }
       setDl('⬇ ' + Math.round((s.progress || 0) * 100) + '% · готовим файл');
       await new Promise(r => setTimeout(r, 1200));
     }
     setDl('');
+    return '';
   } catch {
     setDl('Ошибка сети');
+    return 'Ошибка сети';
   }
 }

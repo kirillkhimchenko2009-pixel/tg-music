@@ -1,7 +1,9 @@
 /* Главная: приветствие + персональная волна + рельсы карточек.
    Всё на живых данных: /api/history, /api/playlists, /api/artists/top,
-   /api/library. Пустые секции честно скрываются. */
+   /api/library. Пустые секции честно скрываются.
+   Вступительная волна проигрывается один раз за сессию. */
 import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { api } from '../api.js';
 import * as P from '../player.js';
 import { haptic } from '../tg.js';
@@ -11,6 +13,8 @@ import {
   plural, groupAlbums, gradFor, IcoWave,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
+import { useEnterOnce } from '../motion/hooks/useEnterOnce.js';
+import Reveal from '../motion/components/Reveal.jsx';
 
 const MOODS = [
   { q: 'lofi beats', g: 'linear-gradient(140deg,#4a5468,#232a36)', ic: '🌙', t: 'Тихий вечер' },
@@ -50,6 +54,7 @@ export default function Home() {
   }, []);
 
   const loaded = ready >= 4;
+  const intro = useEnterOnce('home', loaded);
   const name = firstUserName() || 'друзяка';
   const likesPl = pls.find(p => /любимое/i.test(p.title || ''));
   const myPls = pls.filter(p => p.source === 'import' && p.count > 0)
@@ -63,12 +68,28 @@ export default function Home() {
   return (
     <div>
       {/* приветствие */}
-      <h1 className="h">{greeting()}, {name}</h1>
-      <div className="sub">Волна уже пульсирует — включай и слушай.</div>
+      <motion.h1 className="h"
+                 initial={intro ? { opacity: 0, y: 10 } : false}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ duration: .30, ease: [.16, 1, .3, 1] }}>
+        {greeting()}, {name}
+      </motion.h1>
+      <motion.div className="sub"
+                  initial={intro ? { opacity: 0, y: 8 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: .30, ease: [.16, 1, .3, 1], delay: .045 }}>
+        Волна уже пульсирует — включай и слушай.
+      </motion.div>
 
       {/* большой персональный микс (Моя волна) */}
-      <div className="mixcard rise" style={{ marginTop: 22 }}
-           onClick={() => { haptic('medium'); routes.goWave(); }}>
+      <motion.div className="mixcard"
+                  style={{ marginTop: 22 }}
+                  initial={intro ? { opacity: 0, y: 16 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: .995 }}
+                  transition={{ duration: .32, ease: [.16, 1, .3, 1], delay: .09 }}
+                  onClick={() => { haptic('medium'); routes.goWave(); }}>
         <span className="mix-ava"><IcoWave width="1em" height="1em" /></span>
         <span className="mix-m">
           <span className="mix-kicker">Персональный поток</span>
@@ -78,74 +99,78 @@ export default function Home() {
         <span className="mix-play">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
         </span>
-      </div>
+      </motion.div>
 
       {/* Продолжить слушать */}
       {hist?.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Продолжить слушать" />
           <Rail>
             {hist.map((t, i) => (
               <PlayCard key={'h' + t.id} title={t.title} sub={t.artist}
+                        instant={!intro}
                         onOpen={() => { haptic('light'); P.play(hist, i); }}
                         onPlay={() => P.play(hist, i)}
-                        cellDelay={Math.min(i, 8) * 40} />
+                        cellDelay={Math.min(i, 6) * 40} />
             ))}
           </Rail>
-        </section>
+        </Reveal>
       )}
 
       {/* популярное сегодня: плейлисты */}
       {myPls.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Популярное сегодня" action="Все плейлисты"
                        onAction={() => routes.goTab('collection', 'playlists')} />
           <Rail>
             {myPls.slice(0, 12).map((p, i) => (
               <PlayCard key={p.id} title={p.title.replace(/^❤\s*/, '')}
                         sub={plural(p.count, 'трек', 'трека', 'треков')}
+                        instant={!intro}
                         onOpen={() => routes.goPlaylist(p)}
                         onPlay={() => routes.goPlaylist(p)}
-                        cellDelay={i * 40} />
+                        cellDelay={Math.min(i, 6) * 40} />
             ))}
           </Rail>
-        </section>
+        </Reveal>
       )}
 
       {/* новые релизы (по-честному: свежее в твоей коллекции, нарезка альбомов) */}
       {recentAlbums.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Новые альбомы" action="Вся коллекция"
                        onAction={() => routes.goTab('collection', 'albums')} />
           <Rail>
             {recentAlbums.map((a, i) => (
               <PlayCard key={a.key} title={a.title} sub={`${a.artist}${a.year ? ' · ' + a.year : ''}`}
+                        instant={!intro}
                         onOpen={() => routes.goAlbum(a)}
                         onPlay={() => P.play(a.tracks, 0)}
-                        cellDelay={i * 40} />
+                        cellDelay={Math.min(i, 6) * 40} />
             ))}
           </Rail>
-        </section>
+        </Reveal>
       )}
 
       {/* рекомендации-исполнители */}
       {artists.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Рекомендуемые исполнители" action="Все"
                        onAction={() => routes.goTab('collection', 'artists')} />
           <Rail>
             {artists.map((a, i) => (
               <ArtistCard key={a.name} name={a.name} cover={a.cover_url}
                           sub={plural(a.count, 'трек', 'трека', 'треков')}
+                          instant={!intro}
                           onOpen={() => routes.goArtist(a.name, a.cover_url)}
-                          delay={i * 40} />
+                          delay={Math.min(i, 6) * 40} />
             ))}
           </Rail>
-        </section>
+        </Reveal>
       )}
 
       {/* по настроению */}
-      <section>
+      <Reveal>
         <SectionHead title="По настроению" />
         <div className="moodgrid">
           {MOODS.map(m => (
@@ -156,14 +181,16 @@ export default function Home() {
             </button>
           ))}
         </div>
-      </section>
+      </Reveal>
 
       {/* ❤ Любимое — быстрый вход */}
       {likesPl && likesPl.count > 0 && (
-        <section style={{ marginTop: 26 }}>
+        <Reveal style={{ marginTop: 26 }}>
           <SectionHead title="Любимое" />
-          <button className="mixcard rise" style={{ '--g': 'linear-gradient(140deg,#3f4654,#1e2330)' }}
-                  onClick={() => routes.goTab('collection', 'likes')}>
+          <motion.button className="mixcard"
+                         style={{ '--g': 'linear-gradient(140deg,#3f4654,#1e2330)' }}
+                         whileHover={{ y: -2 }} whileTap={{ scale: .995 }}
+                         onClick={() => routes.goTab('collection', 'likes')}>
             <span className="mix-ava">
               <svg viewBox="0 0 24 24" width="38" height="38" fill="#D9ED3A">
                 <path d="M12 21c-4.6-4-8.7-7-8.7-10.8C3.3 7 5.6 4.7 8.4 4.7c1.6 0 3.1.8 4.1 2 1-1.2 2.4-2 4-2 2.8 0 5.1 2.3 5.1 5.5 0 3.8-4.1 6.8-8.7 10.8z" />
@@ -177,16 +204,18 @@ export default function Home() {
             <span className="mix-play">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
             </span>
-          </button>
-        </section>
+          </motion.button>
+        </Reveal>
       )}
 
       {allEmpty && (
-        <div className="empty" style={{ marginTop: 40 }}>
-          <div className="big float">🎧</div>
-          Здесь соберётся твоя музыка.<br />
-          Импортируй плейлист по ссылке или найди треки в поиске.
-        </div>
+        <Reveal>
+          <div className="empty" style={{ marginTop: 40 }}>
+            <div className="big float">🎧</div>
+            Здесь соберётся твоя музыка.<br />
+            Импортируй плейлист по ссылке или найди треки в поиске.
+          </div>
+        </Reveal>
       )}
     </div>
   );

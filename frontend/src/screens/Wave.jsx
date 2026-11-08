@@ -2,12 +2,16 @@
    Гибрид: движок A — rotor ЯМ (у владельцев /token), движок B — наш подбор.
    Формула в bottom-sheet: настроение, занятие, жанры, разнообразие, язык, 18+. */
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useAnimationControls } from 'motion/react';
 import { api, waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings } from '../api.js';
 import * as P from '../player.js';
 import { usePlayerSnap } from '../player.js';
 import { haptic } from '../tg.js';
-import { coverOr, IcoDownload, IcoNext, PlayPause } from '../ui.jsx';
+import {
+  coverOr, FadeImg, Eq, IcoCheck, IcoDownload, IcoNext, PlayPause,
+} from '../ui.jsx';
 import { toggleLike, useLikes } from '../likes.js';
+import { AnimatedIcon, Seek, Sheet, toast } from '../motion/index.js';
 
 const MOODS = [
   { id: null, icon: '∞', label: 'Любое' },
@@ -52,6 +56,8 @@ const ENGINES = [
 const HEART_D = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3'
   + 'c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5'
   + 'c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
+
+const EASE = [0.16, 1, 0.3, 1];
 
 export default function Wave() {
   const st = usePlayerSnap();
@@ -103,7 +109,6 @@ export default function Wave() {
   }, []);
 
   const cur = st.queue[st.index];
-  const pct = st.duration ? (st.currentTime / st.duration) * 100 : 0;
 
   const dislike = () => {
     haptic('medium');
@@ -115,7 +120,9 @@ export default function Wave() {
   const [dl, setDl] = useState('');
   const download = async () => {
     if (!cur || dl === 'busy') return;
-    haptic('medium'); setDl('busy');
+    haptic('medium');
+    setDl('busy');
+    let fin = '';
     try {
       const { job } = await api('/api/download?track_id=' + cur.id, { method: 'POST' });
       let it = 0;
@@ -123,13 +130,19 @@ export default function Wave() {
       // файл всё равно готовится на сервере и придёт сообщением в чат
       while (it++ < 175) {
         const s2 = await api('/api/jobs/' + job);
-        if (s2.status === 'done') { setDl('done'); break; }
-        if (s2.status === 'error') { setDl('err'); break; }
+        if (s2.status === 'done') { fin = 'done'; break; }
+        if (s2.status === 'error') { fin = 'err'; break; }
         await new Promise(r => setTimeout(r, 1200));
       }
-      if (it >= 175) setDl('');
-    } catch { setDl('err'); }
-    setTimeout(() => { if (dl !== 'busy') return; setDl(''); }, 2500);
+      if (!fin) fin = 'slow';
+    } catch { fin = 'err'; }
+
+    if (fin === 'done') toast('Файл отправлен в чат', { kind: 'success' });
+    else if (fin === 'err') toast('Не удалось скачать трек', { kind: 'error' });
+    else toast('Файл ещё готовится — придёт в чат', { kind: 'info' });
+
+    setDl(fin === 'done' ? 'done' : fin === 'err' ? 'err' : '');
+    setTimeout(() => setDl(''), 4000);
   };
 
   const patchFormula = async (patch) => {
@@ -145,81 +158,143 @@ export default function Wave() {
       <div className="wave-aura" aria-hidden="true" />
 
       <div className="wave-head">
-        <div className="wave-title">Волна</div>
-        <button className={'wave-formula' + (dirty ? ' dirty' : '')}
-                onClick={() => { haptic('soft'); setSheet(true); }}>
+        <motion.div className="wave-title"
+                   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                   transition={{ duration: .28, ease: EASE }}>Волна</motion.div>
+        <motion.button className={'wave-formula' + (dirty ? ' dirty' : '')}
+                       whileTap={{ scale: .965 }}
+                       initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                       transition={{ duration: .28, ease: EASE, delay: .04 }}
+                       onClick={() => { haptic('soft'); setSheet(true); }}>
           {formulaText(ws)}<span className="wave-gear">⛭</span>
-        </button>
+        </motion.button>
       </div>
 
-      {phase === 'ready' && cur ? <>
-        <div className="covin wave-covwrap" key={'c' + cur.id}>
-          <WaveCover track={cur} playing={st.playing} />
-          {st.playing && <span className="eq eq-lg"><i /><i /><i /></span>}
-        </div>
+      <AnimatePresence mode="wait" initial={false}>
+        {phase === 'ready' && cur ? (
+          <motion.div key="wave-ready" className="wave-stage"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      transition={{ duration: .22, ease: EASE }}>
+            <div className="wave-covwrap">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={cur.id}
+                  className="wave-covin"
+                  initial={{ opacity: 0, scale: .93, rotate: -1.1 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  exit={{ opacity: 0, scale: 1.04, rotate: 1.1 }}
+                  transition={{ duration: .36, ease: EASE }}
+                >
+                  <WaveCover track={cur} playing={st.playing} />
+                </motion.div>
+              </AnimatePresence>
+              <AnimatePresence>
+                {st.playing && (
+                  <motion.span key="eq" className="wave-eq"
+                               initial={{ opacity: 0, scale: .7 }}
+                               animate={{ opacity: 1, scale: 1 }}
+                               exit={{ opacity: 0, scale: .7 }}
+                               transition={{ duration: .18, ease: EASE }}>
+                    <Eq big />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </div>
 
-        <div className="wave-meta" key={cur.id}>
-          <div className="wave-tname">{cur.title}</div>
-          <div className="wave-tartist">{cur.artist}</div>
-        </div>
+            <div className="wave-meta">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={cur.id}
+                  initial={{ opacity: 0, y: 7 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -7 }}
+                  transition={{ duration: .22, ease: EASE }}
+                >
+                  <div className="wave-tname">{cur.title}</div>
+                  <div className="wave-tartist">{cur.artist}</div>
+                  {cur.why && (
+                    <div className="wave-why"><span className="np-dot" /> {cur.why}</div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
-        {cur.why && <div className="wave-why" key={'w' + cur.id}>
-          <span className="np-dot" /> {cur.why}</div>}
+            <div className="seekrow wave-seek">
+              <Seek showTime timeClass="np-time" ariaLabel="Позиция волны" />
+            </div>
 
-        <div className="seekrow wave-seek" onClick={e => e.stopPropagation()}>
-          <span className="np-time">{P.fmt(st.currentTime)}</span>
-          <input className="seek" type="range" min="0" max="1000"
-                 value={Math.round(pct * 10)}
-                 style={{ '--fill': pct.toFixed(1) + '%' }}
-                 onChange={e => P.seek(+e.target.value / 1000)} />
-          <span className="np-time">{P.fmt(st.duration)}</span>
-        </div>
+            <div className="wave-ctrl">
+              <motion.button className="cbtn glass wave-no" aria-label="Не нравится"
+                             whileTap={{ scale: .86 }}
+                             onClick={dislike} disabled={!cur}>
+                <WaveNoIcon />
+              </motion.button>
 
-        <div className="wave-ctrl">
-          <button className="cbtn glass wave-no" aria-label="Не нравится"
-                  onClick={dislike} disabled={!cur}>
-            <WaveNoIcon />
-          </button>
-          <WaveHeart id={cur.id} big session={sess?.session_id} />
-          <button className="cbtn glass wave-dl" aria-label="Скачать в чат"
-                  onClick={download}>
-            {dl === 'busy' ? <span className="minispinner" />
-              : dl === 'done' ? '✓' : dl === 'err' ? '!' : <IcoDownload />}
-          </button>
-          <button className="cbtn big wave-next" aria-label="Другой трек"
-                  onClick={() => { haptic('medium'); P.next(); }}>
-            <IcoNext />
-          </button>
-          <button className="cbtn big" aria-label="Играть/пауза"
-                  onClick={() => { haptic('medium'); P.toggle(); }}>
-            <PlayPause playing={st.playing} loading={st.loading} big />
-          </button>
-        </div>
+              <WaveHeart id={cur.id} big session={sess?.session_id} />
 
-        <WaveHistory queue={st.queue} index={st.index} />
+              <motion.button className="cbtn glass wave-dl" aria-label="Скачать в чат"
+                             whileTap={{ scale: .86 }}
+                             onClick={download} disabled={dl === 'busy'}>
+                <AnimatedIcon name={dl === 'busy' ? 'busy' : dl === 'done' ? 'done' : dl === 'err' ? 'err' : 'idle'}>
+                  {dl === 'busy' ? <span className="minispinner" />
+                    : dl === 'done' ? <IcoCheck width="1em" height="1em" />
+                      : dl === 'err' ? <span className="wave-dl-err">!</span>
+                        : <IcoDownload />}
+                </AnimatedIcon>
+              </motion.button>
 
-        <div className="wave-foot">
-          <span className={'wave-engine ' + (sess?.engine === 'yandex' ? 'ym' : 'own')}>
-            {sess?.engine === 'yandex' ? '⚡ Волна ЯМ' : '◈ Свой движок'}
-          </span>
-          {st.loading && <span className="minispinner" />}
-        </div>
-      </> : phase === 'err' ? <>
-        <div className="cardbox">
-          <div className="login">
-            <h2>Волна тихая…</h2>
-            <p className="muted">{err}</p>
-            <button className="bigbtn primary" onClick={() => startWave(ws?.engine)}>Ещё раз</button>
-          </div>
-        </div>
-      </> : <>
-        <div className="boot-eq wave-boot"><i /><i /><i /></div>
-        <p className="muted wave-boottext">Настраиваю волну…</p>
-      </>}
+              <motion.button className="cbtn big wave-next" aria-label="Другой трек"
+                             whileTap={{ scale: .9 }}
+                             onClick={() => { haptic('medium'); P.next(); }}>
+                <IcoNext />
+              </motion.button>
 
-      {sheet && ws && <FormulaSheet ws={ws} dirty={dirty}
+              <motion.button className="cbtn big" aria-label="Играть/пауза"
+                             whileTap={{ scale: .9 }}
+                             onClick={() => { haptic('medium'); P.toggle(); }}>
+                <PlayPause playing={st.playing} loading={st.loading} big />
+              </motion.button>
+            </div>
+
+            <WaveHistory queue={st.queue} index={st.index} />
+
+            <div className="wave-foot">
+              <span className={'wave-engine ' + (sess?.engine === 'yandex' ? 'ym' : 'own')}>
+                {sess?.engine === 'yandex' ? '⚡ Волна ЯМ' : '◈ Свой движок'}
+              </span>
+              <AnimatePresence initial={false}>
+                {st.loading && (
+                  <motion.span key="load" className="minispinner"
+                               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        ) : phase === 'err' ? (
+          <motion.div key="wave-err" className="wave-stage"
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      transition={{ duration: .24, ease: EASE }}>
+            <div className="cardbox">
+              <div className="login">
+                <h2>Волна тихая…</h2>
+                <p className="muted">{err}</p>
+                <button className="bigbtn primary" onClick={() => startWave(ws?.engine)}>Ещё раз</button>
+              </div>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div key="wave-boot" className="wave-stage"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      transition={{ duration: .2, ease: EASE }}>
+            <div className="boot-eq wave-boot"><i /><i /><i /></div>
+            <p className="muted wave-boottext">Настраиваю волну…</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <FormulaSheet open={sheet} ws={ws} dirty={dirty}
         onClose={() => setSheet(false)} onChange={patchFormula}
-        onRestart={() => { setSheet(false); setDirty(false); startWave(ws.engine); }} />}
+        onRestart={() => { setSheet(false); setDirty(false); startWave(ws?.engine); }} />
     </div>
   );
 }
@@ -242,8 +317,8 @@ function WaveCover({ track, playing }) {
     return <div className="wave-cover ghost"><span>≋</span></div>;
   }
   return (
-    <img className={'wave-cover' + (playing ? ' kb' : '')} src={src} alt=""
-         onError={() => setBroken(true)} />
+    <FadeImg className={'wave-cover' + (playing ? ' kb' : '')} src={src} alt=""
+             onError={() => setBroken(true)} />
   );
 }
 
@@ -256,18 +331,27 @@ function WaveHistory({ queue, index }) {
       <div className="wave-hist-t">Недавно в волне</div>
       <div className="wave-hist-row">
         {prev.map((t, i) => (
-          <button key={(t.id || 'x') + '-' + i} className="wave-hist-chip" title={t.title}
-                  aria-label={`Вернуться: ${t.artist} — ${t.title}`}
-                  onClick={() => {
-                    haptic('soft');
-                    const qi = queue.findIndex(x => x.id === t.id);
-                    if (qi >= 0) P.play([...queue], qi);
-                  }}>
+          <motion.button
+            key={(t.id || 'x') + '-' + i}
+            layout
+            className="wave-hist-chip"
+            title={t.title}
+            aria-label={`Вернуться: ${t.artist} — ${t.title}`}
+            initial={{ opacity: 0, scale: .78 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: .24, ease: EASE, delay: Math.min(i, 6) * .03 }}
+            whileHover={{ scale: 1.07 }}
+            whileTap={{ scale: .93 }}
+            onClick={() => {
+              haptic('soft');
+              const qi = queue.findIndex(x => x.id === t.id);
+              if (qi >= 0) P.play([...queue], qi);
+            }}
+          >
             {t.cover_url
-              ? <img src={coverOr(t)} alt=""
-                     onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+              ? <FadeImg src={coverOr(t)} alt="" />
               : <span className="wave-hist-glyph">≋</span>}
-          </button>
+          </motion.button>
         ))}
       </div>
     </div>
@@ -276,16 +360,23 @@ function WaveHistory({ queue, index }) {
 
 function WaveHeart({ id, session, big }) {
   const liked = useLikes().has(id);
+  const controls = useAnimationControls();
   return (
-    <button className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')} aria-label="В любимое"
-            onClick={async (e) => {
-              e.stopPropagation();
-              haptic(liked ? 'soft' : 'light');
-              const nowLiked = await toggleLike(id);
-              if (session) waveFeedback(session, nowLiked ? 'like' : 'unlike', id).catch(() => {});
-            }}>
+    <motion.button
+      className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
+      aria-label="В любимое"
+      whileTap={{ scale: .82 }}
+      animate={controls}
+      onClick={async (e) => {
+        e.stopPropagation();
+        haptic(liked ? 'soft' : 'light');
+        const nowLiked = await toggleLike(id);
+        if (session) waveFeedback(session, nowLiked ? 'like' : 'unlike', id).catch(() => {});
+        if (nowLiked) controls.start({ scale: [1, 1.18, 1] }, { duration: .32, ease: [.2, .8, .2, 1] });
+      }}
+    >
       <svg viewBox="0 0 24 24"><path d={HEART_D} /></svg>
-    </button>
+    </motion.button>
   );
 }
 
@@ -299,136 +390,117 @@ function WaveNoIcon() {
   );
 }
 
-/* ---------------- формулы bottom-sheet ---------------- */
-function FormulaSheet({ ws, dirty, onClose, onChange, onRestart }) {
+/* ---------------- формула bottom-sheet ---------------- */
+function FormulaSheet({ open, ws, dirty, onClose, onChange, onRestart }) {
   const chipOn = (cond) => 'chip' + (cond ? ' on' : '');
-  const cardRef = useRef(null);
-  const drag = useRef({ start: 0, dy: 0, active: false });
-  const [ty, setTy] = useState(0);
-  const [held, setHeld] = useState(false);
-
-  /* Esc для десктопа; на мобиле — свайп-вниз по карточке */
-  useEffect(() => {
-    const h = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
-
-  const onTS = (e) => {
-    const card = cardRef.current;
-    if (card && card.scrollTop > 2) return;   // прокрутка контента важнее жеста
-    drag.current = { start: e.touches[0].clientY, dy: 0, active: true };
-    setHeld(true);
-  };
-  const onTM = (e) => {
-    if (!drag.current.active) return;
-    const dy = e.touches[0].clientY - drag.current.start;
-    if (dy > 0) { drag.current.dy = dy; setTy(dy); }
-  };
-  const onTE = () => {
-    if (!drag.current.active) return;
-    drag.current.active = false;
-    setHeld(false);
-    if (drag.current.dy > 92) onClose(); else setTy(0);
-  };
+  if (!ws) return null;
 
   return (
-    <div className="wsheet" onClick={onClose}>
-      <div className="wsheet-card" ref={cardRef} onClick={e => e.stopPropagation()}
-           onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}
-           style={{ transform: ty ? `translateY(${ty}px)` : undefined,
-                    transition: held ? 'none' : 'transform .3s var(--spring)' }}>
-        <div className="wsheet-grabber" aria-hidden="true" />
-        <div className="wsheet-head">
-          <div className="wsheet-title">Формула волны</div>
-          <button className="wsheet-x" onClick={onClose}>✕</button>
-        </div>
-        {dirty && <button className="wave-dirty" onClick={onRestart}
-          >Формула обновилась — перезапусти волну ⟳</button>}
+    <Sheet open={open && !!ws} onClose={onClose} labelledBy="wave-formula-title">
+      <div className="wsheet-head">
+        <div className="wsheet-title" id="wave-formula-title">Формула волны</div>
+        <motion.button className="wsheet-x" aria-label="Закрыть формулу"
+                       whileTap={{ scale: .88 }} onClick={onClose}>✕</motion.button>
+      </div>
 
-        <div className="wsec">
-          <div className="wsec-t">Настроение</div>
+      {dirty && (
+        <motion.button className="wave-dirty"
+                       initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                       transition={{ duration: .2, ease: EASE }}
+                       onClick={onRestart}>
+          Формула обновилась — перезапусти волну ⟳
+        </motion.button>
+      )}
+
+      <div className="wsec">
+        <div className="wsec-t">Настроение</div>
+        <div className="chiprow">
+          {MOODS.map(m => (
+            <motion.button key={String(m.id)} className={chipOn((ws.mood ?? null) === m.id)}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onChange({ mood: m.id })}
+                           disabled={m.id === null && ws.mood === null}>
+              {m.icon} {m.label}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Разнообразие</div>
+        <div className="chiprow">
+          {DIVERSITY.map(v => (
+            <motion.button key={v.id} className={chipOn((ws.diversity || 'default') === v.id)}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onChange({ diversity: v.id })}>
+              {v.icon} {v.label}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Занятие</div>
+        <div className="chiprow">
+          {ACTIVITIES.map(a => (
+            <motion.button key={a.id} className={chipOn((ws.activities || []).includes(a.id))}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onChange({
+                             activities: ((ws.activities || []).includes(a.id)
+                               ? (ws.activities || []).filter(x => x !== a.id)
+                               : [...(ws.activities || []), a.id]) })}>
+              {a.icon} {a.label}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Жанры</div>
+        <div className="chiprow">
+          {GENRES.map(g => (
+            <motion.button key={g} className={chipOn((ws.genres || []).includes(g))}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onChange({
+                             genres: ((ws.genres || []).includes(g)
+                               ? (ws.genres || []).filter(x => x !== g)
+                               : [...(ws.genres || []), g]) })}>
+              {GENRE_LABEL[g]}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Язык</div>
+        <div className="chiprow">
+          {LANGS.map(v => (
+            <motion.button key={v.id} className={chipOn((ws.language || 'any') === v.id)}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onChange({ language: v.id })}>
+              {v.icon} {v.label}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec row3">
+        <div>
+          <div className="wsec-t">Треки 18+</div>
           <div className="chiprow">
-            {MOODS.map(m => (
-              <button key={String(m.id)} className={chipOn((ws.mood ?? null) === m.id)}
-                      onClick={() => onChange({ mood: m.id })} disabled={m.id === null && ws.mood === null}>
-                {m.icon} {m.label}
-              </button>))}
+            <motion.button className={chipOn(ws.allow_explicit)} whileTap={{ scale: .95 }}
+                           onClick={() => onChange({ allow_explicit: true })}>Разрешено</motion.button>
+            <motion.button className={chipOn(!ws.allow_explicit)} whileTap={{ scale: .95 }}
+                           onClick={() => onChange({ allow_explicit: false })}>Без 18+</motion.button>
           </div>
         </div>
-
-        <div className="wsec">
-          <div className="wsec-t">Разнообразие</div>
+        <div>
+          <div className="wsec-t">Движок</div>
           <div className="chiprow">
-            {DIVERSITY.map(v => (
-              <button key={v.id} className={chipOn((ws.diversity || 'default') === v.id)}
-                      onClick={() => onChange({ diversity: v.id })}>
-                {v.icon} {v.label}
-              </button>))}
-          </div>
-        </div>
-
-        <div className="wsec">
-          <div className="wsec-t">Занятие</div>
-          <div className="chiprow">
-            {ACTIVITIES.map(a => (
-              <button key={a.id} className={chipOn((ws.activities || []).includes(a.id))}
-                      onClick={() => onChange({
-                        activities: ((ws.activities || []).includes(a.id)
-                          ? (ws.activities || []).filter(x => x !== a.id)
-                          : [...(ws.activities || []), a.id]) })}>
-                {a.icon} {a.label}
-              </button>))}
-          </div>
-        </div>
-
-        <div className="wsec">
-          <div className="wsec-t">Жанры</div>
-          <div className="chiprow">
-            {GENRES.map(g => (
-              <button key={g} className={chipOn((ws.genres || []).includes(g))}
-                      onClick={() => onChange({
-                        genres: ((ws.genres || []).includes(g)
-                          ? (ws.genres || []).filter(x => x !== g)
-                          : [...(ws.genres || []), g]) })}>
-                {GENRE_LABEL[g]}
-              </button>))}
-          </div>
-        </div>
-
-        <div className="wsec">
-          <div className="wsec-t">Язык</div>
-          <div className="chiprow">
-            {LANGS.map(v => (
-              <button key={v.id} className={chipOn((ws.language || 'any') === v.id)}
-                      onClick={() => onChange({ language: v.id })}>
-                {v.icon} {v.label}
-              </button>))}
-          </div>
-        </div>
-
-        <div className="wsec row3">
-          <div>
-            <div className="wsec-t">Треки 18+</div>
-            <div className="chiprow">
-              <button className={chipOn(ws.allow_explicit)}
-                      onClick={() => onChange({ allow_explicit: true })}>Разрешено</button>
-              <button className={chipOn(!ws.allow_explicit)}
-                      onClick={() => onChange({ allow_explicit: false })}>Без 18+</button>
-            </div>
-          </div>
-          <div>
-            <div className="wsec-t">Движок</div>
-            <div className="chiprow">
-              {ENGINES.map(v => (
-                <button key={v.id} className={chipOn((ws.engine || 'auto') === v.id)}
-                        title={v.hint} onClick={() => onChange({ engine: v.id })}>
-                  {v.label}
-                </button>))}
-            </div>
+            {ENGINES.map(v => (
+              <motion.button key={v.id} className={chipOn((ws.engine || 'auto') === v.id)}
+                             title={v.hint} whileTap={{ scale: .95 }}
+                             onClick={() => onChange({ engine: v.id })}>
+                {v.label}
+              </motion.button>))}
           </div>
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

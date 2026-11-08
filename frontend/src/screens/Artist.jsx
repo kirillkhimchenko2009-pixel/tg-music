@@ -1,14 +1,16 @@
 /* Экран исполнителя: геро-градиент по обложке, популярные, альбомы,
    всё собрано из результатов поиска по имени. */
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { api } from '../api.js';
 import * as P from '../player.js';
 import { haptic } from '../tg.js';
 import {
   PlayCard, TrackRow, TrackMenu, SectionHead, Skeletons,
-  fmtTime, groupAlbums, dominantColor, gradFor, IcoNote,
+  FadeImg, fmtTime, groupAlbums, dominantColor, gradFor, IcoNote,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
+import Reveal from '../motion/components/Reveal.jsx';
 
 export default function Artist({ name, cover }) {
   const [rows, setRows] = useState(null);
@@ -48,14 +50,15 @@ export default function Artist({ name, cover }) {
 
   return (
     <div>
-      <div className="ahero-card rise" style={{
-        '--g1': glow ? `rgb(${glow[0]},${glow[1]},${glow[2]})` : '#2a2d35',
-      }}>
+      <motion.div className="ahero-card"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: .32, ease: [.16, 1, .3, 1] }}
+        style={{ '--g1': glow ? `rgb(${glow[0]},${glow[1]},${glow[2]})` : '#2a2d35' }}>
         <div className="ahero-top">
           <span className="ahero-circ">
             {cover
-              ? <img src={(cover.startsWith('http') ? cover : (cover.startsWith('/') ? API_BASE_URL(cover) : cover))} alt=""
-                     onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+              ? <FadeImg src={(cover.startsWith('http') ? cover : (cover.startsWith('/') ? API_BASE_URL(cover) : cover))} alt="" />
               : <span className="artinit" style={{ fontSize: 48 }}>{(name || '?').slice(0, 1).toUpperCase()}</span>}
           </span>
           <div className="ahero-meta">
@@ -79,46 +82,50 @@ export default function Artist({ name, cover }) {
             </svg>
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {popular.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Популярное" />
           <div className="tracks">
-            {popular.map((t, i) => (
-              <TrackRow key={t.id} t={t} i={i} num={i + 1} time={t.duration}
-                        onPlay={() => P.play(popular, i)}
-                        onMenu={() => setMenu(t)} />
-            ))}
+            <AnimatePresence initial={false}>
+              {popular.map((t, i) => (
+                <TrackRow key={t.id} t={t} i={i} num={i + 1} time={t.duration}
+                          onPlay={() => P.play(popular, i)}
+                          onMenu={() => setMenu(t)} />
+              ))}
+            </AnimatePresence>
           </div>
-        </section>
+        </Reveal>
       )}
 
       {albums.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Альбомы" />
           <div className="albgrid">
             {albums.slice(0, 16).map((a, i) => (
               <PlayCard key={a.key} title={a.title} sub={`${a.year || ''}`.trim()}
                         onOpen={() => routes.goAlbum(a)}
                         onPlay={() => P.play(a.tracks, 0)}
-                        cellDelay={Math.min(i, 8) * 40} />
+                        cellDelay={Math.min(i, 6) * 40} />
             ))}
           </div>
-        </section>
+        </Reveal>
       )}
 
       {rest.length > 0 && (
-        <section>
+        <Reveal>
           <SectionHead title="Ещё треки" />
           <div className="tracks">
-            {rest.slice(0, 30).map((t, i) => (
-              <TrackRow key={t.id + ':' + i} t={t} i={i} time={t.duration}
-                        onPlay={() => P.play(rest, i)}
-                        onMenu={() => setMenu(t)} />
-            ))}
+            <AnimatePresence initial={false}>
+              {rest.slice(0, 30).map((t, i) => (
+                <TrackRow key={t.id + ':' + i} t={t} i={i} time={t.duration}
+                          onPlay={() => P.play(rest, i)}
+                          onMenu={() => setMenu(t)} />
+              ))}
+            </AnimatePresence>
           </div>
-        </section>
+        </Reveal>
       )}
 
       {!rows.length && (
@@ -128,7 +135,7 @@ export default function Artist({ name, cover }) {
         </div>
       )}
 
-      {menu && <TrackMenu t={menu} onClose={() => setMenu(null)} />}
+      <TrackMenu t={menu} open={!!menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

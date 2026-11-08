@@ -168,7 +168,11 @@ export async function prev() {
 }
 
 export function seek(p) {
-  if (audio.duration) audio.currentTime = p * audio.duration;
+  if (!audio.duration) return;
+  const t = Math.max(0, Math.min(1, +p || 0)) * audio.duration;
+  audio.currentTime = t;
+  state.currentTime = t;           // мгновенный отклик шкалы, без ожидания timeupdate
+  emit();
 }
 
 export function setShuffle(v) { state.shuffle = v; emit(); }
