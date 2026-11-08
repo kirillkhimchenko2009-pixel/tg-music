@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
 from core.db import init_db
+from music.api import router as music_api_router
+from music.db import init_music_db
 from server.routes import tracks as tracks_route
 from server.routes import playlists as playlists_route
 from server.routes import auth as auth_route
@@ -39,12 +41,17 @@ async def nocache_static(request: Request, call_next):
 @app.on_event("startup")
 async def startup():
     await init_db()
+    try:
+        await init_music_db()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("server").exception("music: таблицы не созданы")
 
 @app.on_event("shutdown")
 async def shutdown():
     pass
 
 app.include_router(tracks_route.router)
+app.include_router(music_api_router)
 app.include_router(playlists_route.router)
 app.include_router(playlists_route.likes_router)
 app.include_router(playlists_route.artists_router)

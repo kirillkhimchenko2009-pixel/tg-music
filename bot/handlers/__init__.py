@@ -10,7 +10,8 @@ from .appshare import router as appshare_router
 from .wave import router as wave_router
 from .musicbot import router as musicbot_router
 from bot.batch import router as batch_router
+from music.telegram.handlers import router as music_hub_router
 
-ALL = [kblabels_router, start_router, playlists_router, batch_router, account_router,
-       bulk_router, appshare_router, wave_router, musicbot_router, links_router,
-       search_router]
+ALL = [kblabels_router, music_hub_router, start_router, playlists_router, batch_router,
+       account_router, bulk_router, appshare_router, wave_router, musicbot_router,
+       links_router, search_router]

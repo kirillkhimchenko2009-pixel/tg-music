@@ -16,6 +16,7 @@ def main_menu() -> InlineKeyboardMarkup:
 BT_APP = "🎧 Приложение"
 BT_WAVE = "🌊 Волна"
 BT_FIND = "🔍 Найти трек"
+BT_MUSIC = "🎵 Музыка"
 BT_FAVS = "❤ Любимое"
 BT_PLS = "📋 Плейлисты"
 BT_IMPORT = "🔗 Импорт плейлиста"
@@ -34,7 +35,8 @@ def main_reply() -> ReplyKeyboardMarkup | None:
                         web_app=WebAppInfo(url=settings.WEBAPP_URL)),
          KeyboardButton(text=BT_WAVE,
                         web_app=WebAppInfo(url=wave_url()))],
-        [KeyboardButton(text=BT_FIND), KeyboardButton(text=BT_FAVS)],
+        [KeyboardButton(text=BT_FIND), KeyboardButton(text=BT_MUSIC),
+         KeyboardButton(text=BT_FAVS)],
         [KeyboardButton(text=BT_PLS), KeyboardButton(text=BT_IMPORT)],
         [KeyboardButton(text=BT_LOGIN), KeyboardButton(text=BT_HELP)],
     ]

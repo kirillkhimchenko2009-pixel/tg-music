@@ -13,6 +13,9 @@ from aiogram.types import BotCommandScopeDefault
 from bot.handlers import ALL
 from core.config import settings
 from core.db import init_db
+from music.config import music_settings
+from music.db import init_music_db
+from music.downloader.queue import queue as music_queue
 
 log = getLogger(__name__)
 
@@ -30,6 +33,7 @@ async def set_commands(bot: Bot):
     commands = [
         BotCommand(command="get", description="Скачать трек: /get Название — Исполнитель"),
         BotCommand(command="wave", description="🌊 Моя волна — бесконечный поток музыки"),
+        BotCommand(command="music", description="🎵 Музыка: легальный поиск и загрузка"),
         BotCommand(command="fav", description="❤ Мои любимые треки"),
         BotCommand(command="newplaylist", description="Создать плейлист"),
         BotCommand(command="playlists", description="Мои плейлисты"),
@@ -56,6 +60,11 @@ async def run() -> None:
         log.error("BOT_TOKEN не задан (заполни .env)")
         return
     await init_db()
+    if music_settings.enabled:
+        try:
+            await init_music_db()
+        except Exception:  # noqa: BLE001
+            log.exception("music: таблицы не созданы — хаб будет недоступен")
     bot = create_bot()
     dp = Dispatcher(storage=MemoryStorage())
     for r in ALL:
@@ -65,6 +74,11 @@ async def run() -> None:
     async def on_startup():
         await set_commands(bot)
         await register_menu(bot)
+        if music_settings.enabled:
+            try:
+                await music_queue.start()
+            except Exception:  # noqa: BLE001
+                log.exception("music: очередь не запущена")
         # URL мини-аппа из tunnel_url.txt перекрывает .env (туннель мог сменить адрес)
         from services.webapp_state import read_full_webapp_url, read_tunnel_url, watch_webapp_url
         fresh = read_full_webapp_url() or read_tunnel_url()
@@ -84,6 +98,14 @@ async def run() -> None:
         log.error("Telegram отклонил запрос бота (проверь BOT_TOKEN и сеть): %r", e)
         await bot.session.close()
         return
+    @dp.shutdown()
+    async def on_shutdown():
+        if music_settings.enabled:
+            try:
+                await music_queue.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("music: очередь не остановлена")
+
     try:
         await dp.start_polling(bot)
     finally:

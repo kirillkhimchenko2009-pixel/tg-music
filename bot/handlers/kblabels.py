@@ -33,6 +33,10 @@ async def on_label(message: types.Message, state: Optional[FSMContext] = None):
 
     key = _norm(message.text)
 
+    if "музыка" in key:
+        from music.telegram.handlers import send_hub
+        await send_hub(message)
+        return
     if "найти" in key or key == "поиск":
         await message.answer(
             "🔎 Пришли название трека или исполнителя текстом — покажу варианты "
