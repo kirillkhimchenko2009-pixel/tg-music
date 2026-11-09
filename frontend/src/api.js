@@ -7,7 +7,7 @@ export const API_BASE = (new URLSearchParams(location.search).get('api') || '')
 export function headers() {
   const h = { 'Content-Type': 'application/json' };
   if (initDataRaw.value) h['X-Init-Data'] = initDataRaw.value;
-  if (authToken.value) h['Authorization'] = 'Bearer ' + authToken.value;
+  if (!initDataRaw.value && authToken.value) h['Authorization'] = 'Bearer ' + authToken.value;
   h['X-Pinggy-No-Screen'] = '1';
   h['ngrok-skip-browser-warning'] = '1';
   return h;
@@ -15,6 +15,33 @@ export function headers() {
 
 export function hasAuth() {
   return !!(initDataRaw.value || authToken.value);
+}
+
+/* Гость — тихая сессия браузера: слушать можно, но отправить файл в чат
+   нельзя (это не Telegram chat_id). Для этого нужен вход по коду. */
+export function isGuest() {
+  if (initDataRaw.value) return false;
+  const uid = parseInt(String(authToken.value).split('.')[0], 10);
+  return Number.isFinite(uid) && uid >= 1e12;
+}
+
+/* Бот, у которого можно получить /code. */
+export const BOT_URL = 'https://t.me/tG_dols_music_bot?start=app';
+
+/* Одноразовый код из /code → Bearer настоящего Telegram-пользователя. */
+export async function exchangeCode(code) {
+  const res = await fetch(API_BASE + '/api/auth/exchange', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Pinggy-No-Screen': '1' },
+    body: JSON.stringify({ code }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.detail || 'код не подошёл');
+  setAuthToken(j.token);
+  // Имя для топбара: @username, иначе нейтральное «Telegram».
+  localStorage.setItem('display_name',
+    j.user?.username ? '@' + j.user.username : 'Telegram');
+  return j;
 }
 
 let onUnauthorized = null;
@@ -42,6 +69,7 @@ export async function api(path, opts = {}) {
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).detail || msg; } catch { /* plain */ }
+      if (msg === 'telegram_required') window.dispatchEvent(new Event('vibe:login'));
       if (res.status === 401 && onUnauthorized) onUnauthorized(msg);
       throw new Error(msg);
     }

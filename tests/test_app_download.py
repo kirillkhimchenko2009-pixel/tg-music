@@ -144,6 +144,23 @@ class TestJobsPruning:
         assert "job-4" in tracks.JOB_STATUS
 
 
+class TestGuestDownload:
+    async def test_guest_is_rejected_before_job_creation(self):
+        app = FastAPI()
+        app.include_router(tracks.router)
+        app.dependency_overrides[tg_user] = lambda: CurrentUser(
+            id=1_000_000_000_123)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://test") as http:
+            response = await http.post("/api/download?track_id=5")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "telegram_required"
+        assert tracks.JOB_STATUS == {}
+        assert tracks._INFLIGHT == {}
+
+
 class TestDownloadDedupe:
     async def test_double_click_returns_the_same_job(self, client,
                                                      pending_delivery):

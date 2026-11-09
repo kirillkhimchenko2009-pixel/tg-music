@@ -17,7 +17,7 @@ const headers = () => {
               'X-Pinggy-No-Screen': '1' };
   if (tg?.initData) h['X-Init-Data'] = tg.initData;
   const tok = localStorage.getItem('auth_token');
-  if (tok) h['Authorization'] = 'Bearer ' + tok;
+  if (!tg?.initData && tok) h['Authorization'] = 'Bearer ' + tok;
   if (!tg?.initData && !tok && new URLSearchParams(location.search).has('dev')) {
     h['X-User-Id'] = localStorage.getItem('dev_uid') || '1';
   }
@@ -40,6 +40,7 @@ async function api(path, opts = {}) {
     try { msg = (await res.json()).detail || msg; } catch (e) {}
     if (status === 401 && String(msg).includes('initData')) openLogin();
     if (status === 401 && !authOK() && !path.startsWith('/api/auth/')) openLogin();
+    if (msg === 'telegram_required') openLogin();
     throw new Error(msg);
   }
   const ctype = res.headers.get('content-type') || '';
@@ -250,7 +251,8 @@ async function downloadToTG(track, btn) {
       toast('Ошибка: ' + (st?.error || 'неизвестно'), true);
     }
   } catch (e) {
-    toast('Ошибка: ' + e.message, true);
+    // openLogin() уже показан из api() — технический код не дублируем.
+    if (e.message !== 'telegram_required') toast('Ошибка: ' + e.message, true);
   } finally {
     tgInFlight.delete(key);
     if (btn) {

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from bot import runtime
 from core.config import settings
 from core.models import Track, PlayEvent
-from server.auth import CurrentUser, tg_user
+from server.auth import CurrentUser, is_guest_id, tg_user
 from services import catalog
 from services.providers.base import TrackMeta
 from services.providers.youtube import YouTubeProvider
@@ -238,6 +238,10 @@ async def download(track_id: int, quality: str = "",
     _prune_jobs()
     quality = quality or settings.DEFAULT_QUALITY
     uid = int(user.id)
+    if is_guest_id(uid):
+        # Гостевой id — не Telegram chat_id: send_audio/send_document уйдут
+        # в никуда и юзер будет ждать вечную загрузку. Честно просим войти.
+        raise HTTPException(409, "telegram_required")
     key = (uid, int(track_id), quality)
 
     existing = _INFLIGHT.get(key)

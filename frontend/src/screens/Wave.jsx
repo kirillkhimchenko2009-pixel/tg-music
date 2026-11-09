@@ -135,11 +135,11 @@ export default function Wave() {
         await new Promise(r => setTimeout(r, 1200));
       }
       if (!fin) fin = 'slow';
-    } catch { fin = 'err'; }
+    } catch (e) { fin = e.message === 'telegram_required' ? 'login' : 'err'; }
 
     if (fin === 'done') toast('Файл отправлен в чат', { kind: 'success' });
     else if (fin === 'err') toast('Не удалось скачать трек', { kind: 'error' });
-    else toast('Файл ещё готовится — придёт в чат', { kind: 'info' });
+    else if (fin !== 'login') toast('Файл ещё готовится — придёт в чат', { kind: 'info' });
 
     setDl(fin === 'done' ? 'done' : fin === 'err' ? 'err' : '');
     setTimeout(() => setDl(''), 4000);

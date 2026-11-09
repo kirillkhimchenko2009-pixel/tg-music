@@ -38,6 +38,7 @@ async def set_commands(bot: Bot):
         BotCommand(command="newplaylist", description="Создать плейлист"),
         BotCommand(command="playlists", description="Мои плейлисты"),
         BotCommand(command="app", description="🎧 Кнопка приложения (свежая ссылка)"),
+        BotCommand(command="code", description="🔑 Код для входа в приложение из браузера"),
         BotCommand(command="token", description="Подключить Яндекс Музыку / Звук"),
         BotCommand(command="help", description="Как пользоваться"),
         BotCommand(command="id", description="Мой id"),

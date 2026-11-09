@@ -25,6 +25,14 @@ _BEARER_KEY = hashlib.sha256((settings.BOT_TOKEN + "|vibe-bearer-v1").encode()).
 _BEARER_DAYS = 30
 _DIAG = Path(__file__).resolve().parent.parent / "data" / "diag_initdata.txt"
 
+# Гостевые id (браузер без Telegram) лежат далеко за пределами реальных
+# Telegram id (~10^10). В такой чат через Bot API отправить ничего нельзя.
+GUEST_ID_BASE = 1_000_000_000_000
+
+
+def is_guest_id(user_id: int) -> bool:
+    return int(user_id) >= GUEST_ID_BASE
+
 
 def make_bearer(user_id: int, days: int = _BEARER_DAYS) -> str:
     """Токен 'uid.exp.sig' — привязан к пользователю, живёт days дней."""
@@ -155,7 +163,13 @@ def tg_user(init_data: str = Header(alias="X-Init-Data", default=""),
             authorization: str = Header(default=""),
             x_user_id: str = Header(default="")) -> CurrentUser:
     """Возвращает пользователя: initData (внутри Telegram) → Bearer токен
-    (обычный браузер после /code) → DEV_MODE по id (локальный тест)."""
+    (обычный браузер после /code) → DEV_MODE по id (локальный тест).
+
+    initData проверяем ПЕРВЫМ: в localStorage мог остаться гостевой Bearer
+    с прошлого визита в браузере, и он не должен перекрывать настоящий
+    Telegram-профиль при открытии мини-аппа из чата."""
+    if init_data:
+        return CurrentUser(validate_init_data(init_data))
     if authorization.lower().startswith("bearer "):
         uid = verify_bearer(authorization[7:])
         if uid:

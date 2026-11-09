@@ -49,10 +49,8 @@ async def on_label(message: types.Message, state: Optional[FSMContext] = None):
             "Либо открой приложение → вкладка «Импорт».")
         return
     if "вход" in key or "браузер" in key:
-        await message.answer(
-            "🔑 Вход по коду упразднён: из Telegram приложение открывается "
-            "сразу с твоим профилем, а в браузере вход тихий — просто "
-            "нажми 🎧 Приложение и всё работает.")
+        from bot.handlers.login import cmd_code
+        await cmd_code(message)
         return
     if "любимое" in key:
         from bot.handlers.playlists import cmd_fav

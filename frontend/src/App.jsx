@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, animate, motion, useMotionValue } from 'motion/react';
 import * as P from './player.js';
-import { api, ensureGuestToken, hasAuth, setUnauthorizedHandler } from './api.js';
+import { api, BOT_URL, ensureGuestToken, exchangeCode, hasAuth, isGuest, setUnauthorizedHandler } from './api.js';
 import { loadLikes, useLikes } from './likes.js';
 import { setAuthToken, initDataRaw } from './store.js';
 import { firstUserName, haptic } from './tg.js';
@@ -18,7 +18,7 @@ import {
   IcoExpand, IcoDl, IcoHeart, IcoClock, IcoNote,
 } from './ui.jsx';
 import {
-  AnimatedDropdown, AnimatedIcon, Seek, ToastHost,
+  AnimatedDropdown, AnimatedIcon, Seek, Sheet, ToastHost,
   layoutSpring, motionConfig, pageVariants, toast,
   usePlayerMotion, useSharedTransition,
 } from './motion/index.js';
@@ -68,6 +68,13 @@ export default function App() {
   const [ok, setOk] = useState('boot');
   const [name, setName] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [login, setLogin] = useState(false);
+
+  useEffect(() => {
+    const open = () => setLogin(true);
+    window.addEventListener('vibe:login', open);
+    return () => window.removeEventListener('vibe:login', open);
+  }, []);
 
   useEffect(() => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -79,8 +86,10 @@ export default function App() {
         try { await ensureGuestToken(); } catch { /* сеть ещё не готова */ }
       }
       if (dead) return;
-      if (hasAuth()) { setOk(true); setName(firstUserName() || 'Гость'); }
-      else setOk('boot');
+      if (hasAuth()) {
+        setOk(true);
+        setName(firstUserName() || localStorage.getItem('display_name') || 'Гость');
+      } else setOk('boot');
       loadLikes();
     };
     navInit(startView());
@@ -119,6 +128,7 @@ export default function App() {
         </AnimatePresence>
         <TabBar tab={view} />
         <ToastHost />
+        <LoginSheet open={login} onClose={() => setLogin(false)} />
       </div>
     </MotionConfig>
   );
@@ -235,14 +245,21 @@ function TopBar({ name }) {
 
       <div className="popwrap">
         <button className="tb-user" onClick={e => { e.stopPropagation(); setPop(p => p === 'user' ? null : 'user'); }}>
-          <span className="tb-ava">{(name || 'Г').slice(0, 1).toUpperCase()}</span>
+          <span className="tb-ava">{(name || 'Г').replace(/^@/, '').slice(0, 1).toUpperCase() || 'Г'}</span>
           <span className="tb-name">{name}</span>
         </button>
         <AnimatedDropdown show={pop === 'user'} onClick={e => e.stopPropagation()}>
           <div className="pop-head">
             <div className="pop-title">{name || 'Гость'}</div>
-            <div className="pop-sub">{initDataRaw.value ? 'Аккаунт Telegram' : 'Гостевая сессия этого устройства'}</div>
+            <div className="pop-sub">{initDataRaw.value ? 'Аккаунт Telegram'
+              : (isGuest() ? 'Гостевая сессия этого устройства' : 'Аккаунт Telegram · вход по коду')}</div>
           </div>
+          {!initDataRaw.value && isGuest() && (
+            <button className="pop-item"
+                    onClick={() => { setPop(null); window.dispatchEvent(new Event('vibe:login')); }}>
+              <span style={{ width: '1em', textAlign: 'center' }}>🔑</span> Войти по коду из бота
+            </button>
+          )}
           <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'likes' }); setPop(null); }}>
             <IcoHeart width="1em" height="1em" /> Любимое
           </button>
@@ -461,7 +478,11 @@ function NowPlaying({ onClose }) {
     haptic('medium');
     const fin = await downloadJob(cur, setDl);
     if (fin && fin.startsWith('✓')) toast('Файл отправлен в чат', { kind: 'success' });
+    else if (fin === 'telegram_required') {
+      toast('Войди по коду из бота — и файлы будут приходить в чат', { kind: 'info' });
+    }
     else if (fin === 'Ошибка сети') toast('Не удалось скачать трек', { kind: 'error' });
+    else if (fin && fin !== 'ошибка') toast('Не удалось: ' + fin, { kind: 'error' });
     setTimeout(() => setDl(''), 4000);
   };
 
@@ -611,8 +632,77 @@ async function downloadJob(track, setDl) {
     }
     setDl('');
     return '';
-  } catch {
-    setDl('Ошибка сети');
-    return 'Ошибка сети';
+  } catch (e) {
+    const msg = e.message || 'Ошибка сети';
+    if (msg === 'telegram_required') {
+      setDl('Нужен вход в Telegram');
+      return 'telegram_required';
+    }
+    setDl(msg);
+    return msg;
   }
+}
+
+/* ---------------- вход по коду из /code ---------------- */
+function LoginSheet({ open, onClose }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setErr('');
+    const t = setTimeout(() => ref.current?.focus(), 180);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  const digits = code.replace(/\D/g, '');
+  const submit = async () => {
+    if (digits.length !== 8 || busy) return;
+    setBusy(true);
+    setErr('');
+    try {
+      await exchangeCode(digits);
+      toast('Готово — открываю аккаунт Telegram', { kind: 'success' });
+      setTimeout(() => location.reload(), 350);
+    } catch (e) {
+      setErr(e.message || 'Код не подошёл');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} labelledBy="login-title">
+      <div className="sht" id="login-title">Вход в аккаунт Telegram</div>
+      <p className="muted" style={{ margin: '0 0 12px', lineHeight: 1.5 }}>
+        В браузере приложение работает как гость: слушать можно, а отправлять
+        треки в чат — нет. Открой бота, отправь <b>/code</b> и введи 8 цифр.
+      </p>
+      <a className="bigbtn" href={BOT_URL} target="_blank" rel="noopener"
+         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, textDecoration: 'none', marginBottom: 12 }}>
+        📱 Открыть бота и получить код
+      </a>
+      <input
+        ref={ref}
+        className="shinput"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={9}
+        placeholder="1234 5678"
+        value={code}
+        onChange={e => setCode(e.target.value.replace(/[^\d ]/g, ''))}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+      />
+      {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+      <div className="btnrow">
+        <button className="bigbtn" onClick={onClose}>Позже</button>
+        <button className="bigbtn primary" disabled={digits.length !== 8 || busy}
+                onClick={submit}>
+          {busy ? <span className="minispinner" /> : 'Войти'}
+        </button>
+      </div>
+    </Sheet>
+  );
 }

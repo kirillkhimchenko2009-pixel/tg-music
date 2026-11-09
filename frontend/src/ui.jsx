@@ -355,8 +355,10 @@ export async function downloadTrack(track, onStatus) {
       await new Promise(r => setTimeout(r, 1500));
     }
   } catch (e) {
-    fin = e.message || 'ошибка';
+    const msg = e.message || 'ошибка';
+    fin = msg === 'telegram_required' ? 'Нужен вход в Telegram' : msg;
     onStatus?.(fin);
+    return msg === 'telegram_required' ? 'telegram_required' : fin;
   }
   return fin;
 }
@@ -429,6 +431,8 @@ export function TrackMenu({
             const fin = await downloadTrack(track, setDpid);
             if (fin.startsWith('✓')) {
               toast('Файл отправлен в чат', { kind: 'success' });
+              onClose();
+            } else if (fin === 'telegram_required') {
               onClose();
             } else if (fin === 'ошибка') {
               toast('Не удалось подготовить файл', { kind: 'error' });

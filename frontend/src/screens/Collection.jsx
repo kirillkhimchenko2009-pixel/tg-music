@@ -325,7 +325,10 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
           if (st.status === 'done' || st.status === 'error') break;
           await new Promise(r => setTimeout(r, 1500));
         }
-      } catch { /* следующий */ }
+      } catch (e) {
+        if (e.message === 'telegram_required') { setProg(null); return; }
+        /* следующий */
+      }
       done += 1;
       setProg({ done, total: tracks.length });
     }
