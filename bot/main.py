@@ -6,6 +6,7 @@ from logging import basicConfig, getLogger
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommandScopeDefault
@@ -20,10 +21,15 @@ from music.downloader.queue import queue as music_queue
 log = getLogger(__name__)
 
 def create_bot() -> Bot:
-    session = AiohttpSession(proxy=settings.BOT_PROXY_URL or None)
+    # base_url задаётся у СЕССИИ, а не у Bot: aiogram 3 молча игнорирует
+    # неизвестные kwargs, поэтому Bot(base_url=...) не переключал Bot API —
+    # локальный сервер (файлы >50 МБ) и тестовый мок оставались в стороне.
+    session_kwargs = {"proxy": settings.BOT_PROXY_URL or None}
+    if settings.BOT_API_URL:
+        session_kwargs["api"] = TelegramAPIServer.from_base(settings.BOT_API_URL)
+    session = AiohttpSession(**session_kwargs)
     return Bot(
         token=settings.BOT_TOKEN,
-        base_url=settings.BOT_API_URL or None,
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )

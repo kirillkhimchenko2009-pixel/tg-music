@@ -18,10 +18,11 @@ async def _fake_session():
     yield SimpleNamespace()
 
 
-def _fake_track(track_id=5, *, file_id=None):
+def _fake_track(track_id=5, *, file_id=None, local_path=None):
     return SimpleNamespace(
         id=track_id, title="Song", artist="Artist", file_id=file_id,
-        duration=12, cover_url=None, local_path=None)
+        duration=12, cover_url=None, local_path=local_path,
+        quality="aac320")
 
 
 def _job(track_id=5, user_id=1, quality="aac320", job_id="job-1"):
@@ -256,7 +257,7 @@ class TestDeliverJob:
             calls.send.append((value.id, path))
             return send_result
 
-        async def save_file_id(track_id, file_id, quality, **kwargs):
+        async def save_file_id(track_id, file_id, quality=None, **kwargs):
             calls.save.append((track_id, file_id, quality, kwargs))
 
         async def preview(bot, chat_id, value):
@@ -366,6 +367,65 @@ class TestDeliverJob:
         assert status["status"] == "done"
         assert status["telegram"] is True
         assert calls.cached == [5]
+
+    async def test_stale_cached_id_reuploads_local_full_file(
+            self, monkeypatch, tmp_path):
+        """Старый file_id не должен превращать трек в 30-сек фрагмент."""
+        path = tmp_path / "audio.mp3"
+        path.write_bytes(b"x" * 64)
+        track = _fake_track(file_id="OLD-FID", local_path=str(path))
+        calls = self._install(monkeypatch, track, cached_result=False)
+        job_id = _job()
+
+        import services.ingest as ingest
+
+        async def resolve(session, meta, quality, **kwargs):
+            return SimpleNamespace(status="cached", file_path=None,
+                                   track=track, quality=None, error="")
+
+        monkeypatch.setattr(ingest, "resolve", resolve)
+
+        await tracks._deliver_job(job_id, 1, 5, "aac320")
+
+        status = tracks.JOB_STATUS[job_id]
+        assert status["status"] == "done"
+        assert status["telegram"] is True
+        assert calls.cached == [5]
+        assert calls.send == [(5, path)]
+        assert calls.save[-1][1] == "FID"
+
+    async def test_stale_cached_id_redownloads_full_audio(
+            self, monkeypatch, tmp_path):
+        """Нет локальной копии — перекачиваем полный трек, а не preview."""
+        path = tmp_path / "audio.mp3"
+        path.write_bytes(b"x" * 64)
+        track = _fake_track(file_id="OLD-FID")
+        calls = self._install(monkeypatch, track, cached_result=False)
+        job_id = _job()
+        seen = []
+
+        import services.ingest as ingest
+
+        async def resolve(session, meta, quality, **kwargs):
+            allow = kwargs.get("allow_cached", True)
+            seen.append(allow)
+            if allow:
+                return SimpleNamespace(status="cached", file_path=None,
+                                       track=track, quality=None, error="")
+            return SimpleNamespace(status="downloaded", file_path=path,
+                                   track=track, quality=quality, error="")
+
+        monkeypatch.setattr(ingest, "resolve", resolve)
+
+        await tracks._deliver_job(job_id, 1, 5, "aac320")
+
+        status = tracks.JOB_STATUS[job_id]
+        assert status["status"] == "done"
+        assert seen == [True, False]
+        assert calls.cached == [5]
+        assert calls.send == [(5, path)]
+        assert calls.save[0][:2] == (5, "")
+        assert calls.save[-1][1] == "FID"
 
     async def test_missing_cached_file_and_no_preview_is_error(
             self, monkeypatch):

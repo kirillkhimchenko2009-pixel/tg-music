@@ -7,6 +7,7 @@ import json as _json
 import os
 import time as _time
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -327,34 +328,63 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
                 update(status="error", error=res.error or "не удалось скачать")
                 return
             target = res.track or (await catalog.get_track(s, track_id))
-            if res.file_path and target and res.file_path.exists():
+
+            async def deliver_file(target_track, path, q) -> bool:
+                """Отправить полный файл и закешировать новый file_id."""
                 from bot.runtime import save_file_id_retry, send_audio_file
-                fid = await send_audio_file(bot, user_id, target, res.file_path)
-                if fid:
-                    update(status="done", progress=100.0, telegram=True)
-                    # кеш file_id обязательно пишем: иначе следующий раз качается заново
-                    await save_file_id_retry(
-                        target.id, fid, res.quality,
-                        size=res.file_path.stat().st_size,
-                        local_path=res.file_path.as_posix())
-                elif await send_fallback():
+                fid = await send_audio_file(bot, user_id, target_track, path)
+                if not fid:
+                    return False
+                update(status="done", progress=100.0, telegram=True)
+                await save_file_id_retry(
+                    target_track.id, fid, q,
+                    size=path.stat().st_size,
+                    local_path=path.as_posix())
+                return True
+
+            if res.file_path and target and res.file_path.exists():
+                if await deliver_file(target, res.file_path, res.quality):
                     return
-                else:
-                    # Нельзя писать done, если в чат реально ничего не ушло.
-                    update(status="error",
-                           error="Telegram не принял файл (возможно, больше лимита)")
-            elif target and target.file_id:
-                from bot.runtime import send_track_cached
+                if await send_fallback():
+                    return
+                # Нельзя писать done, если в чат реально ничего не ушло.
+                update(status="error",
+                       error="Telegram не принял файл (возможно, больше лимита)")
+                return
+            if target and target.file_id:
+                from bot.runtime import save_file_id_retry, send_track_cached
                 if await send_track_cached(bot, user_id, target):
                     update(status="done", progress=100.0, telegram=True)
-                elif await send_fallback():
                     return
-                else:
-                    update(status="error", error="файл не доступен")
-            else:
+                # file_id мог устареть (старый токен/другой бот). Не отдаём
+                # 30-секундный фрагмент, пока не попробовали полный файл:
+                # сначала локальная копия, затем честная перекачка.
+                local = Path(target.local_path) if target.local_path else None
+                if local and local.exists():
+                    if await deliver_file(target, local, target.quality):
+                        return
+                try:
+                    await save_file_id_retry(target.id, "")
+                    target.file_id = ""
+                    await s.flush()
+                except Exception:  # noqa: BLE001
+                    log.warning("не удалось сбросить file_id трека %s", target.id)
+                res2 = await ingest.resolve(s, meta_of(target), quality,
+                                            user_id=user_id,
+                                            on_progress=on_progress,
+                                            allow_cached=False)
+                fresh = (res2.track or target) if res2 else None
+                if (res2 and res2.file_path and fresh
+                        and res2.file_path.exists()
+                        and await deliver_file(fresh, res2.file_path, res2.quality)):
+                    return
                 if await send_fallback():
                     return
                 update(status="error", error="файл не доступен")
+                return
+            if await send_fallback():
+                return
+            update(status="error", error="файл не доступен")
     except Exception as e:  # noqa: BLE001
         # полный трейс в логи: str(e) в job-статусе часто лишь «rolled back»,
         # а исходное место падения видно только здесь

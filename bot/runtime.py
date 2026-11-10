@@ -117,14 +117,30 @@ async def _fav_state(chat_id: int, track_id: int) -> bool:
     except Exception:
         return False
 
+_STALE_FILE_MARKERS = (
+    "wrong file identifier",
+    "file is not found",
+    "file reference",
+    "invalid file_id",
+    "file_id is invalid",
+)
+
+
+def _stale_file_error(exc: Exception) -> bool:
+    """Telegram отверг именно file_id (а не чат/сеть) — кеш можно чистить."""
+    text = (getattr(exc, "message", "") or str(exc)).lower()
+    return any(marker in text for marker in _STALE_FILE_MARKERS)
+
+
 async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
     """Быстрая отправка трека из кеша file_id. False, если кеша нет."""
     if not track.file_id:
         return False
     from bot.keyboards import action_kb
+    from aiogram.exceptions import (TelegramBadRequest, TelegramNetworkError,
+                                    TelegramRetryAfter)
     try:
         in_fav = await _fav_state(chat_id, track.id)
-        from aiogram.exceptions import TelegramRetryAfter, TelegramNetworkError
         for attempt in range(3):
             try:
                 await bot.send_audio(chat_id, track.file_id,
@@ -141,9 +157,18 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
                     raise
                 await asyncio.sleep(3 * (attempt + 1))
         return False
-    except Exception:
-        # файл пропал/невалиден — чистим кеш
-        await save_file_id_retry(track.id, "")
+    except TelegramBadRequest as e:
+        # Чистим кеш только если виноват сам file_id. «chat not found»,
+        # «bot was blocked» и прочие ошибки чата не делают файл негодным:
+        # иначе один неудачный чат обнулял бы общий кеш трека.
+        if _stale_file_error(e):
+            await save_file_id_retry(track.id, "")
+        else:
+            log.warning("send_track_cached: Telegram отклонил трек %s: %s",
+                        track.id, e)
+        return False
+    except Exception as e:  # noqa: BLE001
+        log.warning("send_track_cached: трек %s не отправлен: %s", track.id, e)
         return False
 
 async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | None:
@@ -166,8 +191,8 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
     from bot.keyboards import action_kb
     in_fav = await _fav_state(chat_id, track.id)
     msg = None
-    from aiogram.exceptions import (TelegramNetworkError, TelegramRetryAfter,
-                                    TelegramEntityTooLarge)
+    from aiogram.exceptions import (TelegramBadRequest, TelegramEntityTooLarge,
+                                    TelegramNetworkError, TelegramRetryAfter)
     for attempt in range(3):
         try:
             msg = await bot.send_audio(
@@ -186,10 +211,25 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
             if attempt == 2:
                 raise
             await asyncio.sleep(3 * (attempt + 1))
+        except TelegramBadRequest as e:
+            # Чаще всего Telegram отвергает обложку (размер/формат/битые
+            # пиксели). Из-за этого нельзя терять весь трек и отдавать
+            # 30-секундный фрагмент — повторяем отправку без обложки.
+            if cover is not None:
+                log.warning("send_audio: обложка трека %s отвергнута (%s) — "
+                            "повторяю без неё", track.id, e)
+                cover = None
+                continue
+            raise
     if msg is None:
         raise TelegramNetworkError(method=None, message="send failed after retries")
     audio = msg.audio
-    return (audio.file_id if audio else None)
+    if audio:
+        return audio.file_id
+    # Telegram мог переклассифицировать файл в документ — это всё равно
+    # полный трек, и кешировать его file_id полезно.
+    doc = getattr(msg, "document", None)
+    return doc.file_id if doc else None
 
 async def get_or_create_playlist(session: AsyncSession, user_id: int, title: str) -> Playlist:
     """ tolerant-выборка: у юзера могло скопиться 2+ плейлиста с одним именем

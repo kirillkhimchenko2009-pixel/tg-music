@@ -109,18 +109,19 @@ export default function App() {
         <Sidebar view={view} />
         <div className="content">
           <TopBar name={name} />
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.main
-              key={viewKey(view)}
-              className="page"
-              variants={pageVariants}
-              initial="initial"
-              animate="enter"
-              exit="exit"
-            >
-              <Screen view={view} />
-            </motion.main>
-          </AnimatePresence>
+          {/* Без exit-анимации: если она замирает (фоновая вкладка,
+              приостановленный rAF), AnimatePresence mode="wait" вообще
+              не монтирует новый экран — навигация «застревает» на старой
+              странице. Вход нового экрана остаётся, уход — мгновенный. */}
+          <motion.main
+            key={viewKey(view)}
+            className="page"
+            variants={pageVariants}
+            initial="initial"
+            animate="enter"
+          >
+            <Screen view={view} />
+          </motion.main>
         </div>
         <PlayerBar onExpand={() => setExpanded(true)} />
         <AnimatePresence>

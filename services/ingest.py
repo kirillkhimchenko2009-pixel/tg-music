@@ -228,10 +228,11 @@ async def _yt_candidates(meta: TrackMeta, query: str) -> list[tuple[TrackMeta, s
     return out
 
 async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
-                  user_id: int | None = None, on_progress=None) -> Resolved:
+                  user_id: int | None = None, on_progress=None,
+                  allow_cached: bool = True) -> Resolved:
     # 1) Трек уже в каталоге с кешем file_id?
     track = await _upsert(session, meta)
-    if track.file_id:
+    if allow_cached and track.file_id:
         return Resolved(track=track, file_path=None, quality=track.quality, status="cached")
 
     # Уже скачан локально, но файл ещё не залит в ТГ
