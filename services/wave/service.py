@@ -23,6 +23,8 @@ from core.models import (PlayEvent, Track, TrackFeedback, WaveSession, WaveSetti
 from services import authstore, catalog
 from services.providers.yandex import _web_meta
 from services.wave import own_engine, yandex_rotor
+from services.wave.intel import endless as intel_endless
+from services.wave.intel import feedback as intel_feedback
 
 LOG = logging.getLogger("wave.service")
 
@@ -54,6 +56,7 @@ def settings_dto_of(ws: WaveSettings) -> dict:
         "genres": list(ws.genres or []),
         "artists": list(ws.artists or []),
         "allow_explicit": bool(ws.allow_explicit),
+        "context_enabled": bool(getattr(ws, "context_enabled", True)),
     }
 
 
@@ -77,6 +80,8 @@ async def update_settings(s, user_id: int, patch: dict) -> dict:
             setattr(ws, key, patch[key])
     if "allow_explicit" in patch:
         ws.allow_explicit = bool(patch["allow_explicit"])
+    if "context_enabled" in patch:
+        ws.context_enabled = bool(patch["context_enabled"])
     for lst in ("activities", "genres", "artists"):
         if lst in patch:
             v = patch[lst]
@@ -267,7 +272,8 @@ async def _invalidate_prefetch(s, user_id: int) -> None:
 
 # -------------------------------- старт --------------------------------
 
-async def start(s, user_id: int, engine_pref: str | None) -> dict:
+async def start(s, user_id: int, engine_pref: str | None,
+                ctx_request: dict | None = None) -> dict:
     ws = await ensure_settings(s, user_id)
     engine = await resolve_engine(s, user_id, engine_pref)
 
@@ -279,12 +285,14 @@ async def start(s, user_id: int, engine_pref: str | None) -> dict:
     await s.flush()
 
     sess = WaveSession(user_id=user_id, engine=engine, seeds=[],
-                       played_ids=[], played_track_ids=[], prefetch=[])
+                       played_ids=[], played_track_ids=[], prefetch=[],
+                       scenario={}, context={})
     s.add(sess)
     await s.flush()
 
     tok = None
     pairs: list[tuple[Track, str]] = []
+    scenario_dto: dict | None = None
     if engine == "yandex":
         tok = await authstore.get_token(s, user_id, "ym")
         try:
@@ -308,8 +316,24 @@ async def start(s, user_id: int, engine_pref: str | None) -> dict:
             engine = "own"
 
     if engine == "own":
-        pairs = [(t, why) for t, why in
-                 await own_engine.next_batch(s, user_id, ws, sess)]
+        # движок B-v2: полный pipeline (контекст → кандидаты → скоринг → партия)
+        try:
+            br = await intel_endless.build_batch(s, user_id, ws, sess,
+                                                 request_ctx=ctx_request)
+            pairs = br.pairs
+            scenario_dto = br.scenario.to_json() if br.scenario else None
+        except Exception:                     # resilience: wave не роняется
+            LOG.exception("intel pipeline недоступен — откат на движок B-legacy")
+            pairs = []
+        if 0 < len(pairs) < BATCH:            # недобор — добор прежним движком B
+            for t, why in await own_engine.next_batch(s, user_id, ws, sess):
+                if all(t.id != p[0].id for p in pairs):
+                    pairs.append((t, why))
+                if len(pairs) >= BATCH:
+                    break
+        if not pairs:                         # прежний движок B — фолбэк
+            pairs = [(t, why) for t, why in
+                     await own_engine.next_batch(s, user_id, ws, sess)]
         if not pairs:
             await s.commit()
             raise HTTPException(503, "волна не нашла музыку — ищи через 🔍 или добавь лайки")
@@ -320,19 +344,25 @@ async def start(s, user_id: int, engine_pref: str | None) -> dict:
 
     sess.played_track_ids = [t.id for t, _ in pairs]
     sess.played_ids = [t.external_id for t, _ in pairs if t.source == "yandex"]
+    if scenario_dto is not None:
+        sess.scenario = scenario_dto
+    else:
+        scenario_dto = dict(sess.scenario or {})
     await s.commit()
 
     out = {
         "session_id": sess.id,
         "engine": sess.engine,
         "tracks": [_dto(t, why) for t, why in pairs],
+        "scenario": scenario_dto or None,
     }
     return out
 
 
 # -------------------------------- партия --------------------------------
 
-async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dict:
+async def next_batch(s, user_id: int, session_id: int, last: dict | None,
+                     ctx_request: dict | None = None) -> dict:
     sess = await get_active(s, user_id, session_id)
     if sess is None:
         raise HTTPException(409, "волна не активна — запусти заново")
@@ -345,11 +375,19 @@ async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dic
     if ev not in ("skip", "finished"):
         ev = "skip"
 
-    # 1) закрываем PlayEvent предыдущего трека
+    # 1) закрываем PlayEvent предыдущего трека + телеметрия перехода
     if lid:
         await _close_play_event(s, user_id, sess.id, int(lid), ev, played)
+        try:
+            await intel_feedback.log_transition(
+                s, user_id, sess.id, int(lid), ev, played,
+                context=dict(sess.context or {}),
+                scenario=(sess.scenario or {}).get("id"))
+        except Exception:
+            LOG.exception("переход трека не залогирован")
 
     pairs: list[tuple[Track, str]] = []
+    scenario_dto: dict | None = None
     tok = None
     if sess.engine == "yandex":
         tok = await authstore.get_token(s, user_id, "ym")
@@ -387,8 +425,30 @@ async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dic
             sess.engine = "own"          # бесшовно на B, не роняя сессию
 
     if sess.engine == "own":
-        pairs = await _hydrate_prefetch(s, user_id, ws, sess)
-        if pairs is None:
+        # смена сценария на ходу (карточки волны) — пересчёт под новый сценарий
+        switch_scenario = (ctx_request or {}).get("scenario")
+        if switch_scenario or not sess.scenario:
+            try:
+                br = await intel_endless.build_batch(s, user_id, ws, sess,
+                                                     request_ctx=ctx_request)
+                pairs = br.pairs
+                if br.scenario is not None:
+                    scenario_dto = br.scenario.to_json()
+                    sess.scenario = scenario_dto
+                if br.context is not None:
+                    sess.context = br.context.to_json()
+            except Exception:
+                LOG.exception("intel pipeline недоступен на /next — фолбэк")
+                pairs = []
+            if 0 < len(pairs) < BATCH:
+                for t, why in await own_engine.next_batch(s, user_id, ws, sess):
+                    if all(t.id != p[0].id for p in pairs):
+                        pairs.append((t, why))
+                    if len(pairs) >= BATCH:
+                        break
+        if not pairs:
+            pairs = await _hydrate_prefetch(s, user_id, ws, sess)
+        if not pairs:
             pairs = await own_engine.next_batch(s, user_id, ws, sess)
         if not pairs:
             await s.commit()
@@ -403,6 +463,8 @@ async def next_batch(s, user_id: int, session_id: int, last: dict | None) -> dic
         "engine": sess.engine,
         "tracks": [_dto(t, why) for t, why in pairs],
         "batch_id": sess.batch_id,
+        "scenario": scenario_dto if scenario_dto is not None
+                    else dict(sess.scenario or {}) or None,
     }
     return out
 
@@ -429,7 +491,10 @@ async def _del_feedback(s, user_id: int, track_id: int, kind: int):
 
 
 async def feedback(s, user_id: int, session_id: int, event: str,
-                   track_id: int | None, played_seconds: float | None) -> dict:
+                   track_id: int | None, played_seconds: float | None,
+                   reason: str | None = None,
+                   context: dict | None = None,
+                   duration: float | None = None) -> dict:
     sess = await get_active(s, user_id, session_id)
     if sess is None:
         raise HTTPException(409, "волна не активна — запусти заново")
@@ -450,11 +515,51 @@ async def feedback(s, user_id: int, session_id: int, event: str,
             mark_rotor_unwell(str(e))
             sess.engine = "own"
 
+    track = None
+    if track_id is not None:
+        track = await catalog.get_track(s, track_id)
+
+    # телеметрия в рекомендательный движок (WaveEvent) — все события плеера
+    scenario_id = (sess.scenario or {}).get("id")
+    try:
+        if event in ("like", "unlike", "dislike", "undislike", "added_to_library",
+                     "removed_from_library", "trackStarted") and track is not None:
+            kind_map = {"like": "liked", "unlike": "unliked", "dislike": "disliked",
+                        "undislike": None, "trackStarted": "track_started",
+                        "added_to_library": "added_to_library",
+                        "removed_from_library": "removed_from_library"}
+            kind = kind_map.get(event)
+            if kind:
+                from services.wave.intel.events import EventContext
+                ctx = None
+                if context:
+                    ctx = EventContext(**{k: context.get(k) for k in
+                                          ("time_of_day", "weekday", "device",
+                                           "activity", "mood") if context.get(k)})
+                await intel_feedback.process_event(
+                    s, user_id, kind=kind, track=track, session_id=sess.id,
+                    reason=(reason if event == "dislike" else None),
+                    context=ctx, scenario=scenario_id,
+                    played_seconds=float(played_seconds or 0),
+                    duration=float(duration or (track.duration if track else 0)))
+        elif event in ("skip", "trackFinished") and track_id:
+            await intel_feedback.log_transition(
+                s, user_id, sess.id, int(track_id), event,
+                float(played_seconds or 0),
+                context=dict(sess.context or {}), scenario=scenario_id)
+    except Exception:
+        LOG.exception("телеметрия фидбека не записана")
+
     if event == "trackStarted" and track_id:
         await _open_play_event(s, user_id, sess.id, track_id)
     elif event == "dislike" and track_id:
         await _add_feedback(s, user_id, track_id, -1)
         await _invalidate_prefetch(s, user_id)   # вкус изменился — заготовки B в мусор
+        # лайки/дизлайки меняют профиль — заготовленные партии пересчитываются
+        try:
+            await intel_feedback.touch_profile_stale(s, user_id)
+        except Exception:
+            pass
     elif event == "undislike" and track_id:
         await _del_feedback(s, user_id, track_id, -1)
     elif event == "like" and track_id:

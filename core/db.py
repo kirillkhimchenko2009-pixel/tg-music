@@ -97,3 +97,18 @@ async def init_db() -> None:
                 await conn.execute(text(stmt))
         except Exception:
             pass
+    # Wave v2 (интеллект): сценарий и контекст сессии
+    for stmt in ("ALTER TABLE wave_sessions ADD COLUMN scenario JSON",
+                 "ALTER TABLE wave_sessions ADD COLUMN context JSON"):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt))
+        except Exception:
+            pass
+    # Wave v2: переключатель контекстной персонализации
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE wave_settings ADD COLUMN context_enabled BOOLEAN NOT NULL DEFAULT 1"))
+    except Exception:
+        pass

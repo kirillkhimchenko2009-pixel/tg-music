@@ -106,7 +106,15 @@ async def _plan_next_own(user_id: int, session_id: int) -> None:
             base = len(sess.played_track_ids or [])
             _plan_base[session_id] = base
             ws = await service.ensure_settings(s, user_id)
-            batch = await own_engine.next_batch(s, user_id, ws, sess)
+            try:
+                from services.wave.intel import endless as intel_endless
+                br = await intel_endless.build_batch(
+                    s, user_id, ws, sess, request_ctx=dict(sess.context or {}))
+                batch = br.pairs
+            except Exception:
+                LOG.warning("intel prefetch не удался — движок B-legacy: %s",
+                            LOG.name)
+                batch = await own_engine.next_batch(s, user_id, ws, sess)
             if not batch:
                 return
             # сессия могла уйти вперёд, пока считали — тогда партия устарела
