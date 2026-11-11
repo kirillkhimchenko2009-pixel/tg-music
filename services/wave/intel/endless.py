@@ -22,7 +22,7 @@ from core.models import (Playlist, PlaylistTrack, Track, WaveSession, utcnow)
 from . import taste as taste_mod
 from .config import WaveConfig, load_config
 from .context import (Context, Scenario, FAMILIARITY_EXPLORE, pick_scenario,
-                      scenario_from_formula, mood_of_texts)
+                      scenario_from_formula, scenario_list, mood_of_texts)
 from .events import note_discovered
 from . import feedback as feedback_mod
 from .ranker import rank

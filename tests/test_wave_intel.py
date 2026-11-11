@@ -240,6 +240,21 @@ class TestEndlessBatch:
         ids = [t["id"] for t in resp["tracks"]]
         assert len(ids) == len(set(ids))
 
+    async def test_service_start_with_requested_scenario(self, db, likes):
+        """Карточка сценария: движок B, сценарий эхом, rotor не вызывается."""
+        from services.wave import service
+        async with db() as s:
+            wave_settings_of(s)
+            await s.flush()
+            resp = await service.start(s, 111, "yandex",
+                                       ctx_request={"local_hour": 14,
+                                                    "scenario": "discovery"})
+            await s.commit()
+        assert resp["engine"] == "own"          # сценарий форсит наш движок
+        assert resp["scenario"]["id"] == "discovery"
+        assert resp["scenario"]["title"]
+        assert len(resp["tracks"]) >= 1
+
     async def test_disliked_and_explicit_never_in_batch(self, db, likes):
         from services.wave import service
         async with db() as s:

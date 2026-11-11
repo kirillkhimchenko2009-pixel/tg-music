@@ -277,6 +277,13 @@ async def start(s, user_id: int, engine_pref: str | None,
     ws = await ensure_settings(s, user_id)
     engine = await resolve_engine(s, user_id, engine_pref)
 
+    # Сценарные карточки (§2.3) кроме «Для тебя» — наш pipeline: rotor ЯМ
+    # сценарий не поддерживает и честности названия не гарантирует.
+    requested_scenario = (ctx_request or {}).get("scenario")
+    if requested_scenario and requested_scenario not in ("foryou", "") \
+            and engine == "yandex":
+        engine = "own"
+
     # две параллельных сессий не ведём: старые закрываем
     await s.execute(update(WaveSession)
                     .where(WaveSession.user_id == user_id,

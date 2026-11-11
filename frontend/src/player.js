@@ -88,12 +88,42 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* Волна: режим бесконечного потока. Wave.jsx задаёт источник:
    { sessionId, fetchMore(last) -> tracks[], onEvent(kind, track, playedSec) }
-   kind: started | skip | finished. Внутри партии игрок движется локально,
-   фидбек уходит через /feedback; на исчерпании партии — /next за новой. */
+   kind: started | skip | finished | played_10s | played_30s | played_50p |
+         played_90p | seeked | replayed. Внутри партии игрок движется локально,
+   фидбек уходит через /feedback; на исчерпании партии — /next за новой.
+   Гранулярные метки (§7.1) эмитятся однократно на трек — телеметрия для
+   метрик и адаптации волны. */
 let wave = null;
 
 export function setWaveSource(src) { wave = src || null; }
 export function inWave() { return !!wave; }
+
+/* Прогресс текущего трека в волне: однократные метки + максимум дослушивания
+   (нужен, чтобы отличить replay от повторного старта после паузы). */
+let wflags = null;
+
+function waveMark() {
+  const t = current();
+  if (!t) return;
+  if (!wflags || wflags.id !== t.id) {
+    wflags = { id: t.id, m10: false, m30: false, m50: false, m90: false,
+               maxSec: 0, firedReplay: false };
+  }
+  const cur = audio.currentTime || 0;
+  if (cur > wflags.maxSec) wflags.maxSec = cur;
+  const dur = audio.duration || t.duration || 0;
+  const fire = (kind, at) => {
+    if (wflags[kind]) return;
+    wflags[kind] = true;
+    wave.onEvent?.(kind, t, at);
+  };
+  if (dur > 0) {
+    if (cur >= dur * 0.9) fire('played_90p', cur);
+    if (cur >= dur * 0.5) fire('played_50p', cur);
+  }
+  if (cur >= 30) fire('played_30s', cur);
+  if (cur >= 10) fire('played_10s', cur);
+}
 
 export function toggle() {
   if (!current()) return;
@@ -167,11 +197,24 @@ export async function prev() {
   }
 }
 
+/* Встряска волны: всё, что ещё не отыграно, заменяем новой партией
+   (текущий трек продолжает играть до конца — переход бесшовный). */
+export function replaceUpcoming(tracks) {
+  if (!wave) return;
+  const keep = state.queue.slice(0, state.index + 1);
+  const ids = new Set(keep.map(t => t.id));
+  const add = (tracks || []).filter(t => !ids.has(t.id));
+  state.queue = [...keep, ...add];
+  emit();
+}
+
 export function seek(p) {
   if (!audio.duration) return;
   const t = Math.max(0, Math.min(1, +p || 0)) * audio.duration;
+  const jump = Math.abs(t - (audio.currentTime || 0));
   audio.currentTime = t;
   state.currentTime = t;           // мгновенный отклик шкалы, без ожидания timeupdate
+  if (wave && current() && jump > 5) wave.onEvent?.('seeked', current(), t);
   emit();
 }
 
@@ -202,14 +245,33 @@ function beacon(finished, played) {
     played_seconds: Math.max(0, Math.round(played || 0)) }) }).catch(() => {});
 }
 
+let startedId = null;            // последний трек, для которого ушли «started»
+
 audio.addEventListener('play', () => {
   state.attempts = 0;
-  if (wave && current()) wave.onEvent?.('started', current(), 0);
-  else beacon(false, 0);
+  if (wave && current()) {
+    const cur = current();
+    const dur = audio.duration || cur.duration || 0;
+    const isReplay = wflags && wflags.id === cur.id && !wflags.firedReplay
+      && dur > 0 && wflags.maxSec >= dur * 0.9;
+    if (isReplay) {
+      /* тот же трек дослушан почти до конца и запущен заново → replay */
+      wflags.firedReplay = true;
+      wave.onEvent?.('replayed', cur, 0);
+      wave.onEvent?.('started', cur, 0);
+    } else if (startedId !== cur.id) {
+      /* свежий старт; resume после паузы события не порождает */
+      startedId = cur.id;
+      wave.onEvent?.('started', cur, 0);
+    }
+  } else beacon(false, 0);
   emit();
 });
 audio.addEventListener('pause', emit);
-audio.addEventListener('timeupdate', emit);
+audio.addEventListener('timeupdate', () => {
+  if (wave && current()) waveMark();
+  emit();
+});
 audio.addEventListener('ended', () => {
   if (!wave && current()) beacon(true, audio.duration || audio.currentTime);
   next(false);

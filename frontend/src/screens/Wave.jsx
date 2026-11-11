@@ -1,11 +1,17 @@
 /* Волна — аналог «Мои волны» Яндекса: личный бесконечный поток.
-   Гибрид: движок A — rotor ЯМ (у владельцев /token), движок B — наш подбор.
-   Формула в bottom-sheet: настроение, занятие, жанры, разнообразие, язык, 18+. */
+   Гибрид: движок A — rotor ЯМ (у владельцев /token), движок B — наш подбор
+   (services/wave/intel: вкус, контекст, сценарии с честными названиями).
+   Карточки сценариев + встряска (кнопка ⚡ и DeviceMotion) + ряд открытий.
+   Формула в bottom-sheet: настроение, занятие, жанры, знакомство, язык, 18+. */
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useAnimationControls } from 'motion/react';
-import { api, waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings } from '../api.js';
+import {
+  api, waveStart, waveNext, waveFeedback, waveSettings, waveSaveSettings,
+  waveEvent, waveScenarios, waveShake, waveDiscovery, waveCtx,
+} from '../api.js';
 import * as P from '../player.js';
 import { usePlayerSnap } from '../player.js';
+import * as shake from '../shake.js';
 import { haptic } from '../tg.js';
 import {
   coverOr, FadeImg, Eq, IcoCheck, IcoDownload, IcoNext, PlayPause,
@@ -26,6 +32,12 @@ const DIVERSITY = [
   { id: 'favorite', icon: '❤', label: 'Своё' },
   { id: 'popular', icon: '✦', label: 'Популярное' },
   { id: 'discover', icon: '✧', label: 'Новое' },
+];
+const FAMILIARITY = [
+  { id: null, icon: '∞', label: 'Как есть' },
+  { id: 'favorite', icon: '❤', label: 'Любимое' },
+  { id: 'similar', icon: '≈', label: 'Похожее' },
+  { id: 'new', icon: '✦', label: 'Новое' },
 ];
 const LANGS = [
   { id: 'any', icon: '🌐', label: 'Любой' },
@@ -59,6 +71,13 @@ const HEART_D = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 
 
 const EASE = [0.16, 1, 0.3, 1];
 
+/* палитра сценария → rgba для ауры и рамок (без color-mix: webview) */
+function hexA(hex, a) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  if (!m) return null;
+  return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
+}
+
 export default function Wave() {
   const st = usePlayerSnap();
   const [phase, setPhase] = useState('boot');   // boot | ready | err
@@ -67,31 +86,60 @@ export default function Wave() {
   const [sess, setSess] = useState(null);       // { session_id, engine }
   const [sheet, setSheet] = useState(false);
   const [dirty, setDirty] = useState(false);    // формула изменилась — жмёт перезапуск
+  const [scens, setScens] = useState([]);       // карточки сценариев
+  const [scen, setScen] = useState(null);       // активный сценарий (DTO)
+  const [disc, setDisc] = useState([]);         // карточки открытий
+  const [fam, setFam] = useState(null);         // явная степень знакомства
+  const [shakeBusy, setShakeBusy] = useState(false);
   const booted = useRef(false);
+  const scenRef = useRef(null);                 // для fetchMore без устаревания
+  const famRef = useRef(null);
 
-  const startWave = async (engine) => {
+  const setScenBoth = (s) => { scenRef.current = s; setScen(s); };
+  const setFamBoth = (v) => { famRef.current = v; setFam(v); };
+
+  const startWave = async (engine, scenArg) => {
+    const s = scenArg ?? scenRef.current;
     setPhase('boot'); setErr('');
     try {
-      const j = await waveStart(engine || ws?.engine || 'auto');
+      const j = await waveStart(engine || ws?.engine || 'auto', waveCtx({
+        scenario: s?.id || null,
+        familiarity: famRef.current || undefined,
+      }));
       setSess({ session_id: j.session_id, engine: j.engine });
+      if (j.scenario && (j.scenario.id || j.scenario.title)) setScenBoth(j.scenario);
       // порядок важен: play() сбрасывает wave-источник — волну включаем ПОСЛЕ
       await P.play(j.tracks || [], 0);
       P.setWaveSource({
         sessionId: j.session_id,
         fetchMore: async (last) => {
-          const r = await waveNext(j.session_id, last);
+          const r = await waveNext(j.session_id, last, waveCtx({
+            scenario: scenRef.current?.id || null,
+            familiarity: famRef.current || undefined,
+          }));
           return r.tracks || [];
         },
-        onEvent: (kind, track, played) => {
-          if (kind === 'started') waveFeedback(j.session_id, 'trackStarted', track.id).catch(() => {});
-          else if (kind === 'skip') waveFeedback(j.session_id, 'skip', track.id, played).catch(() => {});
-          else if (kind === 'finished') waveFeedback(j.session_id, 'trackFinished', track.id, played).catch(() => {});
-        },
+        onEvent: onWaveEvent(j.session_id),
       });
       setPhase('ready');
     } catch (e) {
       setErr((e && e.message) || 'волна не подала признаков жизни');
       setPhase('err'); haptic('heavy');
+    }
+  };
+
+  /* события плеера → API. started/skip/finished идут в /feedback
+     (сервер сам пишет WaveEvents, дублей нет); метки и seek — в /event. */
+  const onWaveEvent = (sid) => (kind, track, played) => {
+    if (!track) return;
+    if (kind === 'started') {
+      waveFeedback(sid, 'trackStarted', track.id).catch(() => {});
+    } else if (kind === 'skip') {
+      waveFeedback(sid, 'skip', track.id, played).catch(() => {});
+    } else if (kind === 'finished') {
+      waveFeedback(sid, 'trackFinished', track.id, played).catch(() => {});
+    } else {
+      waveEvent(sid, kind, { trackId: track.id, playedSeconds: played });
     }
   };
 
@@ -101,12 +149,58 @@ export default function Wave() {
     (async () => {
       let formula = null;
       try { formula = await waveSettings(); setWs(formula); } catch { /* формула по умолчанию */ }
+      waveScenarios(waveCtx()).then(j => setScens(j.scenarios || [])).catch(() => {});
+      waveDiscovery(10).then(j => setDisc(j.artists || [])).catch(() => {});
       const snap = P.getState();
       if (P.inWave() && snap.queue.length) { setPhase('ready'); return; }
       if (!snap.playing) { await startWave(formula?.engine || 'auto'); }
       else setPhase('ready');   // играет обычная очередь — не перехватываем
     })();
   }, []);
+
+  /* встряска: кнопка и физическая — одно действие, сервер кулдаунит */
+  const doShake = async () => {
+    if (!sess || shakeBusy) return;
+    haptic('heavy');
+    setShakeBusy(true);
+    shake.setSuppressed(true);
+    try {
+      const r = await waveShake(sess.session_id);
+      if (r.scenario) setScenBoth(r.scenario);
+      P.replaceUpcoming(r.tracks || []);
+      toast(r.note || 'Волна встряхнута', { kind: 'success' });
+    } catch (e) {
+      toast((e && e.message) || 'волна ещё качается', { kind: 'info' });
+    } finally {
+      setShakeBusy(false);
+      shake.setSuppressed(false);
+    }
+  };
+  const doShakeRef = useRef(doShake);
+  doShakeRef.current = doShake;
+  useEffect(() => {
+    shake.enable(() => doShakeRef.current());
+    return () => shake.disable();
+  }, []);
+
+  const pickScenario = (s) => {
+    if (!s) return;
+    haptic('medium');
+    setScenBoth(s);
+    startWave(ws?.engine, s);
+  };
+
+  /* открытие из ряда discovery: лог события + волна открытий */
+  const openDiscovery = (c) => {
+    if (!c) return;
+    haptic('soft');
+    api('/api/wave/artist', { method: 'POST',
+      body: JSON.stringify({ name: c.name }) }).catch(() => {});
+    const dc = scens.find(s => s.id === 'discovery')
+      || { id: 'discovery', title: 'Открытия',
+           description: 'новые имена рядом с твоим вкусом', palette: 'discovery' };
+    pickScenario(dc);
+  };
 
   const cur = st.queue[st.index];
 
@@ -153,22 +247,63 @@ export default function Wave() {
     } catch { /* тихая неудача настройки */ }
   };
 
+  /* палитра активного сценария → аура и рамка активной карточки */
+  const auraStyle = scen?.colors ? (() => {
+    const acc = hexA(scen.colors.accent, .12) || 'rgba(217,237,58,.07)';
+    const gl = hexA(scen.colors.glow, .12) || 'rgba(90,120,255,.06)';
+    return { background:
+      `radial-gradient(60% 50% at 70% 0%, ${acc}, transparent 60%),`
+      + `radial-gradient(70% 60% at 20% 90%, ${gl}, transparent 60%)` };
+  })() : undefined;
+
   return (
     <div className="waves">
-      <div className="wave-aura" aria-hidden="true" />
+      <div className="wave-aura" style={auraStyle} aria-hidden="true" />
 
       <div className="wave-head">
         <motion.div className="wave-title"
                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                    transition={{ duration: .28, ease: EASE }}>Волна</motion.div>
-        <motion.button className={'wave-formula' + (dirty ? ' dirty' : '')}
-                       whileTap={{ scale: .965 }}
-                       initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                       transition={{ duration: .28, ease: EASE, delay: .04 }}
-                       onClick={() => { haptic('soft'); setSheet(true); }}>
-          {formulaText(ws)}<span className="wave-gear">⛭</span>
-        </motion.button>
+        <div className="wave-head-r">
+          <motion.button className={'wave-shake' + (shakeBusy ? ' busy' : '')}
+                         aria-label="Встряхнуть волну" title="Встряхнуть волну"
+                         whileTap={{ scale: .88 }}
+                         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                         transition={{ duration: .28, ease: EASE, delay: .02 }}
+                         onClick={doShake} disabled={shakeBusy || !sess}>
+            <ShakeIcon />
+          </motion.button>
+          <motion.button className={'wave-formula' + (dirty ? ' dirty' : '')}
+                         whileTap={{ scale: .965 }}
+                         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                         transition={{ duration: .28, ease: EASE, delay: .04 }}
+                         onClick={() => { haptic('soft'); setSheet(true); }}>
+            {formulaText(ws)}<span className="wave-gear">⛭</span>
+          </motion.button>
+        </div>
       </div>
+
+      {scens.length > 0 && (
+        <div className="wave-scens" role="tablist" aria-label="Сценарии волны">
+          {scens.map((s, i) => (
+            <motion.button
+              key={s.id}
+              className={'wave-scen' + ((scen?.id || 'foryou') === s.id ? ' on' : '')}
+              style={(scen?.id || 'foryou') === s.id && s.colors
+                ? { borderColor: hexA(s.colors.accent, .65) || undefined }
+                : undefined}
+              whileTap={{ scale: .96 }}
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: .26, ease: EASE, delay: Math.min(i, 5) * .035 }}
+              onClick={() => (scen?.id || 'foryou') === s.id
+                ? undefined : pickScenario(s)}
+            >
+              <span className="wave-scen-t">{s.title}</span>
+              <span className="wave-scen-d">{s.description}</span>
+            </motion.button>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence mode="wait" initial={false}>
         {phase === 'ready' && cur ? (
@@ -258,10 +393,39 @@ export default function Wave() {
 
             <WaveHistory queue={st.queue} index={st.index} />
 
+            {disc.length > 0 && (
+              <div className="wave-hist">
+                <div className="wave-hist-t">Открытия рядом с тобой</div>
+                <div className="wave-hist-row">
+                  {disc.map((c, i) => (
+                    <motion.button
+                      key={c.artist_key}
+                      className="wave-hist-chip"
+                      title={c.name}
+                      aria-label={`Открыть артиста: ${c.name}`}
+                      initial={{ opacity: 0, scale: .78 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: .24, ease: EASE, delay: Math.min(i, 6) * .03 }}
+                      whileHover={{ scale: 1.07 }}
+                      whileTap={{ scale: .93 }}
+                      onClick={() => openDiscovery(c)}
+                    >
+                      {c.cover_url
+                        ? <FadeImg src={coverOr(c)} alt="" />
+                        : <span className="wave-hist-glyph">♪</span>}
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="wave-foot">
               <span className={'wave-engine ' + (sess?.engine === 'yandex' ? 'ym' : 'own')}>
                 {sess?.engine === 'yandex' ? '⚡ Волна ЯМ' : '◈ Свой движок'}
               </span>
+              {scen?.title && (
+                <span className="wave-scen-now">{scen.title}</span>
+              )}
               <AnimatePresence initial={false}>
                 {st.loading && (
                   <motion.span key="load" className="minispinner"
@@ -292,10 +456,21 @@ export default function Wave() {
         )}
       </AnimatePresence>
 
-      <FormulaSheet open={sheet} ws={ws} dirty={dirty}
+      <FormulaSheet open={sheet} ws={ws} dirty={dirty} fam={fam}
         onClose={() => setSheet(false)} onChange={patchFormula}
+        onFam={(v) => { haptic('select'); setFamBoth(v); setDirty(true); }}
         onRestart={() => { setSheet(false); setDirty(false); startWave(ws?.engine); }} />
     </div>
+  );
+}
+
+function ShakeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="ico" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="4" width="6" height="16" rx="2" />
+      <path d="M4.5 9v6M19.5 9v6" />
+    </svg>
   );
 }
 
@@ -391,7 +566,7 @@ function WaveNoIcon() {
 }
 
 /* ---------------- формула bottom-sheet ---------------- */
-function FormulaSheet({ open, ws, dirty, onClose, onChange, onRestart }) {
+function FormulaSheet({ open, ws, dirty, fam, onClose, onChange, onFam, onRestart }) {
   const chipOn = (cond) => 'chip' + (cond ? ' on' : '');
   if (!ws) return null;
 
@@ -421,6 +596,19 @@ function FormulaSheet({ open, ws, dirty, onClose, onChange, onRestart }) {
                            onClick={() => onChange({ mood: m.id })}
                            disabled={m.id === null && ws.mood === null}>
               {m.icon} {m.label}
+            </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Знакомство</div>
+        <div className="chiprow">
+          {FAMILIARITY.map(f => (
+            <motion.button key={String(f.id)} className={chipOn((fam ?? null) === f.id)}
+                           whileTap={{ scale: .95 }}
+                           onClick={() => onFam(f.id)}
+                           disabled={f.id === null && (fam ?? null) === null}>
+              {f.icon} {f.label}
             </motion.button>))}
         </div>
       </div>
@@ -476,6 +664,21 @@ function FormulaSheet({ open, ws, dirty, onClose, onChange, onRestart }) {
                            onClick={() => onChange({ language: v.id })}>
               {v.icon} {v.label}
             </motion.button>))}
+        </div>
+      </div>
+
+      <div className="wsec">
+        <div className="wsec-t">Контекст</div>
+        <div className="wsec-hint">
+          время суток, занятие и устройство помогают волне — без геолокации
+        </div>
+        <div className="chiprow">
+          <motion.button className={chipOn(ws.context_enabled !== false)}
+                         whileTap={{ scale: .95 }}
+                         onClick={() => onChange({ context_enabled: true })}>Учитывать</motion.button>
+          <motion.button className={chipOn(ws.context_enabled === false)}
+                         whileTap={{ scale: .95 }}
+                         onClick={() => onChange({ context_enabled: false })}>Отключить</motion.button>
         </div>
       </div>
 

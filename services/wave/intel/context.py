@@ -212,9 +212,12 @@ def scenario_list(ctx: Context, snap: TasteSnapshot | None) -> list[Scenario]:
             title_parts.append(ACTIVITY_LABEL.get(ctx.activity, ctx.activity))
         if ctx.mood:
             title_parts.append(MOOD_LABEL.get(ctx.mood, ctx.mood))
+        title = " · ".join(title_parts) or FAMILIARITY_LABEL.get(
+            ctx.familiarity or "", "Под момент")
         explicit = Scenario(
-            id="context", title=" · ".join(title_parts) or "Под момент",
-            description="под твоё занятие и настроение",
+            id="context", title=title,
+            description="под твоё занятие и настроение" if (ctx.activity or ctx.mood)
+                        else "под выбранную степень знакомства",
             palette="energy" if moods & {"active", "fun", "edge"} else
                     "focus" if ctx.activity in {"work", "study", "reading", "sleep"} else
                     "evening" if ctx.mood in {"calm", "sad"} else "road",

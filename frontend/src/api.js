@@ -117,21 +117,106 @@ export function coverUrl(t) {
 }
 
 /* ---------- Волна (/api/wave): старт, партии, фидбек, формула ---------- */
-export function waveStart(engine) {
+
+/* Устройство — косвенный признак для контекста (без геолокации и без
+   категоричных выводов на сервере: сервер валидирует и может игнорировать). */
+export function deviceKind() {
+  const ua = navigator.userAgent || '';
+  if (/iPad|Tablet/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) return 'tablet';
+  if (/Android.*Mobile|iPhone|iPod/i.test(ua)) return 'phone';
+  if (/Android|TV|SmartTV|WebOS/i.test(ua)) return 'tv';
+  return 'desktop';
+}
+
+/* Контекст запроса: локальное время пользователя (не сервера) + устройство.
+   Всё опционально: сервер валидирует ключи и уважает context_enabled=false. */
+export function waveCtx(extra = {}) {
+  const d = new Date();
+  return {
+    local_hour: d.getHours(),
+    local_weekday: (d.getDay() === 0 ? 7 : d.getDay()),
+    device: deviceKind(),
+    ...extra,
+  };
+}
+
+export function waveStart(engine, ctx) {
   return api('/api/wave/start', { method: 'POST',
-    body: JSON.stringify({ engine: engine || null }) });
+    body: JSON.stringify({ engine: engine || null, ...(ctx || {}) }) });
 }
 
-export function waveNext(sessionId, last) {
+export function waveNext(sessionId, last, ctx) {
   return api('/api/wave/next', { method: 'POST',
-    body: JSON.stringify({ session_id: sessionId, last: last || null }) });
+    body: JSON.stringify({ session_id: sessionId, last: last || null, ...(ctx || {}) }) });
 }
 
-export function waveFeedback(sessionId, event, trackId, playedSeconds) {
+export function waveFeedback(sessionId, event, trackId, playedSeconds, extra = {}) {
   return api('/api/wave/feedback', { method: 'POST', body: JSON.stringify({
     session_id: sessionId, event,
     track_id: trackId ?? undefined,
-    played_seconds: playedSeconds ?? undefined }) });
+    played_seconds: playedSeconds ?? undefined,
+    ...extra }) });
+}
+
+/* Гранулярные события плеера (§7.1): метки прослушивания, seek, replay.
+   Плюс явные события: disliked (с reason), added_to_library и т.п.
+   Fire-and-forget: телеметрия не должна ронять UI. */
+export function waveEvent(sessionId, kind, opts = {}) {
+  const d = new Date();
+  return api('/api/wave/event', { method: 'POST', body: JSON.stringify({
+    session_id: sessionId ?? undefined,
+    kind,
+    track_id: opts.trackId ?? undefined,
+    played_seconds: opts.playedSeconds ?? undefined,
+    duration: opts.duration ?? undefined,
+    reason: opts.reason ?? undefined,
+    scenario: opts.scenario ?? undefined,
+    local_hour: d.getHours(),
+    local_weekday: (d.getDay() === 0 ? 7 : d.getDay()),
+    device: deviceKind(),
+    activity: opts.activity ?? undefined,
+    mood: opts.mood ?? undefined,
+  }) }).catch(() => {});
+}
+
+/* Карточки сценариев (динамические по профилю и контексту). */
+export function waveScenarios(ctx) {
+  const q = new URLSearchParams();
+  if (ctx?.local_hour != null) q.set('local_hour', String(ctx.local_hour));
+  if (ctx?.local_weekday != null) q.set('local_weekday', String(ctx.local_weekday));
+  if (ctx?.device) q.set('device', ctx.device);
+  const qs = q.toString();
+  return api('/api/wave/scenarios' + (qs ? '?' + qs : ''));
+}
+
+/* «Встряхнуть волну»: альтернативный сценарий, вкус не обнуляется. */
+export function waveShake(sessionId) {
+  return api('/api/wave/shake', { method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, ...waveCtx() }) });
+}
+
+/* Профиль вкуса и исключения (§12, §20). */
+export function waveTaste() { return api('/api/wave/taste'); }
+export function waveTasteExclude(patch) {
+  return api('/api/wave/taste/exclude', { method: 'POST', body: JSON.stringify(patch) });
+}
+export function waveTasteInclude(patch) {
+  return api('/api/wave/taste/include', { method: 'POST', body: JSON.stringify(patch) });
+}
+
+/* Приватность: очистка истории/вкуса. */
+export function waveClear(scope) {
+  return api('/api/wave/clear', { method: 'POST', body: JSON.stringify({ scope }) });
+}
+
+/* Метрики волны (§17). */
+export function waveMetrics(days = 14) {
+  return api('/api/wave/metrics?days=' + encodeURIComponent(String(days)));
+}
+
+/* Карточки новых артистов (§9.1). */
+export function waveDiscovery(limit = 8) {
+  return api('/api/wave/discovery?limit=' + encodeURIComponent(String(limit)));
 }
 
 export function waveSettings() { return api('/api/wave/settings'); }
