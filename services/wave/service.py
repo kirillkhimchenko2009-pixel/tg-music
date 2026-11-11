@@ -578,4 +578,12 @@ async def feedback(s, user_id: int, session_id: int, event: str,
         await _close_play_event(s, user_id, sess.id, track_id, event,
                                 float(played_seconds or 0))
     await s.commit()
+    # адаптация весов (этап 12): порог и кулдаун внутри maybe_adapt,
+    # при нехватке данных — только отметка проверки. Ошибка не роняет фидбек.
+    try:
+        from services.wave.intel.adaptive import maybe_adapt
+        await maybe_adapt(s, user_id)
+        await s.commit()
+    except Exception:
+        LOG.exception("адаптация весов не выполнена")
     return {"ok": True}

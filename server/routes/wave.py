@@ -374,6 +374,8 @@ async def wave_clear(body: ClearBody, user: CurrentUser = Depends(tg_user)):
         if scope in ("taste", "all"):
             await s.execute(delete(intel_taste.TasteProfile)
                             .where(intel_taste.TasteProfile.user_id == uid))
+            from services.wave.intel import adaptive
+            await adaptive.reset(s, uid)   # личные веса и аудит адаптации
         await service._invalidate_prefetch(s, uid)
         await s.commit()
         return {"ok": True, "scope": scope}
@@ -381,11 +383,15 @@ async def wave_clear(body: ClearBody, user: CurrentUser = Depends(tg_user)):
 
 @router.get("/metrics")
 async def wave_metrics(days: int = 14, user: CurrentUser = Depends(tg_user)):
-    """Метрики качества волны (§17)."""
+    """Метрики качества волны (§17) + аудит адаптации весов (этап 12)."""
     days = max(1, min(90, int(days or 14)))
     async with runtime.get_session() as s:
-        m = await intel_metrics.metrics(s, user_id=int(user.id), days=days)
-        return m.to_json()
+        uid = int(user.id)
+        m = await intel_metrics.metrics(s, user_id=uid, days=days)
+        from services.wave.intel import adaptive
+        return {**m.to_json(),
+                "adaptive": {"audit": await adaptive.audit(s, uid),
+                             "weights": await adaptive.user_weights(s, uid)}}
 
 
 @router.get("/discovery")

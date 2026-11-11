@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 from sqlalchemy.pool import StaticPool
 
-from core.models import (Base, PlayEvent, Playlist, PlaylistTrack, Track,
-                         TrackFeedback, User, WaveEvent, WaveKV, WaveSession,
-                         WaveSettings, utcnow)
+from core.models import (ArtistStats, Base, PlayEvent, Playlist,
+                         PlaylistTrack, Track, TrackFeedback, User, WaveEvent,
+                         WaveKV, WaveSession, WaveSettings, utcnow)
 
 # ------------------------------------------------------------------ fixtures
 
@@ -546,3 +546,125 @@ class TestSequence:
         res = optimize_sequence(ranked, 2, tail=[calm], cfg=cfg)
         # после спокойного хвоста металл уходит в конец партии
         assert res.picks[0].track.id == 3
+
+
+# ------------------------------------------------------------------ адаптация
+
+
+class TestAdaptive:
+    """Этапы 11–12: веса подстраиваются только при достаточных данных."""
+
+    @staticmethod
+    def _unlock_ml(s, min_events=10, min_slice=4, step=0.02):
+        """Опускаем пороги в WaveKV и сбрасываем кэш конфига."""
+        s.add(WaveKV(key="ml", value={"min_events": min_events,
+                                      "min_slice": min_slice, "step": step,
+                                      "cooldown_hours": 24.0,
+                                      "window_days": 30.0,
+                                      "min_weight": 0.03}))
+        from services.wave.intel.config import invalidate
+        invalidate()
+
+    async def _seed_events(self, s, user_id=111):
+        ids = dict((await s.execute(
+            select(Track.external_id, Track.id))).all())
+        lofi = ids["c1"]
+
+        def ev(kind, ext=None, scenario=None, activity=None, artist=None):
+            s.add(WaveEvent(
+                user_id=user_id, track_id=ids.get(ext) if ext else lofi,
+                artist_key=artist,
+                kind=kind, scenario=scenario,
+                context={"activity": activity} if activity else {}))
+
+        # обычные плеи: 4 старта, все скипнуты
+        for _ in range(4):
+            ev("track_started", "a1", artist="steel fury")
+            ev("skipped", "a1")
+        # контекстные плеи (scenario=focus): 4 старта, все дослушаны
+        for _ in range(4):
+            ev("track_started", "c1", scenario="focus", artist="lofi dream")
+            ev("completed", "c1", scenario="focus")
+        # открытия: 4 старта, все дослушаны
+        for _ in range(4):
+            ev("track_started", "u1", artist="unknown x")
+            ev("completed", "u1")
+        s.add(ArtistStats(user_id=user_id, artist_key="unknown x",
+                          discovered_via="discovery"))
+        await s.commit()
+
+    async def test_adapt_noop_below_threshold(self, db):
+        from services.wave.intel.adaptive import maybe_adapt
+        async with db() as s:
+            self._unlock_ml(s, min_events=100)     # события не дотягивают
+            await self._seed_events(s)             # 24 события < 100
+            res = await maybe_adapt(s, 111)
+            assert res is None
+            row = (await s.execute(select(WaveKV).where(
+                WaveKV.key == "ml:u111"))).scalar_one()
+            assert row.value["events"] == 24       # проверка запомнена
+            assert not row.value["changes"]
+            assert (await s.execute(select(WaveKV).where(
+                WaveKV.key == "weights:u111"))).scalar_one_or_none() is None
+
+    async def test_adapt_context_fit_falls_when_ctx_skips_more(self, db):
+        from services.wave.intel.adaptive import maybe_adapt
+        async with db() as s:
+            self._unlock_ml(s)
+            await self._seed_events(s)
+            # подменяем картину: контекстные скипаются, обычные дослушиваются
+            from core.models import WaveEvent as WE
+            await s.execute(
+                WE.__table__.update()
+                .where(WE.kind == "completed", WE.scenario == "focus")
+                .values(kind="skipped"))
+            await s.commit()
+            rep = await maybe_adapt(s, 111)
+            assert rep and "context_fit" in rep["changes"]
+            assert rep["changes"]["context_fit"] < 0
+            w = (await s.execute(select(WaveKV).where(
+                WaveKV.key == "weights:u111"))).scalar_one().value
+            assert w["context_fit"] < 0.25
+            assert abs(sum(w.values()) - 1.0) < 1e-6     # нормировка сохранена
+
+    async def test_adapt_discovery_raises_on_completions(self, db):
+        from services.wave.intel.adaptive import maybe_adapt
+        async with db() as s:
+            self._unlock_ml(s)
+            await self._seed_events(s)
+            rep = await maybe_adapt(s, 111)
+            assert rep and "discovery" in rep["changes"]
+            assert rep["changes"]["discovery"] > 0    # открытия дослушивают
+            w = (await s.execute(select(WaveKV).where(
+                WaveKV.key == "weights:u111"))).scalar_one().value
+            assert w["discovery"] > 0.12
+
+    async def test_adapt_cooldown_blocks_immediate_second_run(self, db):
+        from services.wave.intel.adaptive import maybe_adapt
+        async with db() as s:
+            self._unlock_ml(s)
+            await self._seed_events(s)
+            first = await maybe_adapt(s, 111)
+            assert first is not None
+            assert await maybe_adapt(s, 111) is None   # кулдаун
+
+    async def test_personal_weights_overlay_in_load_config(self, db):
+        async with db() as s:
+            s.add(WaveKV(key="weights:u111", value={"context_fit": 0.4}))
+            await s.commit()
+        from services.wave.intel.config import load_config
+        personal = await load_config(s, 111)
+        assert personal.weights["context_fit"] == 0.4
+        global_cfg = await load_config(s)
+        assert global_cfg.weights["context_fit"] == 0.25   # глобальные целы
+
+    async def test_reset_clears_personal_ml(self, db):
+        from services.wave.intel.adaptive import maybe_adapt, reset
+        async with db() as s:
+            self._unlock_ml(s)
+            await self._seed_events(s)
+            await maybe_adapt(s, 111)
+            await reset(s, 111)
+            keys = [k for (k,) in (await s.execute(select(WaveKV.key))).all()
+                    if k.endswith(":u111")]
+            assert keys == []

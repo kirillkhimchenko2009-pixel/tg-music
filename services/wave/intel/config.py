@@ -56,6 +56,16 @@ DEFAULT_EXPLORE: dict[str, float] = {
     "max": 0.35,           # и не может стать рулеткой
 }
 
+# --- адаптация весов (этапы 11–12): порог данных, шаг, кулдаун ---
+DEFAULT_ML: dict[str, float] = {
+    "min_events": 300.0,   # минимум событий юзера в окне, иначе не трогаем веса
+    "min_slice": 25.0,     # минимум стартов в сравниваемом срезе
+    "window_days": 30.0,   # окно наблюдения
+    "step": 0.02,          # максимальный сдвиг одного веса за адаптацию
+    "cooldown_hours": 24.0,   # не чаще раза в сутки
+    "min_weight": 0.03,    # вес не выжигается в ноль
+}
+
 TTL_SECONDS = 120.0
 _cache: dict[str, tuple[float, dict]] = {}
 
@@ -98,17 +108,31 @@ class WaveConfig:
     penalty: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_PENALTY))
     limits: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LIMITS))
     explore: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_EXPLORE))
+    ml: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_ML))
 
     def with_overrides(self, s) -> "WaveConfig":
         return replace(self)
 
 
-async def load_config(s) -> WaveConfig:
+async def load_config(s, user_id: int | None = None) -> WaveConfig:
+    """Глобальные секции + personal-оверлей весов юзера (адаптация, этап 12).
+
+    Слои: дефолты кода → WaveKV "weights" (общие) → WaveKV
+    "weights:u<id>" (личные, пишет только intel/adaptive.py).
+    """
     cfg = WaveConfig()
     cfg.weights = await load_section(s, "weights", DEFAULT_WEIGHTS)
     cfg.penalty = await load_section(s, "penalty", DEFAULT_PENALTY)
     cfg.limits = await load_section(s, "limits", DEFAULT_LIMITS)
     cfg.explore = await load_section(s, "explore", DEFAULT_EXPLORE)
+    cfg.ml = await load_section(s, "ml", DEFAULT_ML)
+    if user_id is not None:
+        personal = await _load_kv(s, f"weights:u{int(user_id)}")
+        if isinstance(personal, dict):
+            cfg.weights = dict(cfg.weights)        # кэш секции не мутируем
+            for k, v in personal.items():
+                if k in cfg.weights and isinstance(v, (int, float)):
+                    cfg.weights[k] = float(v)
     return cfg
 
 

@@ -34,7 +34,7 @@ React 18/Vite (JS) + motion/react. PostgreSQL/Redis не внедряем — д
 | M5 User Feedback Engine | `intel/feedback.py`, `intel/events.py` | Гранулярные события §7.1, классификация скипов, дизлайк с причинами, обновление профиля |
 | M6 Artist Discovery | `intel/discovery.py` | Новые артисты, профили артистов, реплики только из проверяемых метаданных каталога |
 | M7 Wave Visual | `frontend/src/screens/Wave.jsx`, `intel/context.py` (палитры) | Сценарные палитры, слоистая анимация, shared transitions (motion/react) |
-| M8 Optimization Engine | `intel/metrics.py` | Метрики §17 (completion/skip/diversity/context match...), конфиг весов отдельно от кода |
+| M8 Optimization Engine | `intel/metrics.py`, `intel/adaptive.py` | Метрики §17 (completion/skip/diversity/context match...), конфиг весов отдельно от кода; адаптация весов per-user при накоплении событий (порог/шаг/кулдаун в WaveKV "ml") |
 | Shake | `intel/shake.py` | Альтернативный сценарий без обнуления вкуса; frontend `frontend/src/shake.js` (DeviceMotion) |
 
 Не трогаем: `yandex_rotor.py` (движок A), legacy-функции, pipeline загрузок.
@@ -149,8 +149,10 @@ few_seconds / mid / near_end / after_similar), replayed, seeked, liked/disliked
 4. Этап 8 (feedback) — `/api/wave/event` + обновление профиля и ArtistStats.
 5. Этап 9 (discovery) — discovery-слоты, профили артистов, реплики.
 6. Этап 10 (shake) — `/shake` + DeviceMotion-хук.
-7. Этапы 11–12 (ML/оптимизация) — только метрики сейчас; ML при накоплении
-   событий (порог в конфиге).
+7. Этапы 11–12 (ML/оптимизация) — метрики §17 + `intel/adaptive.py`: правила
+   над срезами (контекстные/обычные плеи, открытия), порог `min_events`,
+   шаг `step` и кулдаун в WaveKV "ml"; личные веса в "weights:u<id>",
+   аудит в "ml:u<id>", сброс через /clear. Никакого ML без данных.
 8. Этап 13 (интеграция) — e2e через мок Bot API, полный pytest, пересборка
    `frontend/dist`, коммиты по этапам.
 

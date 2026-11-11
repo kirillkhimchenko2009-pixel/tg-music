@@ -91,7 +91,7 @@ def build_context(ws, request_ctx: dict, snap: TasteSnapshot,
 async def build_context_full(s: AsyncSession, user_id: int, ws, sess: WaveSession,
                              request_ctx: dict | None = None) -> Context:
     """Контекст с полной телеметрией (запросы в БД) — для start/next/shake."""
-    cfg = await load_config(s)
+    cfg = await load_config(s, user_id)
     profile = await taste_mod.get_profile(s, user_id)
     snap = snapshot_from_profile(profile)
     st = await taste_mod.session_taste(s, user_id, sess.id if sess is not None else None)
@@ -125,7 +125,7 @@ async def build_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession, *,
                       request_ctx: dict | None = None,
                       n: int | None = None) -> BatchResult:
     """Партия волны движком B-v2 (полный pipeline)."""
-    cfg = await load_config(s)
+    cfg = await load_config(s, user_id)
     n = int(n or cfg.limits.get("batch", 3))
 
     ctx = await build_context_full(s, user_id, ws, sess, request_ctx)
