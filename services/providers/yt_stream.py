@@ -13,25 +13,16 @@ log = logging.getLogger("providers.yt_stream")
 PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
 SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
 
-SEARCH_CTX = {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00",
+SEARCH_CTX = {"clientName": "WEB_REMIX", "clientVersion": "1.20260707.12.00",
               "hl": "en", "gl": "US"}
 SEARCH_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
              "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
+# Версии сверены с yt-dlp 2026.10.21 (yt_dlp/extractor/youtube/_base.py)
+# и PO Token Guide (2026-07): у ANDROID_VR/VISIONOS PO-токен не требуется,
+# у ANDROID/IOS теперь обязателен (держим как запасные — на части IP работают).
+# ANDROID_VR 1.65+ отдавать нельзя: с 2026.08.17 YouTube режет 1.65.10 (403/SABR).
 CLIENTS = [
-    {
-        "name": "ANDROID",
-        "ctx": {"clientName": "ANDROID", "clientVersion": "19.09.37",
-                "androidSdkVersion": 30, "hl": "en", "gl": "US"},
-        "ua": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-    },
-    {
-        "name": "IOS",
-        "ctx": {"clientName": "IOS", "clientVersion": "19.45.4",
-                "deviceModel": "iPhone16,2", "osName": "iPhone",
-                "osVersion": "18.1.0.22B83", "hl": "en", "gl": "US"},
-        "ua": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
-    },
     {
         "name": "ANDROID_VR",
         "ctx": {"clientName": "ANDROID_VR", "clientVersion": "1.60.19",
@@ -40,10 +31,34 @@ CLIENTS = [
         "ua": "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; en_US; Quest 3) gzip",
     },
     {
-        "name": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-        "ctx": {"clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                "clientVersion": "2.0", "hl": "en", "gl": "US"},
-        "ua": "Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Safari/605.1.15",
+        "name": "VISIONOS",
+        "ctx": {"clientName": "VISIONOS", "clientVersion": "1.02",
+                "deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
+                "osName": "visionOS", "osVersion": "26.5.23O471", "hl": "en", "gl": "US"},
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+    },
+    {
+        "name": "ANDROID",
+        "ctx": {"clientName": "ANDROID", "clientVersion": "21.26.364",
+                "androidSdkVersion": 30, "osName": "Android", "osVersion": "11",
+                "hl": "en", "gl": "US"},
+        "ua": "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+    },
+    {
+        "name": "IOS",
+        "ctx": {"clientName": "IOS", "clientVersion": "21.26.4",
+                "deviceMake": "Apple", "deviceModel": "iPhone16,2",
+                "osName": "iPhone", "osVersion": "18.3.2.22D82", "hl": "en", "gl": "US"},
+        "ua": "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    },
+    {
+        # запасной: только embeddable-видео, зато PO-токен не нужен
+        "name": "WEB_EMBEDDED",
+        "ctx": {"clientName": "WEB_EMBEDDED_PLAYER", "clientVersion": "2.20260708.00.00",
+                "hl": "en", "gl": "US"},
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
     },
 ]
 
@@ -152,11 +167,14 @@ async def audio_url(video_id: str, diag: list | None = None) -> dict | None:
                         continue
                     m4a = [x for x in cands if x["mime"] == "audio/mp4"]
                     pool = sorted(m4a or cands, key=lambda x: x["bitrate"], reverse=True)
-                    best = pool[0]
-                    if await _alive(c, best["url"]):
-                        notes.append(f"{cl['name']}: OK itag={best['itag']} {best['bitrate']}bps")
-                        return best
-                    notes.append(f"{cl['name']}: URL не отдаёт байты")
+                    # первый может оказаться 403'нутым — пробуем несколько
+                    for best in pool[:3]:
+                        if await _alive(c, best["url"]):
+                            notes.append(f"{cl['name']}: OK itag={best['itag']} "
+                                         f"{best['bitrate']}bps")
+                            return best
+                    notes.append(f"{cl['name']}: URL не отдают байты "
+                                 f"(проверено {min(3, len(pool))})")
                 except Exception as e:  # noqa: BLE001
                     notes.append(f"{cl['name']}: {type(e).__name__}")
     except Exception as e:  # noqa: BLE001

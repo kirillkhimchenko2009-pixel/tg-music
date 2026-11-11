@@ -24,8 +24,10 @@ _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 _ASSETS = re.compile(r'src="(https://a-v2\.sndcdn\.com/assets/[\w./-]+\.js)"')
 _CID_RE = re.compile(r'(?:client_id|clientId)["\s:]{0,4}["\']([a-zA-Z0-9]{25,40})["\']')
 
-# резервные client_id (проверенные; swtEGNK… — свежий, полный resolve 163 треков)
+# резервные client_id (c0lcDb60… добыт скрейпом 11.2026, проверен на поиске;
+# swtEGNK… и OGA0P5R… проверены тем же днём — все три живы)
 _FALLBACK_CIDS = (
+    "c0lcDb60e4gNCrZY24mdmz9uWo1Ih29e",
     "swtEGNKrP2w6Z5B8DVvAurWCwNQBlgMd",
     "OGA0P5R5U4CpyooNe9OUcnjIMxao2hB2",
 )
@@ -56,8 +58,10 @@ class SoundCloudProvider:
 
     def _c(self) -> httpx.Client:
         if self._client is None:
+            from core.config import settings
             self._client = httpx.Client(timeout=25, headers=_UA,
-                                        follow_redirects=True)
+                                        follow_redirects=True,
+                                        proxy=settings.PROXY_URL or None)
         return self._client
 
     def _client_id(self, force: bool = False) -> str | None:

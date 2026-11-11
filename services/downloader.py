@@ -68,6 +68,12 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
     # soundcloud: external_id — готовый permalink_url (поиск отдаёт напрямую)
     page_url = (meta.external_id if meta.source == "soundcloud"
                 else _YT_URL.format(vid=meta.external_id))
+    # для YouTube клиенты по умолчанию (web/tv) требуют PO-токен на датацентровых
+    # IP → вечные 403/ретраи (пробник: таймаут >120 с). POT-free набор — 9 с:
+    # android_vr/visionos/web_embedded не требуют токен (PO Token Guide 2026-07)
+    yt_extra = ([] if meta.source == "soundcloud" else
+                ["--extractor-args",
+                 "youtube:player_client=android_vr,visionos,web_embedded"])
     cmd = [
         yt_dlp_binary(), "-f", yt_format,
         "-x", "--audio-format", "m4a", "--audio-quality", "320K",
@@ -75,7 +81,7 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
         "--embed-metadata", "--embed-thumbnail",
         "--no-playlist", "--quiet", "--no-warnings",
         "--retries", "5", "--fragment-retries", "5", "--socket-timeout", "20",
-        *yt_dlp_proxy_args(),
+        *yt_dlp_proxy_args(), *yt_extra,
         "-o", str(out_base) + ".%(ext)s",
         page_url,
     ]
@@ -171,6 +177,11 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
         async with c.stream("GET", url) as resp:
             resp.raise_for_status()
             ctype = (resp.headers.get("content-type") or "").lower()
+            if ctype.startswith("text/") or "html" in ctype:
+                # страница ошибки/заглушки сайта — сохранять её как «аудио» нельзя
+                log.info("download_direct %s: HTML вместо аудио (%s)",
+                         meta.display(), ctype)
+                return None
             low = url.lower()
             if "flac" in ctype or (quality == "flac" and "mpeg" not in ctype):
                 ext = "flac"
@@ -189,8 +200,14 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
                         rr = on_progress(min(done / total * 100, 100.0))
                         if asyncio.iscoroutine(rr):
                             await rr
+    size = out_path.stat().st_size
+    if size < 96 * 1024:              # обрезка/ошибка — пустышку не отдаём
+        log.info("download_direct %s: подозрительно малый файл (%s байт)",
+                 meta.display(), size)
+        out_path.unlink(missing_ok=True)
+        return None
     q = "flac" if ext == "flac" else quality
-    return DownloadResult(path=out_path, quality=q, size_bytes=out_path.stat().st_size)
+    return DownloadResult(path=out_path, quality=q, size_bytes=size)
 
 async def download_innertube(meta: TrackMeta, quality: str = "aac320",
                              on_progress=None) -> DownloadResult | None:
@@ -208,6 +225,7 @@ async def download_innertube(meta: TrackMeta, quality: str = "aac320",
     total = got.get("size") or 0
     done = 0
     async with httpx.AsyncClient(timeout=180, follow_redirects=True,
+                                 proxy=settings.PROXY_URL or None,
                                  headers={"User-Agent": "Mozilla/5.0"}) as c:
         async with c.stream("GET", got["url"]) as resp:
             resp.raise_for_status()
@@ -218,8 +236,8 @@ async def download_innertube(meta: TrackMeta, quality: str = "aac320",
                     done += len(chunk)
                     if on_progress and total:
                         rr = on_progress(min(done / total * 100, 100.0))
-                    if asyncio.iscoroutine(rr):
-                        await rr
+                        if asyncio.iscoroutine(rr):
+                            await rr
     if not raw.exists() or raw.stat().st_size < 50_000:
         return None
     out_path = settings.AUDIO_DIR / f"{meta.source}_{meta.external_id}.m4a"

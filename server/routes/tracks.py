@@ -78,7 +78,9 @@ def track_dict(t: Track) -> dict:
 
 @router.get("/search")
 async def search(q: str = "", limit: int = 24, user: CurrentUser = Depends(tg_user)):
-    """Поиск: сначала локальный каталог, затем внешние источники (ЯМ→Звук по токенам, YT)."""
+    """Поиск: локальный каталог, затем параллельно внешние источники —
+    ЯМ/Звук (по токенам), YouTube Music и прямые RU-сайты (zaycev/soundcloud/
+    hotplayer/mp3party): они качаются без токенов и надёжнее YT."""
     q = (q or "").strip()
     if not q:
         return {"local": [], "web": []}
@@ -99,20 +101,32 @@ async def search(q: str = "", limit: int = 24, user: CurrentUser = Depends(tg_us
         zt = await get_token(s, uid, "zvuk")
         ymt = await get_token(s, uid, "ym")
 
-    if ymt:
+    from services.providers import zaycev as zay, soundcloud as scc
+    from services.providers import hotplayer as hpl, mp3party as mpp
+
+    async def _ext(coro=None, timeout=8.0):
+        """Один внешний источник с жёстким потолком времени (флейки не ждём)."""
+        if coro is None:
+            return []
         try:
-            merge(await YandexProvider(ymt).search(q, limit=limit))
+            return await asyncio.wait_for(coro, timeout)
         except Exception:
-            pass
-    if zt:
-        try:
-            merge(await zv.search(q, limit=limit, token=zt))
-        except Exception:
-            pass
-    try:
-        merge(await yt.search(q, limit=limit))
-    except Exception:
-        pass
+            return []
+
+    ru_limit = min(limit, 8)
+    # все источники параллельно: каждый ограничен своим таймаутом, поэтому
+    # поиск занимает время самого медленного, а не сумму
+    got = await asyncio.gather(
+        _ext(YandexProvider(ymt).search(q, limit=limit)) if ymt else _ext(),
+        _ext(zv.search(q, limit=limit, token=zt)) if zt else _ext(),
+        _ext(yt.search(q, limit=limit), timeout=12),
+        _ext(zay.search(q, ru_limit)),
+        _ext(scc.search(q, ru_limit)),
+        _ext(hpl.search(q, ru_limit)),
+        _ext(mpp.search(q, ru_limit)),
+    )
+    for arr in got:
+        merge(arr)
 
     out = []
     async with runtime.get_session() as s:

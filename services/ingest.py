@@ -1,4 +1,5 @@
 """Инжест треков: превращает TrackMeta (откуда угодно) в скачанный файл + запись в каталоге."""
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -56,6 +57,11 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                              zc.display(), meta.display())
                     out.append((zc, ""))
             out.append((meta, tok))
+    if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party"):
+        # собственный вариант — тоже кандидат: permalink/страница скачивается
+        # напрямую (SC — HLS, RU-сайты — download_url). Без этого цепочка
+        # качает «похожее с других сайтов» или честно падает с not_found.
+        out.append((meta, ""))
 
     # 1) Звук (если есть токен — там лучше качество, вплоть до FLAC)
     zv_tok = await get_token(session, user_id, "zvuk")
@@ -126,7 +132,9 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
                        (hzm, "hitmoz"), (hpl, "hotplayer"), (mpp, "mp3party")):
         try:
-            cands = await prov.search(query, limit=6)
+            # жёсткий потолок на поиск: сайты с внутренними ретраями (hitmoz
+            # ловил 19.6 с без результатов) тормозили всю цепочку кандидатов
+            cands = await asyncio.wait_for(prov.search(query, limit=6), 10)
             m = matching.best_match(meta, cands, min_score=0.55)
             # guard по артисту — иначе сайты подсовывают однофамильцев/тёзок
             if m and not hzm.artist_guard(meta, m):
