@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
 from sqlalchemy.pool import StaticPool
 
 from core.models import (ArtistStats, Base, PlayEvent, Playlist,
-                         PlaylistTrack, Track, TrackFeedback, User, WaveEvent,
-                         WaveKV, WaveSession, WaveSettings, utcnow)
+                         PlaylistTrack, TasteProfile, Track, TrackFeedback,
+                         User, WaveEvent, WaveKV, WaveSession, WaveSettings,
+                         utcnow)
 
 # ------------------------------------------------------------------ fixtures
 
@@ -668,3 +669,48 @@ class TestAdaptive:
             keys = [k for (k,) in (await s.execute(select(WaveKV.key))).all()
                     if k.endswith(":u111")]
             assert keys == []
+
+
+class TestPrivacyRoute:
+    """Приватность §20: /clear чистит телеметрию/вкус, не трогая глобальный
+    конфиг и чужих пользователей."""
+
+    async def test_clear_all_wipes_user_data_keeps_global_config(
+            self, db, monkeypatch):
+        from bot import runtime as rt
+        from server.routes import wave as wr
+        monkeypatch.setattr(rt, "get_session", lambda: db())
+
+        async with db() as s:
+            s.add(WaveSettings(user_id=111))
+            s.add(WaveEvent(user_id=111, kind="track_started",
+                            context={}))
+            s.add(WaveEvent(user_id=222, kind="track_started",
+                            context={}))                  # чужие данные
+            s.add(ArtistStats(user_id=111, artist_key="lofi dream"))
+            s.add(TasteProfile(user_id=111, artist_affinity={"x": 1}))
+            s.add(WaveKV(key="weights", value={"context_fit": 0.9}))
+            s.add(WaveKV(key="weights:u111", value={"discovery": 0.2}))
+            s.add(WaveKV(key="ml:u111", value={"at": "2026-01-01T00:00:00",
+                                               "events": 5, "changes": {}}))
+            await s.commit()
+
+        class _U:
+            id = 111
+
+        resp = await wr.wave_clear(wr.ClearBody(scope="all"), _U())
+        assert resp == {"ok": True, "scope": "all"}
+
+        async with db() as s:
+            ev111 = (await s.execute(select(WaveEvent)
+                                     .where(WaveEvent.user_id == 111))).scalars().all()
+            ev222 = (await s.execute(select(WaveEvent)
+                                     .where(WaveEvent.user_id == 222))).scalars().all()
+            assert ev111 == [] and len(ev222) == 1        # чужие не тронуты
+            assert (await s.execute(select(ArtistStats))).scalars().all() == []
+            assert (await s.execute(select(TasteProfile))).scalars().all() == []
+            kv = {k: v for k, v in (await s.execute(
+                select(WaveKV.key, WaveKV.value))).all()}
+            assert "weights" in kv                        # глобальный конфиг цел
+            assert "weights:u111" not in kv               # личный вес сброшен
+            assert "ml:u111" not in kv
