@@ -90,13 +90,17 @@ async def init_db() -> None:
                 await conn.execute(text(col.format(ifnot="")))
     except Exception:
         pass
-    # Wave (М1): на старых базах может не быть 18+-флага трека
-    for stmt in ("ALTER TABLE tracks ADD COLUMN explicit BOOLEAN NOT NULL DEFAULT 0",):
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(stmt))
-        except Exception:
-            pass
+    # Wave (М1): на старых базах может не быть 18+-флага трека.
+    # Postgres не приводит целочисленный литерал к BOOLEAN (DEFAULT 0/1 →
+    # «default expression is of type integer»), SQLite же принимает что угодно.
+    is_pg = engine.dialect.name == "postgresql"
+    explicit_dflt = "FALSE" if is_pg else "0"
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                f"ALTER TABLE tracks ADD COLUMN explicit BOOLEAN NOT NULL DEFAULT {explicit_dflt}"))
+    except Exception:
+        pass
     # Wave v2 (интеллект): сценарий и контекст сессии
     for stmt in ("ALTER TABLE wave_sessions ADD COLUMN scenario JSON",
                  "ALTER TABLE wave_sessions ADD COLUMN context JSON"):
@@ -106,9 +110,10 @@ async def init_db() -> None:
         except Exception:
             pass
     # Wave v2: переключатель контекстной персонализации
+    ctx_dflt = "TRUE" if is_pg else "1"
     try:
         async with engine.begin() as conn:
             await conn.execute(text(
-                "ALTER TABLE wave_settings ADD COLUMN context_enabled BOOLEAN NOT NULL DEFAULT 1"))
+                "ALTER TABLE wave_settings ADD COLUMN context_enabled BOOLEAN NOT NULL DEFAULT " + ctx_dflt))
     except Exception:
         pass
