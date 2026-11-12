@@ -15,14 +15,20 @@ async def upsert_track(session: AsyncSession, meta: TrackMeta) -> Track:
                             Track.external_id == meta.external_id)
     track = (await session.execute(q)).scalar_one_or_none()
     if track:
-        # обновляем метаданные, файл_id остаётся кешем
-        track.title = meta.title
-        track.artist = meta.artist
-        track.album = meta.album
-        track.cover_url = meta.cover_url
-        track.duration = meta.duration
-        track.year = meta.year
-        track.explicit = bool(getattr(meta, "explicit", False))
+        # обновляем метаданные, файл_id остаётся кешем; строки без изменений
+        # не грязним — иначе каждый поиск переписывает весь каталог
+        # (на удалённой БД это лишние UPDATE-запросы на каждый результат)
+        if (track.title != meta.title or track.artist != meta.artist
+                or track.album != meta.album or track.cover_url != meta.cover_url
+                or track.duration != meta.duration or track.year != meta.year
+                or track.explicit != bool(getattr(meta, "explicit", False))):
+            track.title = meta.title
+            track.artist = meta.artist
+            track.album = meta.album
+            track.cover_url = meta.cover_url
+            track.duration = meta.duration
+            track.year = meta.year
+            track.explicit = bool(getattr(meta, "explicit", False))
         return track
     # INSERT тоже в SAVEPOINT: гонка двух джобов на один (source, external_id)
     # валит flush IntegrityError — откатываем точку и перечитываем, а не

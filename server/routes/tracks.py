@@ -132,8 +132,11 @@ async def search(q: str = "", limit: int = 24, user: CurrentUser = Depends(tg_us
     async with runtime.get_session() as s:
         for m in web:
             t = await catalog.upsert_track(s, m)
-            await s.commit()
             out.append(track_dict(t))
+        # ОДИН коммит на батч: Neon — удалённая БД, commit-на-трек давал
+        # ~N сетевых round-trip'ов и подвешивал поиск на десятки секунд
+        # (локально на SQLite незаметно, в облаке — «треки не ищутся»).
+        await s.commit()
     return {"local": [track_dict(t) for t in local],
             "web": out}
 
