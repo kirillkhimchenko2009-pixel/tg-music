@@ -138,9 +138,19 @@ class SoundCloudProvider:
             cid = self._client_id(force=attempt > 0)
             if not cid:
                 break
-            r = self._c().get(_API + "/search/tracks",
-                              params={"q": query, "limit": limit,
-                                      "client_id": cid})
+            try:
+                r = self._c().get(_API + "/search/tracks",
+                                  params={"q": query, "limit": limit,
+                                          "client_id": cid})
+            except Exception as e:
+                # сеть/прокси споткнулись: ротация cid бессмысленна, но второй
+                # заход часто проходит (ConnectError ↔ OK на части сетей)
+                log.info("sc search %s: сеть %s (попытка %s)",
+                         query[:40], type(e).__name__, attempt)
+                if attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                break
             if r.status_code == 200:
                 for it in r.json().get("collection") or []:
                     m = self._meta_of(it)

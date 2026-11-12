@@ -70,7 +70,9 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
                 else _YT_URL.format(vid=meta.external_id))
     # для YouTube клиенты по умолчанию (web/tv) требуют PO-токен на датацентровых
     # IP → вечные 403/ретраи (пробник: таймаут >120 с). POT-free набор — 9 с:
-    # android_vr/visionos/web_embedded не требуют токен (PO Token Guide 2026-07)
+    # android_vr/visionos/web_embedded не требуют токен (PO Token Guide 2026-07).
+    # Но у POT-free набора слепые зоны (не-embeddable видео и пр.) — при пустом
+    # результате повторяем с дефолтными клиентами yt-dlp.
     yt_extra = ([] if meta.source == "soundcloud" else
                 ["--extractor-args",
                  "youtube:player_client=android_vr,visionos,web_embedded"])
@@ -85,16 +87,22 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
         "-o", str(out_base) + ".%(ext)s",
         page_url,
     ]
+    try:
+        await _run(cmd, on_progress)
+        path = _find_outfile(out_base)
+        if path is not None or meta.source == "soundcloud":
+            return _result_or_none(path, meta)
+    except Exception as e:
+        log.info("yt-dlp %s: POT-free клиенты не сработали (%s: %.160s) — "
+                 "повтор с дефолтными", meta.display(), type(e).__name__, str(e))
+    if not yt_extra:
+        path = _find_outfile(out_base)
+        return _result_or_none(path, meta)
+    # вторая попытка: дефолтные клиенты yt-dlp (tv_samsung/visionos/web) —
+    # медленнее и с ретраями, но без слепых зон POT-free набора
+    cmd = [c for c in cmd if c not in yt_extra]
     await _run(cmd, on_progress)
-
-    path = _find_outfile(out_base)
-    if path is None:
-        log.info("download_track %s: yt-dlp отработал, но файла нет "
-                 "(base=%s)", meta.display(), out_base.name)
-        return None
-    log.info("download_track %s: ok %s (%s bytes)", meta.display(),
-             path.name, path.stat().st_size)
-    return DownloadResult(path=path, quality="aac320", size_bytes=path.stat().st_size)
+    return _result_or_none(_find_outfile(out_base), meta)
 
 async def download_ffmpeg_hls(playlist_url: str, meta: TrackMeta,
                               on_progress=None) -> "DownloadResult | None":
@@ -254,6 +262,15 @@ async def download_innertube(meta: TrackMeta, quality: str = "aac320",
             return None
     return DownloadResult(path=out_path, quality="aac320",
                           size_bytes=out_path.stat().st_size)
+
+
+def _result_or_none(path: "Path | None", meta: TrackMeta) -> "DownloadResult | None":
+    if path is None:
+        log.info("download_track %s: yt-dlp отработал, но файла нет", meta.display())
+        return None
+    log.info("download_track %s: ok %s (%s bytes)", meta.display(),
+             path.name, path.stat().st_size)
+    return DownloadResult(path=path, quality="aac320", size_bytes=path.stat().st_size)
 
 
 def _find_outfile(base: Path) -> Path | None:

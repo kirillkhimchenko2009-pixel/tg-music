@@ -128,9 +128,11 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         except Exception:
             log.exception("поиск на яндексе не удался")
 
-    # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) → hitmoz → hotplayer
+    # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) →
+    #      hotplayer/mp3party → hitmoz в конце (его поиск постоянно крутит
+    #      внутренние ретраи и упирается в потолок без результатов)
     for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
-                       (hzm, "hitmoz"), (hpl, "hotplayer"), (mpp, "mp3party")):
+                       (hpl, "hotplayer"), (mpp, "mp3party"), (hzm, "hitmoz")):
         try:
             # жёсткий потолок на поиск: сайты с внутренними ретраями (hitmoz
             # ловил 19.6 с без результатов) тормозили всю цепочку кандидатов
@@ -214,7 +216,9 @@ async def _yt_candidates(meta: TrackMeta, query: str) -> list[tuple[TrackMeta, s
     pool: list[TrackMeta] = []
     for q in queries:
         try:
-            cands = await yt.search(q, limit=6)
+            # ytmusicapi fallback'ит на yt-dlp-процесс — без потолка он висит
+            # на чёрной дыре сети и тянет всю цепочку кандидатов
+            cands = await asyncio.wait_for(yt.search(q, limit=6), 30)
         except Exception:
             cands = []
         pool.extend(cands)

@@ -48,7 +48,14 @@ async def yt_dlp_search(query: str, limit: int = 8) -> list[dict]:
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-        out, _ = await proc.communicate()
+        # yt-dlp на чёрной дыре сети висит бесконечно — потолок 45 с, потом kill
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return []
     except Exception:
         return []
     items = []

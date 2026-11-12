@@ -20,7 +20,10 @@ class Settings:
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     DEFAULT_QUALITY: str = os.getenv("DEFAULT_QUALITY", "aac320")
     PROXY_URL: str = os.getenv("PROXY_URL", "")   # прокси для YouTube/Spotify и вообще
-    BOT_PROXY_URL: str = os.getenv("BOT_PROXY_URL") or os.getenv("PROXY_URL", "")  # для aiogram/Telegram API
+    _raw_bot_proxy = os.getenv("BOT_PROXY_URL")
+    # пустая строка = «явно без прокси»; None (не задан) → общий PROXY_URL
+    BOT_PROXY_URL: str = (_raw_bot_proxy if _raw_bot_proxy is not None
+                          else os.getenv("PROXY_URL", ""))  # для aiogram/Telegram API
 
     # Сторонние ТГ-боты-источники mp3 (запятая/пробел): "@DeezerMusicBot @spotify_down_bot".
     # Боту приходит «артист — название», его аудио-ответ копируется в чат юзера.
