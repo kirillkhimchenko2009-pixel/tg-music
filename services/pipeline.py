@@ -11,6 +11,9 @@ from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
 from services.providers import hotplayer as hpl
 from services.providers import mp3party as mpp
+from services.providers import promodj as pdj
+from services.providers import audius as aud
+from services.providers import ccmixter as ccm
 from services.providers.base import TrackMeta
 
 log = logging.getLogger("pipeline")
@@ -44,6 +47,17 @@ SOURCE_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
         "Referer": "https://mp3party.net/",
     },
+    "promodj": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
+        "Referer": "https://promodj.com/",
+    },
+    "audius": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
+    },
+    "ccmixter": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0",
+        "Referer": "https://ccmixter.org/",
+    },
 }
 
 async def download(dl_meta: TrackMeta, quality: str, token: str = "",
@@ -75,6 +89,48 @@ async def _download_inner(dl_meta, quality, token, on_progress):
                 url, dl_meta, "aac320", on_progress=on_progress,
                 headers=SOURCE_HEADERS[dl_meta.source], use_proxy=False)
         return None  # не переводим на yt-dlp: id не yt-совместим
+    if dl_meta.source == "promodj":
+        # официальная ссылка скачивания конкретной композиции (per-track):
+        # download_url() сам вернёт None, если у трека её нет (downloadable=False)
+        try:
+            url = await pdj.download_url(dl_meta)
+        except Exception:
+            url = None
+        if url:
+            return await downloader.download_direct(
+                url, dl_meta, "aac320", on_progress=on_progress,
+                headers=SOURCE_HEADERS["promodj"], use_proxy=False)
+        return None
+    if dl_meta.source == "audius":
+        # только официальные эндпоинты: download (если негейтован), иначе
+        # публичный stream — оба mp3; платные (usdc) не обходим
+        url = None
+        try:
+            if dl_meta.downloadable:
+                url = await aud.download_url(dl_meta)
+        except Exception:
+            url = None
+        if not url:
+            try:
+                url = await aud.stream_url(dl_meta)
+            except Exception:
+                url = None
+        if url:
+            return await downloader.download_direct(
+                url, dl_meta, "aac320", on_progress=on_progress,
+                headers=SOURCE_HEADERS["audius"])
+        return None
+    if dl_meta.source == "ccmixter":
+        # CC-материал: API отдаёт прямую ссылку mp3 (+ лицензия в meta)
+        try:
+            url = await ccm.download_url(dl_meta)
+        except Exception:
+            url = None
+        if url:
+            return await downloader.download_direct(
+                url, dl_meta, "aac320", on_progress=on_progress,
+                headers=SOURCE_HEADERS["ccmixter"], use_proxy=False)
+        return None
     if dl_meta.source == "zvuk":
         try:
             url = await zv.stream_url(dl_meta.external_id, token or None)

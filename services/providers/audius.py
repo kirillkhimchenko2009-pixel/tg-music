@@ -138,3 +138,7 @@ async def search(query: str, limit: int = 6) -> list[TrackMeta]:
 
 async def download_url(meta: TrackMeta) -> str | None:
     return await _default.download_url(meta)
+
+
+async def stream_url(meta: TrackMeta) -> str | None:
+    return await _default.stream_url(meta)

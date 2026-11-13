@@ -19,6 +19,9 @@ from services.providers import zaycev as zay
 from services.providers import hitmoz as hzm
 from services.providers import hotplayer as hpl
 from services.providers import mp3party as mpp
+from services.providers import promodj as pdj
+from services.providers import audius as aud
+from services.providers import ccmixter as ccm
 from services.providers.yandex import YandexProvider
 from services.providers import soundcloud as scc
 
@@ -57,7 +60,8 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                              zc.display(), meta.display())
                     out.append((zc, ""))
             out.append((meta, tok))
-    if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party"):
+    if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party",
+                       "promodj", "audius", "ccmixter"):
         # собственный вариант — тоже кандидат: permalink/страница скачивается
         # напрямую (SC — HLS, RU-сайты — download_url). Без этого цепочка
         # качает «похожее с других сайтов» или честно падает с not_found.
@@ -130,9 +134,14 @@ async def _candidates(session: AsyncSession, user_id: int | None,
 
     # 2.5) Прямые RU-сайты без токенов (быстрее YT): zaycev.net (mp3-320) →
     #      hotplayer/mp3party → hitmoz в конце (его поиск постоянно крутит
-    #      внутренние ретраи и упирается в потолок без результатов)
+    #      внутренние ретраи и упирается в потолок без результатов).
+    #      Международные бесплатные: promodj (DJ-миксы, per-track download),
+    #      audius (негейтованные), ccmixter (CC-материал).
     for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
-                       (hpl, "hotplayer"), (mpp, "mp3party"), (hzm, "hitmoz")):
+                       (pdj, "promodj"), (ccm, "ccmixter"),
+                       (aud, "audius"),
+                       (hpl, "hotplayer"), (mpp, "mp3party"),
+                       (hzm, "hitmoz")):
         try:
             # жёсткий потолок на поиск: сайты с внутренними ретраями (hitmoz
             # ловил 19.6 с без результатов) тормозили всю цепочку кандидатов
