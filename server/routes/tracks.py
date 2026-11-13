@@ -20,10 +20,8 @@ from core.models import Track, PlayEvent
 from server.auth import CurrentUser, is_guest_id, tg_user
 from services import catalog
 from services.providers.base import TrackMeta
-from services.providers.youtube import YouTubeProvider
 
 router = APIRouter(prefix="/api", tags=["tracks"])
-yt = YouTubeProvider()
 JOB_STATUS: dict[str, dict] = {}
 _TERMINAL_STATUSES = ("done", "error")
 _JOB_TTL_SEC = float(os.getenv("WEBAPP_JOB_TTL_SEC", "1800"))
@@ -77,56 +75,28 @@ def track_dict(t: Track) -> dict:
     }
 
 @router.get("/search")
-async def search(q: str = "", limit: int = 24, user: CurrentUser = Depends(tg_user)):
-    """Поиск: локальный каталог, затем параллельно внешние источники —
-    ЯМ/Звук (по токенам), YouTube Music и прямые RU-сайты (zaycev/soundcloud/
-    hotplayer/mp3party): они качаются без токенов и надёжнее YT."""
+async def search(q: str = "", limit: int = 24, scope: str = "all",
+                 user: CurrentUser = Depends(tg_user)):
+    """Комбинированный поиск (мастер-промпт §4): локальный каталог, затем
+    параллельно ВСЕ источники единого реестра (12 канонических + доп.)
+    выбранной области (all/ru/intl/downloadable/official_links). Ошибка
+    одного адаптера не влияет на остальные; результаты сливаются round-robin.
+    """
     q = (q or "").strip()
     if not q:
         return {"local": [], "web": []}
     from services.authstore import get_token
-    from services.providers import zvuk as zv
-    from services.providers.yandex import YandexProvider
+    from services import multisearch
 
-    web: list = []
+    scope = scope if scope in ("all", "ru", "intl", "downloadable",
+                               "official_links") else "all"
     uid = int(user.id)
-
-    def merge(metas=None, arr_pair=None):
-        for m in (metas or []):
-            if not any(x.source == m.source and x.external_id == m.external_id for x in web):
-                web.append(m)
-
     async with runtime.get_session() as s:
         local = await catalog.local_search(s, q, limit=limit)
-        zt = await get_token(s, uid, "zvuk")
-        ymt = await get_token(s, uid, "ym")
+        tokens = {"ym": await get_token(s, uid, "ym") or None,
+                  "zvuk": await get_token(s, uid, "zvuk") or None}
 
-    from services.providers import zaycev as zay, soundcloud as scc
-    from services.providers import hotplayer as hpl, mp3party as mpp
-
-    async def _ext(coro=None, timeout=8.0):
-        """Один внешний источник с жёстким потолком времени (флейки не ждём)."""
-        if coro is None:
-            return []
-        try:
-            return await asyncio.wait_for(coro, timeout)
-        except Exception:
-            return []
-
-    ru_limit = min(limit, 8)
-    # все источники параллельно: каждый ограничен своим таймаутом, поэтому
-    # поиск занимает время самого медленного, а не сумму
-    got = await asyncio.gather(
-        _ext(YandexProvider(ymt).search(q, limit=limit)) if ymt else _ext(),
-        _ext(zv.search(q, limit=limit, token=zt)) if zt else _ext(),
-        _ext(yt.search(q, limit=limit), timeout=12),
-        _ext(zay.search(q, ru_limit)),
-        _ext(scc.search(q, ru_limit)),
-        _ext(hpl.search(q, ru_limit)),
-        _ext(mpp.search(q, ru_limit)),
-    )
-    for arr in got:
-        merge(arr)
+    web = await multisearch.web_search(q, limit=limit, scope=scope, tokens=tokens)
 
     out = []
     async with runtime.get_session() as s:
