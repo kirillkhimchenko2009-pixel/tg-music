@@ -18,10 +18,13 @@ async def upsert_track(session: AsyncSession, meta: TrackMeta) -> Track:
         # обновляем метаданные, файл_id остаётся кешем; строки без изменений
         # не грязним — иначе каждый поиск переписывает весь каталог
         # (на удалённой БД это лишние UPDATE-запросы на каждый результат)
+        new_page = getattr(meta, "page_url", None)
+        new_lic = getattr(meta, "license", None)
         if (track.title != meta.title or track.artist != meta.artist
                 or track.album != meta.album or track.cover_url != meta.cover_url
                 or track.duration != meta.duration or track.year != meta.year
-                or track.explicit != bool(getattr(meta, "explicit", False))):
+                or track.explicit != bool(getattr(meta, "explicit", False))
+                or track.page_url != new_page or track.license != new_lic):
             track.title = meta.title
             track.artist = meta.artist
             track.album = meta.album
@@ -29,12 +32,19 @@ async def upsert_track(session: AsyncSession, meta: TrackMeta) -> Track:
             track.duration = meta.duration
             track.year = meta.year
             track.explicit = bool(getattr(meta, "explicit", False))
+            track.page_url = new_page
+            track.license = new_lic
         return track
     # INSERT тоже в SAVEPOINT: гонка двух джобов на один (source, external_id)
     # валит flush IntegrityError — откатываем точку и перечитываем, а не
     # отравляем сессию (иначе любой следующий доступ к атрибутам строк
     # этого каталога даёт PendingRollbackError, и джоба умирает целиком)
-    track = Track(**asdict(meta))
+    # whitelist: TrackMeta шире модели (downloadable — режим реестра, не колонка)
+    data = asdict(meta)
+    track = Track(**{k: data[k] for k in (
+        "source", "external_id", "title", "artist", "album", "year",
+        "isrc", "duration", "explicit", "cover_url", "page_url", "license")
+        if k in data})
     session.add(track)
     try:
         async with session.begin_nested():
@@ -69,4 +79,6 @@ def meta_of(track: Track) -> TrackMeta:
     return TrackMeta(source=track.source, external_id=track.external_id, title=track.title,
                      artist=track.artist, album=track.album, year=track.year,
                      isrc=track.isrc, duration=track.duration, cover_url=track.cover_url,
-                     explicit=bool(getattr(track, "explicit", False)))
+                     explicit=bool(getattr(track, "explicit", False)),
+                     page_url=getattr(track, "page_url", None),
+                     license=getattr(track, "license", None))

@@ -28,5 +28,9 @@ data/music.db-*
 data/webapp_url.txt
 data/tunnel_url.txt
 
+# runtime artifacts: обложки, скачанные при поиске, и временные файлы
+data/covers/
+data/temp/
+
 # binaries are not in the repo
 tools/*.exe

@@ -39,6 +39,8 @@ class Track(Base):
     duration: Mapped[int] = mapped_column(Integer, default=0)  # сек
     explicit: Mapped[bool] = mapped_column(Boolean, default=False)  # 18+: у ЯМ бывают «чистые» фонограммы
     cover_url: Mapped[str | None] = mapped_column(Text)
+    page_url: Mapped[str | None] = mapped_column(Text)         # официальная страница композиции/источника
+    license: Mapped[str | None] = mapped_column(String(64))    # тип лицензии (CC-BY и т.п.), если известен
     quality: Mapped[str | None] = mapped_column(String(12))    # flac | aac320 | ...
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     file_id: Mapped[str | None] = mapped_column(String(256))   # кеш Telegram file_id

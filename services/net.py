@@ -30,6 +30,15 @@ def httpx_client(**kw) -> httpx.AsyncClient:
     kw.setdefault("follow_redirects", False)
     return httpx.AsyncClient(**kw)
 
+def httpx_sync_client(**kw) -> httpx.Client:
+    """Синхронный клиент с той же прокси-конвенцией (для адаптеров, чья
+    внутренняя кухня синхронная и оборачивается asyncio.to_thread)."""
+    kw.setdefault("timeout", 20)
+    kw.setdefault("proxy", settings.PROXY_URL or None)
+    kw.setdefault("headers", {})
+    kw.setdefault("follow_redirects", True)
+    return httpx.Client(**kw)
+
 def spotipy_session() -> "object":
     """requests.Session с прокси (для spotipy)."""
     import requests

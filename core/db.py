@@ -117,3 +117,13 @@ async def init_db() -> None:
                 "ALTER TABLE wave_settings ADD COLUMN context_enabled BOOLEAN NOT NULL DEFAULT " + ctx_dflt))
     except Exception:
         pass
+    # Источники 12+: официальная страница и лицензия трека (TEXT валиден
+    # и на Postgres, и на SQLite; на PG добавляем IF NOT EXISTS)
+    for col_ddl in ("ALTER TABLE tracks ADD COLUMN {ifnot}page_url TEXT",
+                    "ALTER TABLE tracks ADD COLUMN {ifnot}license VARCHAR(64)"):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    col_ddl.format(ifnot="IF NOT EXISTS " if is_pg else "")))
+        except Exception:
+            pass
