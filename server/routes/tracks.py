@@ -72,6 +72,8 @@ def track_dict(t: Track) -> dict:
         "year": t.year, "duration": t.duration, "cover_url": t.cover_url,
         "quality": t.quality, "ready": bool(t.file_id),
         "downloads": t.downloads,
+        "source": t.source,
+        "page_url": t.page_url, "license": t.license,
     }
 
 @router.get("/search")
