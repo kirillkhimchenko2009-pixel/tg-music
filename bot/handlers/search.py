@@ -18,33 +18,32 @@ router = Router(name="search")
 yt = YouTubeProvider()
 
 async def do_search_ex(session, query: str, limit: int = 24,
-                       user_id: int | None = None) -> list[tuple[int, float]]:
-    """Поиск для бота: сначала Яндекс.Музыка (работает из облака), YouTube —
-    запасной вариант (с датацентровых IP ловит бот-чек).
-    Возвращает [(track_id, похожесть на запрос 0..1), ...] — лучшие первыми."""
+                       user_id: int | None = None,
+                       scope: str = "all") -> list[tuple[int, float, str]]:
+    """Поиск для бота через единый реестр (мастер-промпт §4/§5): все источники
+    выбранной области параллельно (ЯМ/Звук — по личным токенам пользователя),
+    ошибки изолированы. Возвращает [(track_id, похожесть 0..1, source)] —
+    лучшие первыми.
+    """
     import logging
     import re as _re
+    from services import multisearch as ms
     from services.authstore import get_token
     from services.matching import similarity
     from services.providers.base import TrackMeta as TM
 
-    metas: list = []
+    ym_tok = await get_token(session, user_id, "ym") if user_id else None
+    zv_tok = await get_token(session, user_id, "zvuk") if user_id else None
     try:
-        ym_tok = await get_token(session, user_id, "ym")
-        if ym_tok:
-            from services.providers.yandex import YandexProvider
-            metas = await YandexProvider(ym_tok).search(query, limit=limit)
+        metas = await ms.web_search(query, limit=limit, scope=scope,
+                                    tokens={"ym": ym_tok, "zvuk": zv_tok})
     except Exception:
-        logging.getLogger("bot.search").exception("ym search failed for %r", query)
-        metas = []
+        logging.getLogger("bot.search").exception("multisearch failed for %r", query)
+        return []
     if not metas:
-        try:
-            metas = await yt.search(query, limit=limit)
-        except Exception:
-            logging.getLogger("bot.search").exception("yt search failed for %r", query)
-            return []
+        return []
 
-    # re-rank: Yandex-поиск часто ставит выше другой трек того же артиста.
+    # re-rank: совмещаем справедливую round-robin выдачу с релевантностью.
     # Пробуем обе трактовки «A — B» (название — исполнитель и наоборот).
     parts = _re.split(r"\s+[—–-]\s+", query)
     if len(parts) == 2:
@@ -69,18 +68,20 @@ async def do_search_ex(session, query: str, limit: int = 24,
         return score(m) * (0.4 + 0.6 * tscr)
 
     metas.sort(key=combined, reverse=True)
-    out: list[tuple[int, float]] = []
+    out: list[tuple[int, float, str]] = []
     for meta in metas:
         m_score = combined(meta)
         t = await catalog.upsert_track(session, meta)
-        await session.commit()
-        out.append((t.id, round(m_score, 3)))
+        out.append((t.id, round(m_score, 3), meta.source))
+    # ОДИН коммит на батч (как в /api/search): Neon — удалённая БД,
+    # commit-на-трек давал лишние round-trip'ы и подвешивал поиск
+    await session.commit()
     return out
 
 
 async def do_search(session, query: str, limit: int = 24,
-                    user_id: int | None = None) -> list[int]:
-    return [tid for tid, _ in await do_search_ex(session, query, limit, user_id)]
+                    user_id: int | None = None, scope: str = "all") -> list[int]:
+    return [tid for tid, _, _ in await do_search_ex(session, query, limit, user_id, scope)]
 
 async def _kb_from_ids(ids: list[int], page: int, user_id: int | None = None) -> types.InlineKeyboardMarkup:
     begin = page * 8
@@ -105,31 +106,98 @@ async def on_text(message: types.Message):
     import re as _re
     if _re.search(r"https?://|www\.", text):
         return
-    status = await message.answer(f"🔎 Ищу «{text}»…")
+    scope = "all"
+    prev = state_.search_cache().get(message.from_user.id)
+    if prev and prev.get("query") == text:
+        scope = prev.get("scope", "all")   # повтор запроса — в выбранной области
+    status = await message.answer(f"🔎 Ищу «{text}» во всех источниках…")
     try:
         async with runtime.get_session() as s:
             await runtime.ensure_user(s, message.from_user.id,
                                       message.from_user.username,
                                       message.from_user.first_name or "")
-            ids = await do_search(s, text, user_id=message.from_user.id)
+            scored = await do_search_ex(s, text, user_id=message.from_user.id,
+                                        scope=scope)
     except Exception:
         import logging
         logging.getLogger("bot.search").exception("search failed for %r", text)
         await status.edit_text("⚠ Поиск сорвался — попробуй ещё раз через минуту.")
         return
-    if not ids:
-        from core.config import settings as _st
-        hint = ""
-        if not (_st.YM_TOKEN or _st.ZVUK_TOKEN or _st.PROXY_URL):
-            hint = ("\n\n<b>Нет доступных источников.</b>\n"
-                    "Подключи <code>/token</code> (ЯМ/Звук) или задай PROXY_URL в .env "
-                    "для доступа к YouTube.")
-        await status.edit_text(f"По запросу «{text}» ничего не нашлось 😕{hint}")
+    if not scored:
+        await status.edit_text(
+            f"По запросу «{text}» ничего не нашлось 😕\n"
+            "Попробуй /token (ЯМ/Звук) или напиши запрос латиницей.")
         return
-    state_.search_cache()[message.from_user.id] = {"ids": ids, "page": 0}
+    ids = [tid for tid, _, _ in scored]
+    # разбивка по областям (мастер-промпт §5): кнопки-фильтры не делают
+    # новый запрос — фильтруют уже найденное по источнику трека
+    ids_by_scope: dict[str, list[int]] = {"all": list(ids)}
+    for tid, _, src in scored:
+        for sc in multisearch_scopes(src):
+            if tid not in ids_by_scope.setdefault(sc, []):
+                ids_by_scope[sc].append(tid)
+    state_.search_cache()[message.from_user.id] = {
+        "ids": ids, "page": 0, "scope": "all", "query": text,
+        "ids_by_scope": ids_by_scope}
     await status.edit_text(f"🔎 Результаты по «{text}» — выбирай:",
                            reply_markup=await _kb_from_ids(ids, 0,
                                                            message.from_user.id))
+
+
+def multisearch_scopes(source: str) -> list[str]:
+    """Области, в которых сидит трек источника (для кнопок-фильтров)."""
+    from services import registry as _reg
+    spec = _reg.get(source)
+    if not spec:
+        return ["all"]
+    out = ["all"]
+    if spec.provider_country == "RU":
+        out.append("ru")
+    elif spec.provider_country == "GLOBAL":
+        out.append("intl")
+    from services.registry import ProviderMode
+    if spec.supports_download and spec.download_permission_mode == ProviderMode.DOWNLOAD_ALLOWED:
+        out.append("downloadable")
+    if (spec.download_permission_mode == ProviderMode.OFFICIAL_LINK_ONLY
+            and spec.supports_official_link):
+        out.append("official_links")
+    return out
+
+
+def _scoped_ids(cache: dict) -> list[int]:
+    """id текущей области из кэша (без нового запроса)."""
+    ids = cache.get("ids") or []
+    scope = cache.get("scope", "all")
+    if scope == "all":
+        return ids
+    by = cache.get("ids_by_scope") or {}
+    return by.get(scope) or ids
+
+
+@router.callback_query(F.data.startswith("srcsc:"))
+async def cb_scope(cb: types.CallbackQuery):
+    """Переключение области источников — фильтр кэша, без новых запросов."""
+    user = cb.from_user.id
+    try:
+        _, scope, page = cb.data.split(":")
+    except ValueError:
+        await cb.answer(); return
+    if scope not in ("all", "ru", "intl", "downloadable", "official_links"):
+        scope = "all"
+    cache = state_.search_cache().get(user)
+    if not cache:
+        await cb.answer("Результаты устарели — пришли запрос заново.", show_alert=True)
+        return
+    cache["scope"] = scope
+    cache["page"] = int(page or 0)
+    scoped = _scoped_ids(cache)
+    if not scoped:
+        await cb.answer("В этой области ничего не нашлось — есть другие кнопки.",
+                        show_alert=True)
+        return
+    await cb.message.edit_reply_markup(
+        reply_markup=await _kb_from_ids(scoped, cache["page"], user))
+    await cb.answer()
 
 @router.callback_query(F.data.startswith("srch:"))
 async def cb_page(cb: types.CallbackQuery):
@@ -141,7 +209,7 @@ async def cb_page(cb: types.CallbackQuery):
         return
     cache["page"] = page
     await cb.message.edit_reply_markup(
-        reply_markup=await _kb_from_ids(cache["ids"], page, cb.from_user.id))
+        reply_markup=await _kb_from_ids(_scoped_ids(cache), page, cb.from_user.id))
     await cb.answer()
 
 @router.callback_query(F.data.startswith("fav:"))
@@ -164,9 +232,12 @@ async def cb_fav(cb: types.CallbackQuery):
     if any(d.startswith("srch:") for d in datas):
         cache = state_.search_cache().get(uid)
         page = (cache or {}).get("page", 0)
-        win = (cache or {}).get("ids", [])[page * 8:page * 8 + 8]
+        if cache:
+            win = _scoped_ids(cache)[page * 8:page * 8 + 8]
+        else:
+            win = []
         if track_id in win and cache:
-            markup = await _kb_from_ids(cache["ids"], page, uid)
+            markup = await _kb_from_ids(_scoped_ids(cache), page, uid)
     elif f"pl:{track_id}" in datas:
         from bot.keyboards import action_kb
         markup = action_kb(track_id, now_fav)
@@ -245,8 +316,8 @@ async def cmd_get(message: types.Message):
     if not scored:
         await message.answer("Не нашёл такого трека 😕")
         return
-    ids = [tid for tid, _ in scored]
-    top_id, top_score = scored[0]
+    ids = [tid for tid, _, _ in scored]
+    top_id, top_score, _src = scored[0]
     if top_score < 0.70:
         # уверенного совпадения нет — не качаем вслепую, а даём выбрать
         state_.search_cache()[uid] = {"ids": ids, "page": 0}

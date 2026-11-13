@@ -46,9 +46,26 @@ def main_reply() -> ReplyKeyboardMarkup | None:
 
 def search_kb(tracks: list, page: int, has_more: bool,
               fav_ids: set[int] | None = None) -> InlineKeyboardMarkup:
+    """Клавиатура результатов поиска (мастер-промпт §5):
+    - кнопки областей источников (переключение без нового запроса)
+    - треки источников OFFICIAL_LINK_ONLY → официальная ссылка (URL-кнопка)
+    """
+    from services import registry as _reg
+    from services.registry import ProviderMode
+
     favs = fav_ids or set()
     rows = []
     for t in tracks:
+        mode = _reg.mode_of(t.source)
+        if (mode == ProviderMode.OFFICIAL_LINK_ONLY and t.page_url
+                and not getattr(t, "file_id", None)):
+            # карточка-ссылка (VK/МТС/Lisen/FMA): ведём на официальную страницу
+            src = _reg.get(t.source)
+            rows.append([InlineKeyboardButton(
+                text=f"🔗 {src.provider_name if src else t.source}"
+                     f" — открыть поиск"[:52],
+                url=t.page_url)])
+            continue
         rows.append([
             InlineKeyboardButton(text=f"▶ {t.title}"[:52], callback_data=f"dl:{t.id}"),
             InlineKeyboardButton(text="❤" if t.id in favs else "🤍",
@@ -62,6 +79,15 @@ def search_kb(tracks: list, page: int, has_more: bool,
         nav.append(InlineKeyboardButton(text="Ещё ▶", callback_data=f"srch:{page+1}"))
     if nav:
         rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(text="🌐 Все", callback_data="srcsc:all:0"),
+        InlineKeyboardButton(text="🇷🇺 Российские", callback_data="srcsc:ru:0"),
+        InlineKeyboardButton(text="🌍 Международные", callback_data="srcsc:intl:0"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text="📥 Доступно скачивание", callback_data="srcsc:downloadable:0"),
+        InlineKeyboardButton(text="🔗 Только офиц. ссылки", callback_data="srcsc:official_links:0"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def action_kb(track_id: int, in_fav: bool | None = None) -> InlineKeyboardMarkup:
