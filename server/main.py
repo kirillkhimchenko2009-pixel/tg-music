@@ -21,8 +21,6 @@ logging.basicConfig(level=logging.INFO,
                     format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 
-WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
-
 app = FastAPI(title="TGMusicBot API", docs_url="/api/docs", redoc_url=None)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
@@ -33,8 +31,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 async def nocache_static(request: Request, call_next):
     response = await call_next(request)
     p = request.url.path
-    if p in ("/", "/index.html", "/app.js", "/styles.css",
-             "/v2", "/v2/", "/v2/index.html"):
+    if p in ("/", "/v2", "/v2/", "/v2/index.html"):
         response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
     return response
 
@@ -77,11 +74,14 @@ async def api_not_found(rest: str):
     """Любой неизвестный /api/* отдаёт JSON 404 (а не HTML-страницу статики)."""
     raise HTTPException(404, f"нет такого API-эндпоинта: /api/{rest}")
 
-# React-версия мини-аппа (v2), сборка Vite — монтируется ДО vanilla-статики,
-# иначе StaticFiles("/") перехватит и /v2/* тоже
+# React-версия мини-аппа (v2), сборка Vite.
 V2_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if V2_DIR.exists():
     app.mount("/v2", StaticFiles(directory=str(V2_DIR), html=True), name="v2")
 
-if WEBAPP_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(WEBAPP_DIR), html=True), name="webapp")
+@app.get("/")
+async def root():
+    """Корень ведёт на актуальный мини-апп (старый vanilla webapp удалён)."""
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse("/v2/")

@@ -47,11 +47,9 @@ Telegram-бот + Mini App для поиска, скачивания и хран
    .\.venv\Scripts\python run_bot.py
    ```
 
-5. Для Mini App Telegram требует https: пробросить туннель
-   ```powershell
-   cloudflared tunnel --url http://localhost:8000
-   ```
-   полученный URL указать в `.env` как `WEBAPP_URL`, в чате открыть бота → кнопка «Приложение».
+5. Mini App уже задеплоен вместе с сервером: `https://<адрес-сервера>/v2/`.
+   Для локального ympx-сервера (русский выход для Яндекс.Музыки) наружу
+   его открывает туннель nurl (`nurl 8811`), URL идёт на прод в `YMPX_BASE`.
 
 ## Docker
 ```bash

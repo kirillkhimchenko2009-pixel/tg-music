@@ -1,7 +1,0 @@
-# Vibe Music — автоматический HTTPS через Let's Encrypt.
-# Замени music.example.duckdns.org на свой домен (duckdns.org — бесплатно),
-# либо на купленный/бесплатный домен (например, с nic.ru или freenom-аналогов).
-# Порт наружу не нужен: Caddy сам получит сертификат по HTTP-01/поддержит TLS.
-music.example.duckdns.org {
-    reverse_proxy server:8000
-}

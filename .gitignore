@@ -22,6 +22,8 @@ data/*.err
 data/*.out
 data/*.lock
 data/lock_*.lock
+data/*.db
+data/*.txt
 data/audio/
 data/music.db
 data/music.db-*

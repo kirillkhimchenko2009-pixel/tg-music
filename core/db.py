@@ -34,7 +34,7 @@ def create_engine() -> AsyncEngine:
         q = dict(parse_qsl(p.query))
         server_settings: dict | None = None
         if "options" in q:
-            # Neon через релей без SNI (tools/pg_relay.py): endpoint передаётся
+            # Neon через релей без SNI: endpoint передаётся
             # в startup-пакете как options=endpoint%3D<endpoint-id>
             server_settings = {"options": q.pop("options")}
         sslmode = q.pop("sslmode", None)

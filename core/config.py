@@ -30,8 +30,8 @@ class Settings:
     # зарубежные IP (HTTP 451). Остальной трафик не трогаем.
     YM_PROXY_URL: str = os.getenv("YM_PROXY_URL", "")
     # Ещё один русский выход для ЯМ: URL локального сервера в РФ через туннель
-    # (ngrok со статическим доменом). Прод ходит на его /ympx-эндпоинт —
-    # быстрее и надёжнее публичного прокси. Пусто = не используется.
+    # (nurl — российский туннель, работает с RU-IP). Прод ходит на его
+    # /ympx-эндпоинт — быстрее и надёжнее публичного прокси. Пусто = не используется.
     YMPX_BASE: str = os.getenv("YMPX_BASE", "")
 
     # Сторонние ТГ-боты-источники mp3 (запятая/пробел): "@DeezerMusicBot @spotify_down_bot".
@@ -41,8 +41,6 @@ class Settings:
     TG_BOTS_WAIT: float = float(os.getenv("TG_BOTS_WAIT", "40"))     # сек на ответ бота
     TG_BOTS_COOLDOWN: float = float(os.getenv("TG_BOTS_COOLDOWN", "4"))  # анти-спам между запросами
     DEV_MODE: bool = os.getenv("DEV_MODE", "0") == "1"
-    NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "")
-    NGROK_DOMAIN: str = os.getenv("NGROK_DOMAIN", "")
 
     BOT_API_URL: str = os.getenv("BOT_API_URL", "")  # локальный Bot API сервер (для файлов >50 МБ)
 
