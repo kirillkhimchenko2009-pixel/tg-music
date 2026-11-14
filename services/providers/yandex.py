@@ -50,17 +50,34 @@ def _web_meta(t) -> TrackMeta:
 
 
 async def _anon_get(path: str) -> httpx.Response:
-    """GET к анонимному API ЯМ с fallback-доменом (.net → .ru).
+    """GET к анонимному API ЯМ. Русские выходы в порядке приоритета:
 
-    Ходим через общий httpx_client (учитывает PROXY_URL: с зарубежного IP
-    анонимное API отдаёт HTTP 451, нужен российский выход). Исключение:
-    YM_PROXY_URL — отдельный русский прокси ТОЛЬКО для ЯМ. Публичные
-    прокси рыхлые (большой ответ может обрываться/тянуться долго), поэтому
-    4 попытки (две длинные, две короткие) — импорт теперь фоновый и может
-    себе позволить терпение; затем ретрай напрямую, чтобы отдать честную
-    гео-ошибку 451, а не сетевой облом."""
-    from services.net import httpx_client
+    1) YMPX_BASE — локальный сервер в РФ через туннель (быстро и надёжно);
+    2) YM_PROXY_URL — публичный русский прокси (рыхлый: 4 попытки);
+    3) напрямую — только чтобы отдать честную гео-ошибку 451.
+    Без русских выходов — общий httpx_client (PROXY_URL-aware), как раньше."""
+    from services.net import httpx_client, ympx_key
     ym_proxy = settings.YM_PROXY_URL
+
+    if settings.YMPX_BASE:
+        base = settings.YMPX_BASE.rstrip("/")
+        try:
+            async with httpx_client(timeout=httpx.Timeout(60.0, connect=10.0),
+                                    follow_redirects=True) as c:
+                r = await c.get(f"{base}/ympx{path}",
+                                headers={"X-Ympx-Key": ympx_key(),
+                                         "ngrok-skip-browser-warning": "1"})
+            if r.status_code == 200:
+                return r
+            if r.status_code in (502, 503, 504):
+                log.warning("ympx недоступен (%s) — пробуем прокси/напрямую",
+                            r.status_code)
+            else:
+                return r          # честный ответ ЯМ (451/404) через ympx
+        except httpx.TransportError as e:
+            log.warning("ympx не отвечает (%s: %s) — пробуем прокси/напрямую",
+                        type(e).__name__, str(e)[:120])
+
     if ym_proxy:
         for i, tmo in enumerate((httpx.Timeout(60.0, connect=10.0),
                                  httpx.Timeout(25.0, connect=5.0),

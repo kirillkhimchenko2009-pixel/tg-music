@@ -47,6 +47,16 @@ def spotipy_session() -> "object":
         s.proxies.update({"http": settings.PROXY_URL, "https": settings.PROXY_URL})
     return s
 
+
+def ympx_key() -> str:
+    """Общий ключ для /ympx (мини-прокси ЯМ на локальном русском сервере).
+
+    Бот-токен один и тот же на обеих сторонах (локально и на проде), поэтому
+    отдельный секрет не нужен: обе стороны выводят ключ из своего BOT_TOKEN."""
+    import hashlib
+    return hashlib.sha256((settings.BOT_TOKEN + "|vibe-ympx-v1")
+                          .encode()).hexdigest()[:32]
+
 async def yt_dlp_search(query: str, limit: int = 8) -> list[dict]:
     """Гостевой поиск через yt-dlp (работает даже без ключей; прокси учитывается)."""
     cmd = [

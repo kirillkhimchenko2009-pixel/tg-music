@@ -133,3 +133,32 @@ async def test_anon_get_double_corrupt_200_is_honest_error(monkeypatch):
     monkeypatch.setattr(settings, "YM_PROXY_URL", "http://ru-proxy:8080")
     with pytest.raises(RuntimeError):
         await ym._anon_get("/users/x/playlists/1")
+
+
+class _SpyClient(_FakeClient):
+    """_FakeClient, запоминающий url и kwargs каждого запроса."""
+    def __init__(self, statuses: dict):
+        super().__init__(statuses)
+        self.urls: list[str] = []
+        self.kws: list[dict] = []
+
+    async def get(self, url: str, **kw):
+        self.urls.append(url)
+        self.kws.append(kw)
+        return await super().get(url, **kw)
+
+
+async def test_anon_get_prefers_ympx(monkeypatch):
+    """YMPX_BASE (локальный русский сервер) — первый в цепочке выходов."""
+    from core.config import settings
+    from services.net import ympx_key
+    from services.providers import yandex as ym
+
+    spy = _SpyClient({"ympx-host.example": 200})
+    monkeypatch.setattr("services.net.httpx_client", lambda **kw: spy)
+    monkeypatch.setattr(settings, "YMPX_BASE", "https://ympx-host.example")
+    monkeypatch.setattr(settings, "YM_PROXY_URL", "http://ru-proxy:8080")
+    r = await ym._anon_get("/users/x/playlists/1")
+    assert r.status_code == 200
+    assert spy.urls == ["https://ympx-host.example/ympx/users/x/playlists/1"]
+    assert spy.kws[0]["headers"]["X-Ympx-Key"] == ympx_key()
