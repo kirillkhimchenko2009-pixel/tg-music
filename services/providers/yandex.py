@@ -53,18 +53,37 @@ async def _anon_get(path: str) -> httpx.Response:
     """GET к анонимному API ЯМ с fallback-доменом (.net → .ru).
 
     Ходим через общий httpx_client (учитывает PROXY_URL: с зарубежного IP
-    анонимное API отдаёт HTTP 451, нужен российский выход)."""
+    анонимное API отдаёт HTTP 451, нужен российский выход). Исключение:
+    YM_PROXY_URL — отдельный русский прокси ТОЛЬКО для ЯМ; если прокси умер
+    (сетевая ошибка) — ретрай напрямую, чтобы отдать честную гео-ошибку 451,
+    а не сетевой облом."""
     from services.net import httpx_client
-    async with httpx_client(timeout=20, follow_redirects=True) as c:
-        r = await c.get(f"{URL}{path}")
-        if r.status_code == 200:
-            return r
-        r2 = await c.get(f"{URL_ALT}{path}")
-        if r2.status_code == 200:
-            log.info("ym anon: %s отдал только зеркальный .ru (первичный %s)",
-                     path, r.status_code)
-            return r2
-        return r if r.status_code != 404 else r2 if r2.status_code != 404 else r
+    kw = dict(timeout=20, follow_redirects=True)
+    ym_proxy = settings.YM_PROXY_URL
+    if ym_proxy:
+        kw["proxy"] = ym_proxy
+    try:
+        async with httpx_client(**kw) as c:
+            return await _anon_hosts(c, path)
+    except httpx.TransportError as e:
+        if not ym_proxy:
+            raise
+        log.warning("ym proxy недоступен (%s: %s) — ретрай без прокси",
+                    type(e).__name__, str(e)[:140])
+        async with httpx_client(timeout=20, follow_redirects=True) as c:
+            return await _anon_hosts(c, path)
+
+
+async def _anon_hosts(c: httpx.AsyncClient, path: str) -> httpx.Response:
+    r = await c.get(f"{URL}{path}")
+    if r.status_code == 200:
+        return r
+    r2 = await c.get(f"{URL_ALT}{path}")
+    if r2.status_code == 200:
+        log.info("ym anon: %s отдал только зеркальный .ru (первичный %s)",
+                 path, r.status_code)
+        return r2
+    return r if r.status_code != 404 else r2 if r2.status_code != 404 else r
 
 
 async def anon_playlist_by_login(owner: str, kind: str) -> tuple[str, list[TrackMeta]]:

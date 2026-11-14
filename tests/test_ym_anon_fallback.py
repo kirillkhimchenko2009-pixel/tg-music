@@ -47,3 +47,52 @@ async def test_anon_get_returns_first_when_both_fail(monkeypatch):
                         lambda **kw: client)
     r = await ym._anon_get("/playlist/x")
     assert r.status_code == 451
+
+
+class _DeadClient:
+    """Прокси недоступен: сетевая ошибка при входе в контекст."""
+    async def __aenter__(self):
+        raise httpx.ConnectError("proxy dead")
+
+    async def __aexit__(self, *a):
+        return None
+
+    async def get(self, *a, **kw):
+        raise AssertionError("not expected")
+
+
+async def test_anon_get_uses_ym_proxy(monkeypatch):
+    from core.config import settings
+    from services.providers import yandex as ym
+
+    captured = {}
+    client = _FakeClient({"api.music.yandex.net": 200})
+
+    def fake_httpx_client(**kw):
+        captured.update(kw)
+        return client
+
+    monkeypatch.setattr("services.net.httpx_client", fake_httpx_client)
+    monkeypatch.setattr(settings, "YM_PROXY_URL", "http://ru-proxy:8080")
+    r = await ym._anon_get("/users/x/playlists/1")
+    assert r.status_code == 200
+    assert captured.get("proxy") == "http://ru-proxy:8080"
+
+
+async def test_anon_get_retries_direct_when_proxy_dead(monkeypatch):
+    from core.config import settings
+    from services.providers import yandex as ym
+
+    seen = []
+
+    def fake_httpx_client(**kw):
+        seen.append(kw.get("proxy"))
+        if kw.get("proxy"):
+            return _DeadClient()
+        return _FakeClient({"api.music.yandex.net": 200})
+
+    monkeypatch.setattr("services.net.httpx_client", fake_httpx_client)
+    monkeypatch.setattr(settings, "YM_PROXY_URL", "http://dead-proxy:1")
+    r = await ym._anon_get("/users/x/playlists/1")
+    assert r.status_code == 200
+    assert seen == ["http://dead-proxy:1", None]

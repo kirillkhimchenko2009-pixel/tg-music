@@ -25,6 +25,11 @@ class Settings:
     BOT_PROXY_URL: str = (_raw_bot_proxy if _raw_bot_proxy is not None
                           else os.getenv("PROXY_URL", ""))  # для aiogram/Telegram API
 
+    # Исключение (решение юзера): русский прокси ТОЛЬКО для анонимных запросов
+    # Яндекс.Музыки (импорт плейлистов без токена) — ЯМ гео-блокирует
+    # зарубежные IP (HTTP 451). Остальной трафик не трогаем.
+    YM_PROXY_URL: str = os.getenv("YM_PROXY_URL", "")
+
     # Сторонние ТГ-боты-источники mp3 (запятая/пробел): "@DeezerMusicBot @spotify_down_bot".
     # Боту приходит «артист — название», его аудио-ответ копируется в чат юзера.
     TG_BOTS: list[str] = [u for u in os.getenv("TG_BOTS", "")
