@@ -31,7 +31,6 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
     """Плейлист по ссылке: (title, [TrackMeta]). Адаптировано из bot/links.py."""
     from fastapi import HTTPException as _exc
     from services.authstore import get_token
-    from services.providers import youtube as yt
     from services.providers import yandex as ymx
     from services.providers import zvuk as zv
     from services.providers import soundcloud as scx
@@ -108,7 +107,8 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
             return res
 
     if link.service == "youtube":
-        metas = await yt.playlist(link.id)
+        from services.providers.youtube import YouTubeProvider
+        metas = await YouTubeProvider().playlist(link.id)
         if metas:
             return ("YouTube playlist", metas)
 
