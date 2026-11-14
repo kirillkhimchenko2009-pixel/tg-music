@@ -54,35 +54,53 @@ async def _anon_get(path: str) -> httpx.Response:
 
     Ходим через общий httpx_client (учитывает PROXY_URL: с зарубежного IP
     анонимное API отдаёт HTTP 451, нужен российский выход). Исключение:
-    YM_PROXY_URL — отдельный русский прокси ТОЛЬКО для ЯМ; если прокси умер
-    (сетевая ошибка) — ретрай напрямую, чтобы отдать честную гео-ошибку 451,
+    YM_PROXY_URL — отдельный русский прокси ТОЛЬКО для ЯМ. Публичные
+    прокси рыхлые (большой ответ может обрываться/тянуться долго), поэтому:
+    одна попытка с длинным таймаутом, одна короткая ретрай-попытка, и
+    только затем ретрай напрямую — чтобы отдать честную гео-ошибку 451,
     а не сетевой облом."""
     from services.net import httpx_client
-    kw = dict(timeout=20, follow_redirects=True)
     ym_proxy = settings.YM_PROXY_URL
     if ym_proxy:
-        kw["proxy"] = ym_proxy
-    try:
-        async with httpx_client(**kw) as c:
-            return await _anon_hosts(c, path)
-    except httpx.TransportError as e:
-        if not ym_proxy:
-            raise
-        log.warning("ym proxy недоступен (%s: %s) — ретрай без прокси",
-                    type(e).__name__, str(e)[:140])
-        async with httpx_client(timeout=20, follow_redirects=True) as c:
-            return await _anon_hosts(c, path)
+        for i, tmo in enumerate((httpx.Timeout(60.0, connect=10.0),
+                                 httpx.Timeout(25.0, connect=5.0)), 1):
+            try:
+                async with httpx_client(proxy=ym_proxy, timeout=tmo,
+                                        follow_redirects=True) as c:
+                    return await _anon_hosts(c, path)
+            except httpx.TransportError as e:
+                log.warning("ym proxy попытка %d не удалась (%s: %s)",
+                            i, type(e).__name__, str(e)[:140])
+        log.warning("ym proxy не помог — ретрай напрямую (честная гео-ошибка)")
+    async with httpx_client(timeout=20, follow_redirects=True) as c:
+        return await _anon_hosts(c, path)
 
 
 async def _anon_hosts(c: httpx.AsyncClient, path: str) -> httpx.Response:
+    async def ok(r: httpx.Response) -> bool:
+        if r.status_code != 200:
+            return False
+        try:
+            r.json()
+            return True
+        except ValueError:
+            log.warning("ym anon: %s: 200 с битым телом (обрыв через прокси?)",
+                        path)
+            return False
+
     r = await c.get(f"{URL}{path}")
-    if r.status_code == 200:
+    if await ok(r):
         return r
     r2 = await c.get(f"{URL_ALT}{path}")
-    if r2.status_code == 200:
+    if await ok(r2):
         log.info("ym anon: %s отдал только зеркальный .ru (первичный %s)",
                  path, r.status_code)
         return r2
+    if r.status_code == 200 or r2.status_code == 200:
+        # оба 200, но тела битые — честная ошибка вместо падения на json()
+        raise RuntimeError(
+            "Яндекс.Музыка отдала повреждённый ответ (обрыв через прокси) "
+            "— попробуй ещё раз")
     return r if r.status_code != 404 else r2 if r2.status_code != 404 else r
 
 
