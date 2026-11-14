@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from bot import runtime
+from core.config import settings
 from core.models import PlaylistTrack
 from server.routes.tracks import track_dict
 from server.auth import CurrentUser, tg_user
@@ -67,9 +68,14 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
             raise _exc(400, "Яндекс не отдал плейлист — проверь ссылку или добавь /token")
 
     if link.service == "spotify":
-        res = await SpotifyProvider().playlist(link.id)
+        from services.providers.spotify import SpotifyUnavailable
+        try:
+            res = await SpotifyProvider().playlist(link.id)
+        except SpotifyUnavailable as e:
+            raise _exc(400, str(e))
         if res:
             return res
+        raise _exc(400, "Spotify не отдал плейлист")
 
     if link.service == "soundcloud":
         res = await scx.playlist_by_url(link.id)
@@ -79,7 +85,10 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
                         "(приватные списки недоступны)")
 
     if link.service == "zvuk":
-        res = await zv.get_playlist(link.id, token=zv_tok or None)
+        if not zv_tok and not settings.ZVUK_TOKEN:
+            raise _exc(400, "Звук: плейлисты доступны только с токеном — "
+                            "подключи его командой /token")
+        res = await zv.get_playlist(link.id, token=zv_tok)
         if res:
             return res
 
