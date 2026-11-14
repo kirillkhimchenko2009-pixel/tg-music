@@ -105,8 +105,8 @@ async def test_anon_get_retries_direct_when_proxy_dead(monkeypatch):
     monkeypatch.setattr(settings, "YM_PROXY_URL", "http://dead-proxy:1")
     r = await ym._anon_get("/users/x/playlists/1")
     assert r.status_code == 200
-    # прокси пробуют дважды (длинная + короткая попытка), потом напрямую
-    assert seen == ["http://dead-proxy:1", "http://dead-proxy:1", None]
+    # прокси пробуют 4 раза (длинная+короткая ×2), потом напрямую
+    assert seen == ["http://dead-proxy:1"] * 4 + [None]
 
 
 async def test_anon_get_corrupt_body_falls_to_mirror(monkeypatch):

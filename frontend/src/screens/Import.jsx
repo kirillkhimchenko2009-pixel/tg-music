@@ -18,20 +18,38 @@ const SERVICES = [
 export default function ImportScreen() {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sec, setSec] = useState(0);
   const [res, setRes] = useState(null);
   const [err, setErr] = useState('');
 
   const go = async () => {
     haptic('medium');
-    setBusy(true); setErr(''); setRes(null);
+    setBusy(true); setErr(''); setRes(null); setSec(0);
+    const tick = setInterval(() => setSec(s => s + 1), 1000);
     try {
+      // POST быстро отвечает джобой (202); тяжёлый забор идёт в фоне.
       const j = await api('/api/import', { method: 'POST', body: JSON.stringify({ url }) });
-      haptic('ok');
-      setRes(j);
+      let st = j.job ? null : j;              // мгновенный дедуп-ответ (200)
+      if (j.job) {
+        const t0 = Date.now();
+        while (Date.now() - t0 < 420000) {    // потолок ожидания 7 мин
+          await new Promise(r => setTimeout(r, 2000));
+          st = await api('/api/import/' + j.job);
+          if (st.status === 'done' || st.status === 'error') break;
+        }
+      }
+      if (!st || st.status === 'error') {
+        haptic('error');
+        setErr((st && st.error) || 'импорт не завершился — попробуй ещё раз');
+      } else {
+        haptic('ok');
+        setRes(st);
+      }
     } catch (e) {
       haptic('error');
       setErr(e.message);
     }
+    clearInterval(tick);
     setBusy(false);
   };
 
@@ -53,7 +71,7 @@ export default function ImportScreen() {
         </div>
         <div className="btnrow">
           <button className="bigbtn primary" disabled={busy || !url.trim()} onClick={go}>
-            {busy ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Забираю плейлист…</> : <>Забрать плейлист</>}
+            {busy ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Забираю плейлист{sec ? ` · ${sec} с` : ''}…</> : <>Забрать плейлист</>}
           </button>
         </div>
         {err && <div className="err">{err}</div>}
