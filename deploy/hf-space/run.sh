@@ -3,7 +3,11 @@
 set -e
 cd /app
 python deploy/hf-space/backup.py restore || true
-python deploy/hf-space/backup.py watch &
+# вотчер держим только когда бэкап реально настроен: спящий python
+# без дела — лишние ~40 МБ, на free-инстансе (512 МБ) это не мелочь.
+if [ -n "$BACKUP_REPO" ] && [ -n "$HF_TOKEN" ]; then
+  python deploy/hf-space/backup.py watch &
+fi
 
 # Бот под супервизором: если он упадёт (сбой сети, неверный токен и т.п.) —
 # перезапускаем через 10 с. Сервер при этом продолжает работать и
