@@ -25,6 +25,7 @@ from core.config import settings
 from core.single_instance import acquire
 
 URL_FILE = Path(__file__).resolve().parent.parent / "data" / "tunnel_url.txt"
+WEBAPP_FILE = Path(__file__).resolve().parent.parent / "data" / "webapp_url.txt"
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] ngrok: %(message)s")
@@ -32,7 +33,10 @@ log = logging.getLogger("ngrok")
 
 
 def write_url(url: str) -> None:
+    """Пишем ОБА файла: watch_webapp_url предпочитает webapp_url.txt,
+    застоявшийся pinggy-URL иначе перебивал бы свежий ngrok-адрес."""
     URL_FILE.write_text(url.strip() + "\n", encoding="utf-8")
+    WEBAPP_FILE.write_text(url.strip() + "/v2/\n", encoding="utf-8")
     log.info("URL записан: %s", url)
 
 
