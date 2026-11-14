@@ -78,6 +78,7 @@ export function FadeImg({ src, alt = '', className = '', onError, ...rest }) {
       src={src}
       alt={alt}
       loading="lazy"
+      decoding="async"
       className={'fadeimg' + (ok ? ' on' : '') + (className ? ' ' + className : '')}
       onLoad={() => setOk(true)}
       onError={e => { e.currentTarget.style.visibility = 'hidden'; onError?.(e); }}

@@ -16,15 +16,25 @@ import * as routes from '../routes.js';
 import { useEnterOnce } from '../motion/hooks/useEnterOnce.js';
 import Reveal from '../motion/components/Reveal.jsx';
 
+import heroWave from '../assets/hero-wave.jpg';
+import imgLofi from '../assets/mood-lofi.jpg';
+import imgRock from '../assets/mood-rock.jpg';
+import imgRap from '../assets/mood-rap.jpg';
+import imgDance from '../assets/mood-dance.jpg';
+import imgJazz from '../assets/mood-jazz.jpg';
+import imgSad from '../assets/mood-sad.jpg';
+import imgRoad from '../assets/mood-road.jpg';
+import imgClassic from '../assets/mood-classic.jpg';
+
 const MOODS = [
-  { q: 'lofi beats', g: 'linear-gradient(140deg,#4a5468,#232a36)', ic: '🌙', t: 'Тихий вечер' },
-  { q: 'драйвовый рок', g: 'linear-gradient(140deg,#6b4a3d,#2e201a)', ic: '⚡', t: 'Энергия' },
-  { q: 'русский рэп новинки', g: 'linear-gradient(140deg,#4d5a3a,#222a1a)', ic: '🎤', t: 'Рэп' },
-  { q: 'танцевальная электроника', g: 'linear-gradient(140deg,#3a4d6b,#1a2a3e)', ic: '✦', t: 'Танцпол' },
-  { q: 'джаз кафе', g: 'linear-gradient(140deg,#6b5a3a,#2e261a)', ic: '☕', t: 'Джаз' },
-  { q: 'грустные песни', g: 'linear-gradient(140deg,#4d3d5f,#221a2d)', ic: '💧', t: 'Грусть' },
-  { q: 'road trip indie', g: 'linear-gradient(140deg,#3d6b5d,#1a2e2a)', ic: '🚗', t: 'Дорога' },
-  { q: 'классика фортепиано', g: 'linear-gradient(140deg,#5c5c68,#26262e)', ic: '🎹', t: 'Классика' },
+  { q: 'lofi beats', g: 'linear-gradient(140deg,#4a5468,#232a36)', ic: '🌙', t: 'Тихий вечер', img: imgLofi },
+  { q: 'драйвовый рок', g: 'linear-gradient(140deg,#6b4a3d,#2e201a)', ic: '⚡', t: 'Энергия', img: imgRock },
+  { q: 'русский рэп новинки', g: 'linear-gradient(140deg,#4d5a3a,#222a1a)', ic: '🎤', t: 'Рэп', img: imgRap },
+  { q: 'танцевальная электроника', g: 'linear-gradient(140deg,#3a4d6b,#1a2a3e)', ic: '✦', t: 'Танцпол', img: imgDance },
+  { q: 'джаз кафе', g: 'linear-gradient(140deg,#6b5a3a,#2e261a)', ic: '☕', t: 'Джаз', img: imgJazz },
+  { q: 'грустные песни', g: 'linear-gradient(140deg,#4d3d5f,#221a2d)', ic: '💧', t: 'Грусть', img: imgSad },
+  { q: 'road trip indie', g: 'linear-gradient(140deg,#3d6b5d,#1a2e2a)', ic: '🚗', t: 'Дорога', img: imgRoad },
+  { q: 'классика фортепиано', g: 'linear-gradient(140deg,#5c5c68,#26262e)', ic: '🎹', t: 'Классика', img: imgClassic },
 ];
 
 function greeting() {
@@ -83,7 +93,7 @@ export default function Home() {
 
       {/* большой персональный микс (Моя волна) */}
       <motion.div className="mixcard"
-                  style={{ marginTop: 22 }}
+                  style={{ '--img': `url(${heroWave})`, marginTop: 22 }}
                   initial={intro ? { opacity: 0, y: 16 } : false}
                   animate={{ opacity: 1, y: 0 }}
                   whileHover={{ y: -2 }}
@@ -174,7 +184,8 @@ export default function Home() {
         <SectionHead title="По настроению" />
         <div className="moodgrid">
           {MOODS.map(m => (
-            <button key={m.q} className="mood" style={{ '--g': m.g }}
+            <button key={m.q} className="mood"
+                    style={{ '--g': m.g, '--img': `url(${m.img})` }}
                     onClick={() => { haptic('medium'); routes.goSearch(m.q); }}>
               <span className="ic">{m.ic}</span>
               {m.t}

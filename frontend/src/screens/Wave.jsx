@@ -91,9 +91,13 @@ export default function Wave() {
   const [disc, setDisc] = useState([]);         // карточки открытий
   const [fam, setFam] = useState(null);         // явная степень знакомства
   const [shakeBusy, setShakeBusy] = useState(false);
+  const [autoPend, setAutoPend] = useState(false); // настройка меняется — волна сейчас перезапустится сама
   const booted = useRef(false);
   const scenRef = useRef(null);                 // для fetchMore без устаревания
   const famRef = useRef(null);
+  const restartTimer = useRef(null);            // дебаунс автообновления формулы
+  const engineRef = useRef('auto');
+  engineRef.current = ws?.engine || 'auto';
 
   const setScenBoth = (s) => { scenRef.current = s; setScen(s); };
   const setFamBoth = (v) => { famRef.current = v; setFam(v); };
@@ -239,11 +243,39 @@ export default function Wave() {
     setTimeout(() => setDl(''), 4000);
   };
 
+  /* автообновление: настройка сохранена → волна перезапускается сама.
+     Дебаунс 1.4 с после ПОСЛЕДНЕГО изменения: тапы по чипам не спамят
+     волнами; закрытие шита до таймера применяет изменения сразу. */
+  const clearRestart = () => {
+    if (restartTimer.current) { clearTimeout(restartTimer.current); restartTimer.current = null; }
+  };
+  const flushRestart = () => {
+    clearRestart();
+    setAutoPend(false);
+    setSheet(false);
+    setDirty(false);
+    startWave(engineRef.current);
+  };
+  const scheduleRestart = (delay = 1400) => {
+    clearRestart();
+    setDirty(true);
+    setAutoPend(true);
+    restartTimer.current = setTimeout(() => {
+      restartTimer.current = null;
+      setAutoPend(false);
+      setSheet(false);
+      setDirty(false);
+      startWave(engineRef.current);
+    }, delay);
+  };
+  useEffect(() => () => clearRestart(), []);
+
   const patchFormula = async (patch) => {
     haptic('select');
     try {
       const j = await waveSaveSettings(patch);
-      setWs(j); setSheet(false); setDirty(true);
+      setWs(j);                       // шит оставляем открытым: можно донастроить
+      scheduleRestart();              // волна обновится сама после последнего тапа
     } catch { /* тихая неудача настройки */ }
   };
 
@@ -456,10 +488,11 @@ export default function Wave() {
         )}
       </AnimatePresence>
 
-      <FormulaSheet open={sheet} ws={ws} dirty={dirty} fam={fam}
-        onClose={() => setSheet(false)} onChange={patchFormula}
-        onFam={(v) => { haptic('select'); setFamBoth(v); setDirty(true); }}
-        onRestart={() => { setSheet(false); setDirty(false); startWave(ws?.engine); }} />
+      <FormulaSheet open={sheet} ws={ws} dirty={dirty} fam={fam} autoPend={autoPend}
+        onClose={() => { setSheet(false); if (restartTimer.current) flushRestart(); }}
+        onChange={patchFormula}
+        onFam={(v) => { haptic('select'); setFamBoth(v); scheduleRestart(); }}
+        onRestart={() => { clearRestart(); setSheet(false); setDirty(false); setAutoPend(false); startWave(ws?.engine); }} />
     </div>
   );
 }
@@ -566,7 +599,7 @@ function WaveNoIcon() {
 }
 
 /* ---------------- формула bottom-sheet ---------------- */
-function FormulaSheet({ open, ws, dirty, fam, onClose, onChange, onFam, onRestart }) {
+function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam, onRestart }) {
   const chipOn = (cond) => 'chip' + (cond ? ' on' : '');
   if (!ws) return null;
 
@@ -583,7 +616,9 @@ function FormulaSheet({ open, ws, dirty, fam, onClose, onChange, onFam, onRestar
                        initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
                        transition={{ duration: .2, ease: EASE }}
                        onClick={onRestart}>
-          Формула обновилась — перезапусти волну ⟳
+          {autoPend
+            ? <><span className="minispinner" /> Обновляю волну…</>
+            : 'Формула обновилась — перезапусти волну ⟳'}
         </motion.button>
       )}
 
