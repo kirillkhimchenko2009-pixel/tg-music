@@ -17,6 +17,8 @@ from sqlalchemy import select
 from bot import runtime
 from core.config import settings
 from core.models import Track, PlayEvent
+from music import mediajobs
+from music.config import music_settings
 from server.auth import CurrentUser, is_guest_id, tg_user
 from services import catalog
 from services.providers.base import TrackMeta
@@ -232,6 +234,12 @@ async def download(track_id: int, quality: str = "",
         # Гостевой id — не Telegram chat_id: send_audio/send_document уйдут
         # в никуда и юзер будет ждать вечную загрузку. Честно просим войти.
         raise HTTPException(409, "telegram_required")
+
+    if music_settings.media_role == "app":
+        # Скачивание выполняют воркеры (Botkeep → serv00 → локальный
+        # резерв Render): APP-роль только ставит джобу в очередь Neon.
+        return await _remote_download(uid, int(track_id), quality)
+
     key = (uid, int(track_id), quality)
 
     existing = _INFLIGHT.get(key)
@@ -259,6 +267,28 @@ async def download(track_id: int, quality: str = "",
     _ACTIVE_TASKS.add(task)
     task.add_done_callback(_ACTIVE_TASKS.discard)
     return {"job": job_id}
+
+
+async def _remote_download(uid: int, track_id: int, quality: str) -> dict:
+    """APP-роль: скачивание выполняют воркеры, поэтому дедуп и лимит —
+    по очереди в Neon, а не по памяти процесса. Контракт ответов тот же,
+    что у локального пути ({"job": id} / {"job": id, "deduplicated": True}),
+    прогресс веб-апп опрашивает тот же GET /api/jobs/{id}."""
+    async with runtime.get_session() as s:
+        t = await catalog.get_track(s, track_id)
+        if not t:
+            raise HTTPException(404, "нет такого трека")
+        active = await mediajobs.find_active(s, track_id, uid)
+        if active is not None:
+            return {"job": active.id, "deduplicated": True}
+        if await mediajobs.count_active(s, uid) >= _MAX_ACTIVE_DOWNLOADS:
+            raise HTTPException(429, "Слишком много одновременных загрузок. "
+                                     "Дождись завершения текущих.")
+        job = await mediajobs.create_job(s, track_id=track_id, uid=uid,
+                                         quality=quality, source=t.source)
+        await s.commit()
+    return {"job": job.id}
+
 
 _BOT = None
 
@@ -395,10 +425,19 @@ async def _deliver_job(job_id: str, user_id: int, track_id: int, quality: str):
 async def job_status(job_id: str, user: CurrentUser = Depends(tg_user)):
     _prune_jobs()
     status = JOB_STATUS.get(job_id)
-    if not status or int(status.get("user", -1)) != int(user.id):
-        # Чужой job неотличим от несуществующего: не раскрываем id.
-        raise HTTPException(404, "нет такой задачи")
-    return _public_job(status)
+    if status is not None:
+        if int(status.get("user", -1)) != int(user.id):
+            # Чужой job неотличим от несуществующего: не раскрываем id.
+            raise HTTPException(404, "нет такой задачи")
+        return _public_job(status)
+    # APP-роль: джобы очереди живут в Neon (созданы этим же/другим
+    # инстансом, исполняются воркерами или локальным резервом).
+    if music_settings.media_role == "app":
+        async with runtime.get_session() as s:
+            job = await mediajobs.get_job(s, job_id)
+        if job and job.uid == int(user.id):
+            return mediajobs.public_view(job)
+    raise HTTPException(404, "нет такой задачи")
 
 # ---------------- потоковый плеер ----------------
 _FILE_PATH_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (tg file_path, expire)

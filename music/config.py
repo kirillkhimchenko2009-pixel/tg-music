@@ -40,6 +40,22 @@ def _list(name: str) -> list[str]:
     return [x.strip().lower() for x in raw.replace(";", ",").split(",") if x.strip()]
 
 
+def _env_any(*names: str, default: str = "") -> str:
+    """Первое непустое значение из списка имён (поддержка алиасов env)."""
+    for n in names:
+        v = os.getenv(n)
+        if v and v.strip():
+            return v.strip()
+    return default
+
+
+def _float_any(default: float, *names: str) -> float:
+    try:
+        return float(_env_any(*names, default=str(default)) or default)
+    except ValueError:
+        return default
+
+
 @dataclass(slots=True)
 class MusicSettings:
     enabled: bool = field(default_factory=lambda: _bool("MUSIC_ENABLED", True))
@@ -96,6 +112,25 @@ class MusicSettings:
         "MUSIC_MAX_UPLOAD_MB", 2000 if core_settings.BOT_API_URL else 50))
     audio_caption_limit: int = 1024
     document_caption_limit: int = 1024
+
+    # --- распределённые роли серверов (тянущая очередь скачиваний в Neon) ---
+    # local: всё в одном процессе (без env — прежнее поведение);
+    # app: бот+мини-апп+стрим, скачивание уезжает в очередь media_download_jobs
+    #      (локальный воркер Render — последний резерв);
+    # worker: только скачивания (run_worker.py на Botkeep/serv00), без поллинга ТГ.
+    media_role: str = field(default_factory=lambda: _env("MEDIA_ROLE", "local").lower())
+    worker_name: str = field(default_factory=lambda: _env("MEDIA_WORKER_NAME", "local"))
+    # Приоритет воркеров настраивается интервалом опроса: Botkeep 3–5 с
+    # успевает раньше serv00 20–30 с — «запасной при загруженности» без роутинга.
+    worker_poll_sec: float = field(
+        default_factory=lambda: _float_any(3.0, "MEDIA_POLL_SEC", "MUSIC_POLL_SEC"))
+    local_poll_sec: float = field(
+        default_factory=lambda: _float_any(60.0, "MEDIA_LOCAL_POLL_SEC"))
+    lease_ttl_sec: int = field(default_factory=lambda: _int("MEDIA_LEASE_TTL_SEC", 900))
+    local_fallback_sec: int = field(
+        default_factory=lambda: _int("MEDIA_LOCAL_FALLBACK_SEC", 90))
+    worker_caps_ffmpeg: bool = field(default_factory=lambda: _bool("MEDIA_CAPS_FFMPEG", True))
+    media_max_attempts: int = field(default_factory=lambda: max(1, _int("MEDIA_MAX_ATTEMPTS", 3)))
 
     # шифрование необязательных кредов в БД
     credential_key: str = field(default_factory=lambda: _env("MUSIC_CREDENTIAL_KEY") or core_settings.BOT_TOKEN)

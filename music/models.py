@@ -124,6 +124,35 @@ class MusicDownloadJob(MusicBase):
     __table_args__ = (Index("ix_music_jobs_user_status", "user_id", "status"),)
 
 
+class MediaDownloadJob(MusicBase):
+    """Джоба распределённой очереди скачиваний (тянущая модель через Neon).
+
+    Роль app вставляет джобы, воркеры (Botkeep/serv00/локальный резерв
+    Render) разбирают их lease-claim'ом (`FOR UPDATE SKIP LOCKED` — два
+    воркера физически не могут взять одну джобу). `uid` — это chat_id
+    приватного чата: у воркеров нет публичного HTTP, файл уходит в чат
+    напрямую через api.telegram.org. Смерть воркера чинится TTL lease.
+    """
+    __tablename__ = "media_download_jobs"
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    track_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    uid: Mapped[int] = mapped_column(BigInteger)                 # == chat_id
+    quality: Mapped[str] = mapped_column(String(12), default="")
+    needs_ffmpeg: Mapped[bool] = mapped_column(Boolean, default=False)  # ytmusic/soundcloud (yt-dlp)
+    status: Mapped[str] = mapped_column(String(12), default="new")      # new | leased | done | error
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_host: Mapped[str | None] = mapped_column(String(64))
+    lease_ts: Mapped[datetime | None] = mapped_column(DateTime)
+    file_id: Mapped[str | None] = mapped_column(String(256))
+    telegram: Mapped[bool] = mapped_column(Boolean, default=False)
+    preview: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    __table_args__ = (Index("ix_media_jobs_pick", "status", "created_at"),)
+
+
 class MusicDownloadHistory(MusicBase):
     __tablename__ = "music_download_history"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

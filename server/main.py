@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from core.config import settings
 from core.db import init_db
 from music.api import router as music_api_router
+from music.config import music_settings
 from music.db import init_music_db
 from server.routes import tracks as tracks_route
 from server.routes import playlists as playlists_route
@@ -42,6 +43,14 @@ async def startup():
         await init_music_db()
     except Exception:  # noqa: BLE001
         logging.getLogger("server").exception("music: таблицы не созданы")
+    # Релиз 1 (распределённые роли): при MEDIA_ROLE=app таблица очереди
+    # media_download_jobs создаётся автоматически (create_all выше), а
+    # локальный воркер Render работает как последний резерв — берёт джобы,
+    # которые ждут дольше MEDIA_LOCAL_FALLBACK_SEC (основные воркеры
+    # Botkeep/serv00 полнят очередь чаще и успевают первыми).
+    if music_settings.media_role == "app":
+        from music import mediajobs
+        mediajobs.start_local_reserve()
 
 @app.on_event("shutdown")
 async def shutdown():
