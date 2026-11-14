@@ -50,8 +50,12 @@ def _web_meta(t) -> TrackMeta:
 
 
 async def _anon_get(path: str) -> httpx.Response:
-    """GET к анонимному API ЯМ с fallback-доменом (.net → .ru)."""
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+    """GET к анонимному API ЯМ с fallback-доменом (.net → .ru).
+
+    Ходим через общий httpx_client (учитывает PROXY_URL: с зарубежного IP
+    анонимное API отдаёт HTTP 451, нужен российский выход)."""
+    from services.net import httpx_client
+    async with httpx_client(timeout=20, follow_redirects=True) as c:
         r = await c.get(f"{URL}{path}")
         if r.status_code == 200:
             return r
