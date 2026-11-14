@@ -90,6 +90,13 @@ async def init_db() -> None:
                 await conn.execute(text(col.format(ifnot="")))
     except Exception:
         pass
+    # Импортированный плейлист — обычный плейлист коллекции (решение юзера):
+    # снимаем касту «import», он больше ничем не отличается от собранного.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE playlists SET source = '' WHERE source = 'import'"))
+    except Exception:
+        pass
     # Wave (М1): на старых базах может не быть 18+-флага трека.
     # Postgres не приводит целочисленный литерал к BOOLEAN (DEFAULT 0/1 →
     # «default expression is of type integer»), SQLite же принимает что угодно.

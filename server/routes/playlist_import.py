@@ -181,7 +181,7 @@ async def _run_import(job_id: str, uid: int, url: str, username: str | None,
         async with runtime.get_session() as s:
             await runtime.ensure_user(s, uid, username, "MiniApp")
             pl = await runtime.get_or_create_playlist(s, uid, (title or "Импорт")[:120])
-            pl.source = "import"
+            # импортированный плейлист — обычный житель коллекции (без касты source="import")
 
             count = len(list((await s.execute(
                 select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id))).scalars()))

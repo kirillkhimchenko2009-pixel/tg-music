@@ -12,7 +12,7 @@ import {
   IcoHeart, IcoPlus, IcoDl, IcoChevR, IcoNote, IcoCheck, IcoX, IcoWave,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
-import { Sheet, layoutSpring, toast } from '../motion/index.js';
+import { Sheet, toast } from '../motion/index.js';
 import Reveal from '../motion/components/Reveal.jsx';
 
 const cimg = u => (!u ? '' : (u.startsWith('http') ? u : API_BASE + u));
@@ -20,7 +20,6 @@ const cimg = u => (!u ? '' : (u.startsWith('http') ? u : API_BASE + u));
 export default function Collection({ sub }) {
   const [items, setItems] = useState(null);
   const [open, setOpen] = useState(null);          // открытый плейлист (id)
-  const [tab, setTab] = useState('mine');
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState('');
 
@@ -34,8 +33,7 @@ export default function Collection({ sub }) {
 
   // sub: null | playlists | likes | albums | artists | history
   const likes = items?.find(p => /любимое/i.test(p.title || ''));
-  const mine = useMemo(() => (items || []).filter(p => !/любимое/i.test(p.title || '') && p.source !== 'import'), [items]);
-  const imported = useMemo(() => (items || []).filter(p => p.source === 'import'), [items]);
+  const mine = useMemo(() => (items || []).filter(p => !/любимое/i.test(p.title || '')), [items]);
 
   useEffect(() => {
     if (sub === 'likes' && likes) setOpen(likes.id);
@@ -47,7 +45,7 @@ export default function Collection({ sub }) {
 
   if (!items) return <div style={{ padding: '18px 2px' }}><Skeletons n={6} grid /></div>;
 
-  const list = sub === '' ? [] : (tab === 'mine' ? mine : imported);
+  const list = mine;
 
   return (
     <div>
@@ -85,24 +83,8 @@ export default function Collection({ sub }) {
           <SectionHead title={sub === 'playlists' ? 'Плейлисты' : 'Мои плейлисты'}
                        action={sub === null ? 'Все' : null}
                        onAction={() => routes.goTab('collection', 'playlists')} />
-          {sub === 'playlists' && (
-            <div style={{ marginBottom: 14 }}>
-              <div className="seg">
-                <button className={'segbtn' + (tab === 'mine' ? ' on' : '')}
-                        onClick={() => { haptic('soft'); setTab('mine'); }}>
-                  {tab === 'mine' && <motion.span layoutId="coll-seg" className="segind" transition={layoutSpring} />}
-                  <span className="seg-lbl">Вы собрали ({mine.length})</span>
-                </button>
-                <button className={'segbtn' + (tab === 'liked' ? ' on' : '')}
-                        onClick={() => { haptic('soft'); setTab('liked'); }}>
-                  {tab === 'liked' && <motion.span layoutId="coll-seg" className="segind" transition={layoutSpring} />}
-                  <span className="seg-lbl">Импортированные ({imported.length})</span>
-                </button>
-              </div>
-            </div>
-          )}
           <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={tab} className="albgrid"
+            <motion.div key="list" className="albgrid"
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0 }}
@@ -123,16 +105,10 @@ export default function Collection({ sub }) {
             </motion.div>
           </AnimatePresence>
           {(sub === 'playlists' && list.length === 0) && (
-            tab === 'liked' ? (
-              <div className="empty" style={{ marginTop: 22 }}>
-                <div className="big float">⇥</div>
-                Импортированные плейлисты появятся здесь — вставь ссылку в «Импорт».
-                <button className="bigbtn primary" style={{ marginTop: 10 }}
-                        onClick={() => routes.goTab('import')}>Импортировать</button>
-              </div>
-            ) : (
-              <div className="muted" style={{ marginTop: 14 }}>Собери первый список — кнопка «Новый плейлист».</div>
-            )
+            <div className="muted" style={{ marginTop: 14 }}>
+              Собери первый список — кнопка «Новый плейлист», или перенеси
+              готовый через «Импорт»: он появится здесь же.
+            </div>
           )}
         </section>
       ) : null}
