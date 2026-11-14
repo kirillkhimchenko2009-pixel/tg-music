@@ -51,17 +51,32 @@ async def _fetch_playlist(url: str, user: CurrentUser) -> tuple[str, list]:
     if link.service == "yandex":
         try:
             if link.extras.get("uuid_mode"):
-                return await ymx.anon_playlist_by_uuid(link.id)
+                try:
+                    return await ymx.anon_playlist_by_uuid(link.id)
+                except Exception:
+                    # lk.<uuid> («Мне нравится») и приватные списки анонимно
+                    # не отдаются (а с зарубежного IP анонимное API геофильтруется)
+                    raise _exc(
+                        400, "Яндекс: такие ссылки (в т.ч. «Мне нравится») "
+                             "работают только с токеном ЯМ или с российского IP — "
+                             "подключи токен командой /token")
             owner = link.extras.get("owner")
             if owner:
+                tok = ym_tok or (settings.YM_TOKEN or None)
                 try:
                     return await ymx.anon_playlist_by_login(owner, link.id)
                 except Exception:
-                    if not ym_tok:
+                    if not tok:
                         raise _exc(
-                            400, "плейлист приватный: подключи токен Яндекс.Музыки командой /token")
-                    return await ymx.get_public_playlist(owner, link.id, ym_tok)
-            raise _exc(400, "не распознал формат ссылки на плейлист ЯМ")
+                            400, "Яндекс не отдал плейлист анонимно. Подключи "
+                                 "токен Яндекс.Музыки командой /token")
+                    try:
+                        return await ymx.get_public_playlist(owner, link.id, tok)
+                    except Exception:
+                        raise _exc(
+                            400, "Яндекс не отдал плейлист (возможно, он приватный)")
+            raise _exc(400, "не распознал формат ссылки на плейлист ЯМ — "
+                            "нужен адрес вида users/<владелец>/playlists/<номер>")
         except _exc:
             raise
         except Exception:

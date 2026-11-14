@@ -7,11 +7,16 @@ import asyncio
 import logging
 from typing import Any
 
+import httpx
+
 from core.config import settings
 from services.providers.base import TrackMeta
 
 log = logging.getLogger("providers.yandex")
 URL = "https://api.music.yandex.net"
+# Анонимное API геофильтруется (с ФРГ-IP .net отдаёт не-200), пробуем зеркальный
+# хост .ru вторым шагом; с RU-IP оба хоста отдают 200.
+URL_ALT = "https://api.music.yandex.ru"
 
 
 def _explicit(o: Any) -> bool:
@@ -44,11 +49,23 @@ def _web_meta(t) -> TrackMeta:
         or str(real.get("contentWarning") or "").lower() == "explicit")
 
 
+async def _anon_get(path: str) -> httpx.Response:
+    """GET к анонимному API ЯМ с fallback-доменом (.net → .ru)."""
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+        r = await c.get(f"{URL}{path}")
+        if r.status_code == 200:
+            return r
+        r2 = await c.get(f"{URL_ALT}{path}")
+        if r2.status_code == 200:
+            log.info("ym anon: %s отдал только зеркальный .ru (первичный %s)",
+                     path, r.status_code)
+            return r2
+        return r if r.status_code != 404 else r2 if r2.status_code != 404 else r
+
+
 async def anon_playlist_by_login(owner: str, kind: str) -> tuple[str, list[TrackMeta]]:
     """Публичный плейлист по ссылкам вида /users/<login>/playlists/<kind> — без токена."""
-    import httpx
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
-        r = await c.get(f"{URL}/users/{owner}/playlists/{kind}")
+    r = await _anon_get(f"/users/{owner}/playlists/{kind}")
     if r.status_code != 200:
         raise RuntimeError(
             "Яндекс не отдал плейлист (код %s). Если он приватный — нужен токен /token"
@@ -65,22 +82,20 @@ async def anon_playlist_by_uuid(uuid: str) -> tuple[str, list[TrackMeta]]:
 
     uuid передаётся как в ссылке (ps.<…> и lk.<…> — значимые префиксы);
     если API не знает префиксную форму — ретраим со снятым префиксом."""
-    import httpx
     candidates = [uuid]
     if "." in uuid:
         bare = uuid.split(".", 1)[1]
         if bare not in candidates:
             candidates.append(bare)
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
-        last_err = None
-        for u in candidates:
-            r = await c.get(f"{URL}/playlist/{u}")
-            if r.status_code == 200:
-                res = r.json().get("result") or {}
-                title = res.get("title") or "Плейлист Яндекс"
-                metas = [_web_meta(t) for t in (res.get("tracks") or [])]
-                return title, [m for m in metas if m.title]
-            last_err = r.status_code
+    last_err = None
+    for u in candidates:
+        r = await _anon_get(f"/playlist/{u}")
+        if r.status_code == 200:
+            res = r.json().get("result") or {}
+            title = res.get("title") or "Плейлист Яндекс"
+            metas = [_web_meta(t) for t in (res.get("tracks") or [])]
+            return title, [m for m in metas if m.title]
+        last_err = r.status_code
     raise RuntimeError(
         "Яндекс не отдал плейлист по uuid (код %s). Если он приватный — нужен токен /token"
         % last_err)
@@ -94,7 +109,9 @@ async def get_public_playlist(owner: str, kind: str, token: str) -> tuple[str, l
         raise RuntimeError(
             "нужен числовой id владельца Яндекс-плейлиста; попробуй ссылку вида "
             "music.yandex.ru/users/<число>/playlists/<kind> или укажи свой плейлист через /token-on-app")
-    pl = await asyncio.to_thread(client.users_playlists, int(kind), int(owner_s))
+    pl = await asyncio.to_thread(
+        client.users_playlists, int(kind),
+        int(owner_s) if owner_s.isdigit() else owner_s)
     if not pl:
         return "Плейлист Яндекс", []
     metas = []
