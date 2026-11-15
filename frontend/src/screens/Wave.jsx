@@ -289,7 +289,11 @@ export default function Wave() {
   })() : undefined;
 
   return (
-    <div className="waves">
+    <div className="waves"
+         style={scen?.colors ? {
+           '--wacc': hexA(scen.colors.accent, .5) || undefined,
+           '--wgl': hexA(scen.colors.glow, .38) || undefined,
+         } : undefined}>
       <div className="wave-aura" style={auraStyle} aria-hidden="true" />
 
       <div className="wave-head">
@@ -322,7 +326,10 @@ export default function Wave() {
               key={s.id}
               className={'wave-scen' + ((scen?.id || 'foryou') === s.id ? ' on' : '')}
               style={(scen?.id || 'foryou') === s.id && s.colors
-                ? { borderColor: hexA(s.colors.accent, .65) || undefined }
+                ? {
+                    borderColor: hexA(s.colors.accent, .65) || undefined,
+                    background: hexA(s.colors.accent, .09) || undefined,
+                  }
                 : undefined}
               whileTap={{ scale: .96 }}
               initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -341,7 +348,7 @@ export default function Wave() {
         {phase === 'ready' && cur ? (
           <motion.div key="wave-ready" className="wave-stage"
                       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      transition={{ duration: .22, ease: EASE }}>
+                      transition={{ duration: .26, ease: EASE }}>
             <div className="wave-covwrap">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
@@ -350,7 +357,7 @@ export default function Wave() {
                   initial={{ opacity: 0, scale: .93, rotate: -1.1 }}
                   animate={{ opacity: 1, scale: 1, rotate: 0 }}
                   exit={{ opacity: 0, scale: 1.04, rotate: 1.1 }}
-                  transition={{ duration: .36, ease: EASE }}
+                  transition={{ duration: .42, ease: EASE }}
                 >
                   <WaveCover track={cur} playing={st.playing} />
                 </motion.div>
@@ -375,7 +382,7 @@ export default function Wave() {
                   initial={{ opacity: 0, y: 7 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -7 }}
-                  transition={{ duration: .22, ease: EASE }}
+                  transition={{ duration: .26, ease: EASE }}
                 >
                   <div className="wave-tname">{cur.title}</div>
                   <div className="wave-tartist">{cur.artist}</div>
