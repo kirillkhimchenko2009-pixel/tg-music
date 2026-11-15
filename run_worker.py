@@ -23,6 +23,10 @@ import os
 import shutil
 import sys
 
+# Маркер сборки: печатается при старте (build=...). Если в консоли его нет —
+# панель запустила старый код, загрузка архива не дошла до файлов.
+WORKER_BUILD = "r2fix1-20261115"
+
 
 async def main() -> None:
     # Воркер часто запускают руками/кроном без MEDIA_ROLE — семантика всё
@@ -60,9 +64,10 @@ async def main() -> None:
         caps = False
 
     poller = mediajobs.MediaJobPoller(caps_ffmpeg=caps)
-    log.info("воркер %s стартует: role=%s poll=%.0fs caps_ffmpeg=%s db=%s",
+    log.info("воркер %s стартует: role=%s poll=%.0fs caps_ffmpeg=%s db=%s build=%s",
              poller.name, music_settings.media_role, poller.poll_sec,
-             poller.caps_ffmpeg, "Neon" if os.getenv("DATABASE_URL") else "local")
+             poller.caps_ffmpeg, "Neon" if os.getenv("DATABASE_URL") else "local",
+             WORKER_BUILD)
     await poller.run_forever()
 
 
