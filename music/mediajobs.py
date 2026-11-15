@@ -123,6 +123,34 @@ async def get_job(session, job_id: str) -> MediaDownloadJob | None:
     return await session.get(MediaDownloadJob, job_id)
 
 
+async def cancel_jobs(session, job_ids) -> int:
+    """Отмена батча: только ещё не забранные ('new') джобы → 'canceled'.
+    Leased доделывает воркер (файл уже в пути), done/error — терминальные.
+    Возвращает число отменённых."""
+    ids = [j for j in job_ids if j]
+    if not ids:
+        return 0
+    res = await session.execute(
+        update(MediaDownloadJob)
+        .where(MediaDownloadJob.id.in_(ids),
+               MediaDownloadJob.status == "new")
+        .values(status="canceled", lease_host=None, lease_ts=None,
+                updated_at=utcnow()))
+    await session.commit()
+    return res.rowcount or 0
+
+
+async def statuses_of(session, job_ids) -> dict[str, str]:
+    """id → статус одним запросом (батч-прогресс без N отдельных чтений)."""
+    ids = [j for j in job_ids if j]
+    if not ids:
+        return {}
+    rows = (await session.execute(
+        select(MediaDownloadJob.id, MediaDownloadJob.status)
+        .where(MediaDownloadJob.id.in_(ids)))).all()
+    return {jid: st for jid, st in rows}
+
+
 async def oldest_new_age_sec(session) -> float:
     """Сколько секунд старейшая 'new' джоба ждёт (диагностика/резерв)."""
     row = (await session.execute(
@@ -341,9 +369,14 @@ async def execute(job: MediaDownloadJob) -> str:
             target = res.track or (await catalog.get_track(s, track_id))
 
             async def deliver_file(target_track, path, q) -> bool:
-                """Полный файл в чат, file_id в Neon, файл с диска — прочь."""
+                """Полный файл в чат, file_id в Neon, файл с диска — прочь.
+                Одна повторная попытка: разовый сетевой моргунок не должен
+                откатывать полноценный файл к 30-сек фрагменту."""
                 from bot.runtime import save_file_id_retry, send_audio_file
                 fid = await send_audio_file(bot, uid, target_track, path)
+                if not fid and bot is not None:
+                    await asyncio.sleep(3)
+                    fid = await send_audio_file(bot, uid, target_track, path)
                 if not fid:
                     return False
                 await mark_done(job.id, file_id=fid, telegram=True)
@@ -495,7 +528,17 @@ class MediaJobPoller:
         log.info("media poller %s: джоба %s (track=%s uid=%s attempt=%s)",
                  self.name, job.id, job.track_id, job.uid, job.attempts)
         try:
-            return await execute(job)
+            return await asyncio.wait_for(
+                execute(job), timeout=music_settings.job_timeout_sec)
+        except asyncio.TimeoutError:
+            # Нормальное скачивание укладывается в минуты; вечное висение
+            # (обычно Telegram-upload без таймеров) — аномалия: отменяем
+            # и возвращаем джобу в очередь, пока попытки не кончились.
+            log.warning("media poller %s: джоба %s не уложилась в %.0f с — отмена",
+                        self.name, job.id, music_settings.job_timeout_sec)
+            retry = job.attempts < music_settings.media_max_attempts
+            await mark_error(job.id, "джоба не уложилась в таймаут", retry=retry)
+            return "done" if not retry else "retry"
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001

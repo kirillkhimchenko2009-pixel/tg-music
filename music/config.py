@@ -131,6 +131,10 @@ class MusicSettings:
         default_factory=lambda: _int("MEDIA_LOCAL_FALLBACK_SEC", 90))
     worker_caps_ffmpeg: bool = field(default_factory=lambda: _bool("MEDIA_CAPS_FFMPEG", True))
     media_max_attempts: int = field(default_factory=lambda: max(1, _int("MEDIA_MAX_ATTEMPTS", 3)))
+    # Жёсткий потолок одной джобы (скачивание+доставка). Лечит вечные
+    # зависания в фазе, где таймеров нет (Telegram-upload большого файла),
+    # не трогая нормальные загрузки (десятки секунд — единицы минут).
+    job_timeout_sec: int = field(default_factory=lambda: _int("MEDIA_JOB_TIMEOUT_SEC", 2400))
 
     # шифрование необязательных кредов в БД
     credential_key: str = field(default_factory=lambda: _env("MUSIC_CREDENTIAL_KEY") or core_settings.BOT_TOKEN)

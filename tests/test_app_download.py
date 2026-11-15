@@ -488,3 +488,82 @@ class TestDeliverJob:
         status = tracks.JOB_STATUS[job_id]
         assert status["status"] == "error"
         assert "provider exploded" in status["error"]
+
+
+# ------------------- Релиз 2.5: пачка («Скачать всё») -------------------
+
+class TestBulkDownload:
+    @pytest.fixture
+    async def bulk_db(self, db_engine, monkeypatch):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        from core.models import Base as CoreBase
+
+        async with db_engine.begin() as conn:
+            await conn.run_sync(CoreBase.metadata.create_all)
+        maker = async_sessionmaker(db_engine, expire_on_commit=False,
+                                   class_=AsyncSession)
+        monkeypatch.setattr(tracks.runtime, "get_session", maker)
+        return maker
+
+    async def _seed_tracks(self, maker):
+        from core.models import Track
+
+        async with maker() as s:
+            t1 = Track(source="yandex", external_id="y:1", title="A",
+                       artist="B")
+            t2 = Track(source="zaycev", external_id="z:1", title="C",
+                       artist="D")
+            s.add_all([t1, t2])
+            await s.commit()
+            return [t1.id, t2.id]
+
+    async def test_enqueues_all_dedups_and_reports_status(self, client,
+                                                          bulk_db):
+        ids = await self._seed_tracks(bulk_db)
+        resp = await client.post("/api/download-bulk",
+                                 json={"track_ids": ids})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        jobs = {j["track_id"]: j["job"] for j in data["jobs"]}
+        assert set(jobs) == set(ids)
+
+        # повторное «скачать всё» → те же джобы (дедуп активных)
+        resp2 = await client.post("/api/download-bulk",
+                                  json={"track_ids": ids})
+        jobs2 = {j["track_id"]: j["job"] for j in resp2.json()["jobs"]}
+        assert jobs2 == jobs
+
+        # статусы одним запросом, только свои джобы
+        resp3 = await client.get("/api/jobs-bulk?ids=" + ",".join(jobs.values()))
+        assert resp3.status_code == 200
+        assert all(v == "new" for v in resp3.json()["jobs"].values())
+
+    async def test_other_user_sees_nothing(self, client, app, bulk_db):
+        ids = await self._seed_tracks(bulk_db)
+        resp = await client.post("/api/download-bulk",
+                                 json={"track_ids": ids})
+        job_ids = [j["job"] for j in resp.json()["jobs"]]
+        app.dependency_overrides[tg_user] = lambda: CurrentUser(id=99)
+        foreign = await client.get("/api/jobs-bulk?ids=" + ",".join(job_ids))
+        assert foreign.json()["jobs"] == {}
+
+    async def test_guest_is_rejected(self):
+        app = FastAPI()
+        app.include_router(tracks.router)
+        app.dependency_overrides[tg_user] = lambda: CurrentUser(
+            id=1_000_000_000_123)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://test") as http:
+            response = await http.post("/api/download-bulk",
+                                       json={"track_ids": [5]})
+        assert response.status_code == 409
+        assert response.json()["detail"] == "telegram_required"
+
+    async def test_unknown_tracks_are_skipped(self, client, bulk_db):
+        resp = await client.post("/api/download-bulk",
+                                 json={"track_ids": [987654]})
+        assert resp.status_code == 200
+        assert resp.json() == {"jobs": [], "total": 0}

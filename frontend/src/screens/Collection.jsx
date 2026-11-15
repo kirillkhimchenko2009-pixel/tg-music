@@ -289,24 +289,33 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   const downloadAll = async () => {
     if (!tracks?.length || prog) return;
     haptic('medium');
-    let done = 0;
-    setProg({ done, total: tracks.length });
-    for (const t of tracks) {
-      if (t.ready) { done += 1; setProg({ done, total: tracks.length }); continue; }
+    const ids = tracks.map(t => t.id);
+    setProg({ done: 0, total: ids.length });
+    let jobs;
+    try {
+      const res = await api('/api/download-bulk', {
+        method: 'POST',
+        body: JSON.stringify({ track_ids: ids }),
+      });
+      jobs = (res.jobs || []).map(j => j.job);
+    } catch (e) {
+      if (e.message === 'telegram_required') { setProg(null); return; }
+      toast('Не удалось поставить загрузку: ' + e.message, { kind: 'error' });
+      setProg(null);
+      return;
+    }
+    const total = jobs.length;
+    for (let it = 0; it < 700; it++) {
+      await new Promise(r => setTimeout(r, 2000));
+      let st;
       try {
-        const { job } = await api('/api/download?track_id=' + t.id, { method: 'POST' });
-        let it = 0;
-        while (it++ < 400) {
-          const st = await api('/api/jobs/' + job);
-          if (st.status === 'done' || st.status === 'error') break;
-          await new Promise(r => setTimeout(r, 1500));
-        }
-      } catch (e) {
-        if (e.message === 'telegram_required') { setProg(null); return; }
-        /* следующий */
-      }
-      done += 1;
-      setProg({ done, total: tracks.length });
+        st = await api('/api/jobs-bulk?ids=' + jobs.join(','));
+      } catch { continue; }
+      const vals = Object.values(st.jobs || {});
+      const done = vals.filter(s => s === 'done').length;
+      const settled = vals.filter(s => s === 'done' || s === 'error' || s === 'canceled').length;
+      setProg({ done, total });
+      if (settled >= total) break;
     }
     haptic('ok');
     toast('Плейлист скачан в чат', { kind: 'success' });

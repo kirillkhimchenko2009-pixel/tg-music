@@ -290,6 +290,67 @@ async def _remote_download(uid: int, track_id: int, quality: str) -> dict:
     return {"job": job.id}
 
 
+class BulkDownloadBody(BaseModel):
+    track_ids: list[int]
+
+
+_BULK_MAX = max(1, int(os.getenv("WEBAPP_BULK_MAX", "200")))
+
+
+@router.post("/download-bulk")
+async def download_bulk(body: BulkDownloadBody,
+                        user: CurrentUser = Depends(tg_user)):
+    """Пачка треков («Скачать всё») — одним запросом в очередь Neon.
+
+    APP-роль: каждый трек → джоба (дедуп по активной джобе юзера/трека).
+    Лимит одиночных загрузок сюда не применяется: работу сериализует сама
+    очередь (воркер качает по одной джобе), а не счётчик процесса.
+    Файлы в чат шлют воркеры; прогресс — GET /api/jobs-bulk?ids=..."""
+    uid = int(user.id)
+    if is_guest_id(uid):
+        # Гостевой id — не Telegram chat_id: файлы уйдут в никуда.
+        raise HTTPException(409, "telegram_required")
+    ids = list(dict.fromkeys(int(t) for t in body.track_ids))[:_BULK_MAX]
+    if not ids:
+        return {"jobs": [], "total": 0}
+    quality = settings.DEFAULT_QUALITY
+    out: list[dict] = []
+    async with runtime.get_session() as s:
+        tracks = (await s.execute(
+            select(Track).where(Track.id.in_(ids)))).scalars().all()
+        by_id = {t.id: t for t in tracks}
+        for tid in ids:
+            t = by_id.get(tid)
+            if t is None:
+                continue
+            active = await mediajobs.find_active(s, tid, uid)
+            if active is not None:
+                out.append({"track_id": tid, "job": active.id})
+                continue
+            job = await mediajobs.create_job(s, track_id=tid, uid=uid,
+                                             quality=quality, source=t.source)
+            await s.commit()
+            out.append({"track_id": tid, "job": job.id})
+    return {"jobs": out, "total": len(out)}
+
+
+@router.get("/jobs-bulk")
+async def jobs_bulk(ids: str = "", user: CurrentUser = Depends(tg_user)):
+    """Статусы списка СВОИХ джоб одним запросом: {id: статус}.
+    Фильтр по uid — чужие джобы не раскрываются даже по угаданному id."""
+    uid = int(user.id)
+    want = [x for x in (p.strip() for p in ids.split(",")) if x][:400]
+    if not want:
+        return {"jobs": {}}
+    from music.models import MediaDownloadJob
+    async with runtime.get_session() as s:
+        rows = (await s.execute(
+            select(MediaDownloadJob.id, MediaDownloadJob.status)
+            .where(MediaDownloadJob.id.in_(want),
+                   MediaDownloadJob.uid == uid))).all()
+    return {"jobs": {jid: st for jid, st in rows}}
+
+
 _BOT = None
 
 async def _bot():

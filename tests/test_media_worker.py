@@ -45,8 +45,9 @@ async def _seed_track(s, source: str = "yandex"):
 
 async def _insert_job(maker, **kwargs) -> MediaDownloadJob:
     kwargs.setdefault("attempts", 0)
+    status = kwargs.pop("status", "new")
     async with maker() as s:
-        job = MediaDownloadJob(id=mediajobs.new_job_id(), status="new",
+        job = MediaDownloadJob(id=mediajobs.new_job_id(), status=status,
                                created_at=utcnow(),
                                updated_at=utcnow(), **kwargs)
         s.add(job)
@@ -342,6 +343,83 @@ class TestPoller:
             row = await s2.get(MediaDownloadJob, j.id)
             assert row.status == "leased"
             assert row.lease_host == "t"
+
+
+# --------------------- Релиз 2.5: батч-хелперы и таймаут джобы ---------------------
+
+class TestCancelAndStatuses:
+    async def test_cancel_jobs_touches_only_new(self, jobs_db):
+        j_new = await _insert_job(jobs_db, track_id=1, uid=10, attempts=1)
+        j_leased = await _insert_job(jobs_db, track_id=2, uid=10, attempts=1,
+                                     status="leased")
+        j_done = await _insert_job(jobs_db, track_id=3, uid=10, attempts=1,
+                                   status="done")
+        async with jobs_db() as s:
+            n = await mediajobs.cancel_jobs(s, [j_new.id, j_leased.id,
+                                                j_done.id])
+            assert n == 1                       # только 'new'
+            st = await mediajobs.statuses_of(
+                s, [j_new.id, j_leased.id, j_done.id])
+        assert st[j_new.id] == "canceled"
+        assert st[j_leased.id] == "leased"      # доделывается воркером
+        assert st[j_done.id] == "done"
+
+    async def test_statuses_of_empty_and_unknown(self, jobs_db):
+        async with jobs_db() as s:
+            assert await mediajobs.statuses_of(s, []) == {}
+            assert await mediajobs.statuses_of(s, ["нет-такого"]) == {}
+
+
+class TestJobTimeout:
+    async def test_hanging_job_cancelled_and_sent_back(self, jobs_db,
+                                                       monkeypatch):
+        poller = mediajobs.MediaJobPoller(name="t", poll_sec=0.01)
+        monkeypatch.setattr(mediajobs, "AsyncSessionLocal", jobs_db)
+        old = music_settings.job_timeout_sec
+        music_settings.job_timeout_sec = 1      # таймаут на 1 с
+
+        async def hanging(job):                 # вечное «висение» (upload)
+            await asyncio.sleep(60)
+        monkeypatch.setattr(mediajobs, "execute", hanging)
+        try:
+            async with jobs_db() as s:
+                j = await mediajobs.create_job(s, **_mk_job_kwargs(track_id=7))
+                j.created_at = utcnow() - timedelta(seconds=5)
+                await s.commit()
+                jid = j.id
+            outcome = await asyncio.wait_for(poller.tick(), timeout=10)
+            assert outcome == "retry"           # попытки ещё есть → в очередь
+            async with jobs_db() as s2:
+                row = await s2.get(MediaDownloadJob, jid)
+                assert row.status == "new"
+                assert row.lease_host is None
+        finally:
+            music_settings.job_timeout_sec = old
+
+    async def test_hanging_job_after_max_attempts_is_error(self, jobs_db,
+                                                           monkeypatch):
+        poller = mediajobs.MediaJobPoller(name="t", poll_sec=0.01)
+        monkeypatch.setattr(mediajobs, "AsyncSessionLocal", jobs_db)
+        old = music_settings.job_timeout_sec
+        music_settings.job_timeout_sec = 1
+
+        async def hanging(job):
+            await asyncio.sleep(60)
+        monkeypatch.setattr(mediajobs, "execute", hanging)
+        try:
+            async with jobs_db() as s:
+                j = await _insert_job(
+                    jobs_db, track_id=8, uid=10, quality="aac320",
+                    attempts=music_settings.media_max_attempts - 1)
+                jid = j.id
+            # claim поднимет attempts до max → таймаут = терминальная ошибка
+            outcome = await asyncio.wait_for(poller.tick(), timeout=10)
+            assert outcome == "done"
+            async with jobs_db() as s2:
+                row = await s2.get(MediaDownloadJob, jid)
+                assert row.status == "error"
+        finally:
+            music_settings.job_timeout_sec = old
 
 
 # --------------------- Релиз 1.5: хаб бота через очередь ---------------------

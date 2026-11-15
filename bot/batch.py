@@ -1,7 +1,8 @@
 """Массовая обработка списка треков (из ссылки на плейлист, txt-файла или сообщения списком).
 
-Плейлисты любого размера качаются целиком: чанками по BATCH_CHUNK треков,
-с общим прогрессом, оценкой остатка времени и кнопкой «✖ Остановить»."""
+Пачка любого размера ставится в очередь Neon целиком (Релиз 2.5): воркеры
+качают параллельно с резервом Render, файлы приходят в чат по мере
+готовности, бот ведёт счётчик прогресса и умеет отменять незабранные джобы."""
 import asyncio
 import logging
 import time
@@ -19,12 +20,14 @@ from services.providers.base import TrackMeta
 router = Router(name="batch")
 log = logging.getLogger("bot.batch")
 
-BATCH_CHUNK = 100  # размер части (для отображения прогресса)
+BATCH_CHUNK = 100  # шаг отображения в стартовой сводке (историческое имя)
 
 # занятые юзеры и их задачи; CANCEL — флаг-запрос на остановку
 BUSY: set[int] = set()
 CANCEL: set[int] = set()
 TASKS: dict[int, asyncio.Task] = {}
+# id джоб текущего батча юзера (для отмены 'new' джоб в очереди)
+BATCH_JOBS: dict[int, list[str]] = {}
 
 
 def external_kb(count: int) -> InlineKeyboardMarkup:
@@ -59,76 +62,150 @@ async def start_batch(message: types.Message, title: str, metas: list[TrackMeta]
         reply_markup=external_kb(n))
 
 
-async def _resolve_and_send(bot, chat_id: int, session, meta: TrackMeta,
-                            quality: str, user_id: int | None = None) -> bool:
-    track = await catalog.upsert_track(session, meta)
-    await session.commit()
-    return await runtime.deliver_track(bot, chat_id, session, track, quality,
-                                       user_id=user_id)
-
-
 async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
                     quality: str) -> tuple[int, list[str]]:
-    """Качает ВСЮ пачку чанками по 100: (отправлено, пропущено). В фоне."""
+    """Пачка → очередь Neon (Релиз 2.5): бот только ставит джобы и следит.
+
+    Скачивание и отправку файлов в чат выполняют воркеры (Botkeep →
+    serv00 → резерв Render), поэтому APP-хост не тянет yt-dlp в память
+    и пачки любого размера не блокируют друг друга. Прогресс — счётчик
+    статусов всех джоб батча; отмена (cb_extstop) = 'canceled' для ещё
+    не забранных джоб. Возвращает (готово, [неудавшиеся]) — контракт
+    прежний.
+    """
+    from music import mediajobs
+
     total = len(metas)
-    chunks = max(1, -(-total // BATCH_CHUNK))
     stop_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✖ Остановить", callback_data="extstop")]])
-    msg = await bot.send_message(chat_id,
-                                 f"⬇ Качаю в фоне: всего <b>{total}</b> · частей "
-                                 f"<b>{chunks}</b>\nОкно можно оставить открытым.",
-                                 reply_markup=stop_kb)
-    sent, skipped = 0, []
+    msg = await bot.send_message(
+        chat_id, f"⬇ Ставлю в очередь: <b>{total}</b> треков\n"
+                 "Файлы будут приходить в чат по мере готовности.",
+        reply_markup=stop_kb)
+
+    # --- постановка в очередь: дедуп по активной джобе, по одной джобе за раз
+    # BATCH_JOBS ссылается на ЖИВОЙ список: отмена видна даже во время постановки
+    job_ids: list[str] = []
+    BATCH_JOBS[user_id] = job_ids
     t0 = time.monotonic()
-    last_edit = 0.0
-    stopped = False
-
-    for c_num in range(chunks):
-        piece = metas[c_num * BATCH_CHUNK:(c_num + 1) * BATCH_CHUNK]
-        async with runtime.get_session() as session:
-            for j, meta in enumerate(piece, 1):
-                gi = c_num * BATCH_CHUNK + j
-                if user_id in CANCEL:
-                    stopped = True
-                    break
-                try:
-                    ok = await _resolve_and_send(bot, chat_id, session, meta,
-                                                 quality, user_id=user_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("трек %s упал в батче", meta.display())
-                    ok = False
-                if ok:
-                    sent += 1
-                else:
-                    skipped.append(meta.display())
-                now = time.monotonic()
-                if now - last_edit >= 5.0 and gi < total:
-                    last_edit = now
-                    rate = (now - t0) / max(gi, 1)
-                    eta = rate * (total - gi)
-                    try:
-                        await msg.edit_text(
-                            f"⬇ {gi}/{total} · часть {c_num + 1}/{chunks}"
-                            f" · ✅ {sent} · ⛔ {len(skipped)}\nОсталось {_fmt_eta(eta)}",
-                            reply_markup=stop_kb)
-                    except Exception:
-                        pass
-                await runtime.throttle.wait(chat_id)
-            if stopped:
-                break
-
-    tail = ""
-    if skipped:
-        tail = "\n\n<b>Не удалось:</b>\n" + "\n".join(f"• {s}" for s in skipped[:15])
-        if len(skipped) > 15:
-            tail += f"\n… +{len(skipped) - 15}"
-    prefix = "⏹ Остановлено" if stopped else "✅ Готово"
     try:
-        await msg.edit_text(f"{prefix}: {sent}/{total}{tail}")
-    except Exception:
-        pass
+        async with runtime.get_session() as session:
+            for meta in metas:
+                if user_id in CANCEL:
+                    break
+                track = await catalog.upsert_track(session, meta)
+                await session.commit()
+                active = await mediajobs.find_active(session, track.id, user_id)
+                if active is not None:
+                    job_ids.append(active.id)
+                    continue
+                job = await mediajobs.create_job(
+                    session, track_id=track.id, uid=user_id,
+                    quality=quality, source=track.source)
+                await session.commit()
+                job_ids.append(job.id)
+    except Exception:  # noqa: BLE001
+        log.exception("батч %s: постановка в очередь упала", user_id)
+
+    # --- вотчер: статусы всех джоб одним запросом, правка не чаще 5 с
+    sent, settled, stopped = 0, 0, False
+    errored, canceled = 0, 0
+    failed: list[str] = []
+    deadline = time.monotonic() + max(45 * 60.0, 150.0 * total)
+    last_edit = 0.0
+    st_map: dict[str, str] = {}
+    while job_ids and time.monotonic() < deadline:
+        if user_id in CANCEL:
+            stopped = True
+            break
+        await asyncio.sleep(2.5)
+        try:
+            async with runtime.get_session() as session:
+                st_map = await mediajobs.statuses_of(session, job_ids)
+        except Exception:  # noqa: BLE001
+            continue                    # БД/сеть моргнули — вотчер живёт
+        done = sum(1 for v in st_map.values() if v == "done")
+        errored = sum(1 for v in st_map.values() if v == "error")
+        canceled = sum(1 for v in st_map.values() if v == "canceled")
+        new_settled = done + errored + canceled
+        if new_settled == settled:
+            continue
+        settled = new_settled
+        now = time.monotonic()
+        if now - last_edit < 5.0 and settled < total:
+            continue
+        last_edit = now
+        eta = (total - settled) * (now - t0) / max(settled, 1)
+        extra = f" · ⏹ {canceled}" if canceled else ""
+        tail = f"\nОсталось {_fmt_eta(eta)}" if settled < total else ""
+        try:
+            await msg.edit_text(
+                f"⬇ Готово: <b>{done}</b>/{total} · ⛔ {errored}{extra}{tail}",
+                reply_markup=stop_kb if settled < total else None)
+        except Exception:  # noqa: BLE001
+            pass
+        if settled >= total:
+            break
+
+    # финальный снапшот (после отмены/дедлайна статусы могли догнать)
+    if job_ids:
+        try:
+            async with runtime.get_session() as session:
+                st_map = await mediajobs.statuses_of(session, job_ids)
+        except Exception:  # noqa: BLE001
+            pass
+    sent = sum(1 for v in st_map.values() if v == "done")
+    errored = sum(1 for v in st_map.values() if v == "error")
+    canceled = sum(1 for v in st_map.values() if v == "canceled")
+    settled = sent + errored + canceled
+    failed = [m.display() for m, jid in zip(metas, job_ids)
+              if st_map.get(jid) == "error"]
+
+    if not job_ids:
+        try:
+            await msg.edit_text("⚠️ Не удалось поставить треки в очередь")
+        except Exception:  # noqa: BLE001
+            pass
+    elif stopped:
+        try:
+            await msg.edit_text(
+                f"⏹ Остановлено\n\nОтправлено: <b>{sent}</b>"
+                f" · отменено: {canceled} · не удалось: {errored}",
+                reply_markup=None)
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        tail = ""
+        if failed:
+            tail = ("\n\n<b>Не удалось:</b>\n"
+                    + "\n".join(f"• {s}" for s in failed[:15]))
+            if len(failed) > 15:
+                tail += f"\n… +{len(failed) - 15}"
+        extra = "\nФайлы продолжают приходить в чат" if settled < total else ""
+        try:
+            await msg.edit_text(f"✅ Готово: {sent}/{total}{extra}{tail}",
+                                reply_markup=None)
+        except Exception:  # noqa: BLE001
+            pass
+    BATCH_JOBS.pop(user_id, None)
     CANCEL.discard(user_id)
-    return sent, skipped
+    return sent, failed
+
+
+async def _cancel_batch_jobs(uid: int) -> None:
+    """Отмена батча в очереди: 'new' → 'canceled' (воркер их уже не возьмёт).
+    Leased доделываются — файлы за ними уже в пути."""
+    from music import mediajobs
+    ids = BATCH_JOBS.get(uid) or []
+    if not ids:
+        return
+    try:
+        async with runtime.get_session() as session:
+            n = await mediajobs.cancel_jobs(session, ids)
+        if n:
+            log.info("батч %s: отменено джоб в очереди: %s", uid, n)
+    except Exception:  # noqa: BLE001
+        log.exception("батч %s: отмена джоб в очереди не удалась", uid)
 
 
 def spawn_batch(user_id: int, bot, chat_id: int, metas: list[TrackMeta],
@@ -153,6 +230,7 @@ def spawn_batch(user_id: int, bot, chat_id: int, metas: list[TrackMeta],
             BUSY.discard(user_id)
             TASKS.pop(user_id, None)
             CANCEL.discard(user_id)
+            BATCH_JOBS.pop(user_id, None)
 
     TASKS[user_id] = asyncio.create_task(_job())
     return True
@@ -179,6 +257,9 @@ async def cb_extstop(cb: types.CallbackQuery):
         await cb.answer("Загрузка уже не идёт")
         return
     CANCEL.add(uid)
+    # 'new'-джобы батча отменяем в очереди сразу (воркер их не возьмёт);
+    # отдельной задачей — вотчер может умереть раньше ответа БД
+    asyncio.create_task(_cancel_batch_jobs(uid))
     t = TASKS.get(uid)
     if t and not t.done():
         t.cancel()
