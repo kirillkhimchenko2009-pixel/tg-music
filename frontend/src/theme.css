@@ -1,36 +1,45 @@
 /* ============================================================
-   VIBE MUSIC · Design System v3
-   Премиальный тёмный стриминг: токены, шапка, сайдбар, карточки,
-   плеер, нау-плей, шиты, скелетоны, адаптив, wave-легаси.
+   VIBE MUSIC · Design System v3.1 «Premium Dark»
+   Глубже фон, холоднее поверхности, тоньше бордеры, глубже тени.
+   Фаза 1 редизайна: только токены и точечные правила — классы
+   и логика не меняются (см. frontend/docs/design-research.md).
    ============================================================ */
 
 /* ---------- токены ---------- */
 :root {
-  --bg: #101113;
-  --bg-elev: #151619;
-  --card: #1B1D21;
-  --card-hover: #24272C;
-  --surface2: #222429;
-  --border: #303238;
-  --border-soft: #26282e;
+  /* Premium Dark: почти чёрный синий-графит; поверхности читаются
+     слоями (bg → elev → card), а не бордерами */
+  --bg: #090B11;
+  --bg-elev: #0D1017;
+  --card: #12151D;
+  --card-hover: #191D27;
+  --surface2: #161A23;
+  --border: #232937;
+  --border-soft: #191E29;
 
-  --t1: #F5F5F5;
-  --t2: #A3A6AE;
-  --t3: #777B83;
+  --t1: #F4F6FA;
+  --t2: #9AA3B2;
+  --t3: #666F7E;
 
   --accent: #D9ED3A;
   --accent-hover: #E7F56B;
   --accent-ink: #17190c;
   --danger: #FF6D6D;
 
+  /* материалы: верхний свет на карточках, стеклянная подложка шитов,
+     свечение акцента для главных действий */
+  --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, 0) 38%);
+  --glass: rgba(13, 16, 23, .78);
+  --shadow-glow: 0 0 0 1px rgba(217, 237, 58, .16), 0 10px 34px rgba(217, 237, 58, .12);
+
   --r-xl: 20px;
   --r-lg: 16px;
   --r-md: 12px;
   --r-sm: 10px;
 
-  --shadow-1: 0 2px 10px rgba(0, 0, 0, .25);
-  --shadow-card: 0 12px 32px rgba(0, 0, 0, .38);
-  --shadow-pop: 0 18px 50px rgba(0, 0, 0, .55);
+  --shadow-1: 0 2px 10px rgba(0, 0, 0, .35);
+  --shadow-card: 0 14px 36px rgba(0, 0, 0, .44);
+  --shadow-pop: 0 22px 60px rgba(0, 0, 0, .62);
 
   --spring: cubic-bezier(.34, 1.56, .64, 1);
   --ease: cubic-bezier(.22, .61, .36, 1);
@@ -63,6 +72,8 @@
     --bg: #F3F4F6; --bg-elev: #ECEEF1; --card: #FFFFFF; --card-hover: #F1F2F4;
     --surface2: #E7E9EC; --border: #D4D7DC; --border-soft: #E2E4E8;
     --t1: #16181D; --t2: #565B64; --t3: #8A8F98;
+    --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0) 38%);
+    --glass: rgba(255, 255, 255, .82);
     --shadow-card: 0 12px 32px rgba(30, 34, 40, .10);
     --shadow-pop: 0 18px 50px rgba(30, 34, 40, .18);
   }
@@ -77,7 +88,12 @@ html { color-scheme: dark; height: 100%; }
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  /* ambient оболочки: два статичных свечения (дешевле любого blur) —
+     лайм-акцент сверху справа, холодный контрагент слева */
+  background:
+    radial-gradient(120% 55% at 85% -12%, rgba(217, 237, 58, .045), transparent 58%),
+    radial-gradient(90% 50% at -15% 24%, rgba(96, 120, 255, .05), transparent 60%),
+    var(--bg);
   color: var(--t1);
   font-family: var(--font-ui);
   font-size: 14px;
@@ -104,9 +120,9 @@ input:focus, button:focus-visible {
 ::selection { background: rgba(217, 237, 58, .30); }
 
 /* тонкий фирменный скроллбар */
-* { scrollbar-width: thin; scrollbar-color: #33363d transparent; }
+* { scrollbar-width: thin; scrollbar-color: #2A3140 transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: #33363d; border-radius: 8px; }
+*::-webkit-scrollbar-thumb { background: #2A3140; border-radius: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 /*("----------------layout="shell---------------------------------------------------*/
@@ -1463,7 +1479,12 @@ h1.h {
 /* ---------------- дополнительные компоненты v3 ---------------- */
 .likesrow {
   display: flex; align-items: center; gap: 14px; width: 100%;
-  background: var(--card); border: 1px solid var(--border-soft);
+  /* фирменный материал «Любимого»: тёмно-зелёная глубина + верхний свет,
+     кромка подсвечена акцентом — главный ряд коллекции обязан выделяться */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(140deg, #1D2A20, #0F1319);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border-soft));
   border-radius: var(--r-lg);
   padding: 12px 14px; margin: 18px 0 6px;
   transition: background .18s var(--ease), transform .2s var(--spring);
