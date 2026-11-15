@@ -2,6 +2,7 @@
 caps-фильтр, локальный резерв и исполнитель execute()."""
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -341,3 +342,91 @@ class TestPoller:
             row = await s2.get(MediaDownloadJob, j.id)
             assert row.status == "leased"
             assert row.lease_host == "t"
+
+
+# --------------------- Релиз 1.5: хаб бота через очередь ---------------------
+
+def test_candidate_meta_mapping():
+    from music.domain import TrackCandidate
+    cand = TrackCandidate(provider="jamendo", external_id="42", title="Song",
+                          artist="Artist", album="Alb", duration=200,
+                          year=2020, isrc="ISRC1", explicit=True,
+                          source_url="https://example.com/t",
+                          license_name="CC-BY 4.0")
+    meta = mediajobs.candidate_meta(cand)
+    assert (meta.source, meta.external_id) == ("jamendo", "42")
+    assert meta.title == "Song" and meta.artist == "Artist"
+    assert meta.duration == 200 and meta.year == 2020
+    assert meta.isrc == "ISRC1" and meta.explicit is True
+    assert meta.page_url == "https://example.com/t"
+    assert meta.license == "CC-BY 4.0"
+
+
+class _FakeMsg:
+    def __init__(self):
+        self.edits: list[tuple[str, dict]] = []
+
+    async def edit_text(self, text, **kw):
+        self.edits.append((text, kw))
+
+
+class TestRemoteWatcher:
+    """Вотчер статуса джобы: прогресс из Neon → сообщение бота.
+
+    Состояние джобы меняем ДО старта вотчера: тесты используют общую
+    in-memory SQLite (StaticPool), одновременные сессии на одном
+    соединении ненадёжны; в проде это отдельные соединения к Neon."""
+
+    async def _run(self, monkeypatch, jobs_db, job_id, *, delay=0.01,
+                   max_sec=5.0):
+        import music.telegram.handlers as hmod
+        from music.telegram.progress import ProgressView
+        monkeypatch.setattr(hmod, "AsyncSessionLocal", jobs_db)
+        msg = _FakeMsg()
+        view = ProgressView(msg, title="T", min_interval=0.0)
+        task = asyncio.create_task(
+            hmod._watch_remote_job(view, job_id, "https://fb",
+                                   delay=delay, max_sec=max_sec))
+        return task, msg
+
+    async def test_done_finishes_with_success(self, jobs_db, monkeypatch):
+        job = await _insert_job(jobs_db, track_id=1, uid=10,
+                                quality="aac320", attempts=1)
+        await mediajobs.mark_done(job.id, file_id="f")
+        task, msg = await self._run(monkeypatch, jobs_db, job.id)
+        await asyncio.wait_for(task, timeout=5)
+        last = msg.edits[-1][0]
+        assert "Готово" in last and "файл отправлен в чат" in last
+
+    async def test_preview_note_shown(self, jobs_db, monkeypatch):
+        job = await _insert_job(jobs_db, track_id=2, uid=10, quality="", attempts=1)
+        await mediajobs.mark_done(job.id, file_id="", preview=True)
+        task, msg = await self._run(monkeypatch, jobs_db, job.id)
+        await asyncio.wait_for(task, timeout=5)
+        assert "фрагмент" in msg.edits[-1][0]
+
+    async def test_error_finishes_with_reason(self, jobs_db, monkeypatch):
+        job = await _insert_job(jobs_db, track_id=3, uid=10,
+                                quality="aac320", attempts=1)
+        await mediajobs.mark_error(job.id, "источник недоступен", retry=False)
+        task, msg = await self._run(monkeypatch, jobs_db, job.id)
+        await asyncio.wait_for(task, timeout=5)
+        last = msg.edits[-1][0]
+        assert ("Не удалось получить файл" in last
+                and "источник недоступен" in last)
+
+    async def test_progress_drawn_from_db(self, jobs_db, monkeypatch):
+        job = await _insert_job(jobs_db, track_id=5, uid=10,
+                                quality="aac320", attempts=1)
+        await mediajobs.touch_progress(job.id, 55.0)
+        task, msg = await self._run(monkeypatch, jobs_db, job.id, max_sec=0.2)
+        await asyncio.wait_for(task, timeout=5)
+        rendered = "".join(text for text, _ in msg.edits)
+        assert "55%" in rendered
+
+    async def test_deadline_exits_without_success_edit(self, jobs_db,
+                                                       monkeypatch):
+        job = await _insert_job(jobs_db, track_id=4, uid=10, quality="", attempts=1)
+        task, msg = await self._run(monkeypatch, jobs_db, job.id, max_sec=0.05)
+        await asyncio.wait_for(task, timeout=5)
+        assert all("Готово" not in text for text, _ in msg.edits)

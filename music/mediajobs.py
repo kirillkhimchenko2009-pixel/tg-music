@@ -53,6 +53,27 @@ def needs_ffmpeg_for(source: str) -> bool:
     return (source or "").strip().lower() in FFMPEG_SOURCES
 
 
+def candidate_meta(candidate) -> Any:
+    """TrackCandidate (хаб бота) → TrackMeta каталога: у джобы очереди
+    track_id-ориентированный контракт (как в веб-аппе), поэтому кандидат
+    перед постановкой в очередь попадает в общий каталог (upsert_track)."""
+    from services.providers.base import TrackMeta
+    return TrackMeta(
+        source=candidate.provider,
+        external_id=str(candidate.external_id),
+        title=candidate.title,
+        artist=candidate.artist or "",
+        album=candidate.album or None,
+        year=candidate.year,
+        isrc=candidate.isrc,
+        duration=int(candidate.duration or 0),
+        cover_url=candidate.cover_url,
+        explicit=bool(candidate.explicit),
+        page_url=candidate.source_url or None,
+        license=candidate.license_name or None,
+    )
+
+
 def new_job_id() -> str:
     return uuid.uuid4().hex[:16]
 

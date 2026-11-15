@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import time
 import uuid
 from collections import deque
@@ -621,6 +622,96 @@ async def cb_download(cb: types.CallbackQuery):
     await _start_download(cb, session.results[index])
 
 
+# --------------- распределённая роль app: качают воркеры (Релиз 2/3) ---------------
+
+_REMOTE_WATCHERS: set[asyncio.Task] = set()
+
+
+def _active_limit() -> int:
+    return max(1, int(os.getenv("WEBAPP_MAX_ACTIVE_DOWNLOADS", "3")))
+
+
+async def _start_remote_download(cb: types.CallbackQuery,
+                                 candidate: TrackCandidate,
+                                 view: ProgressView, fallback_url: str) -> None:
+    """MEDIA_ROLE=app: скачивание выполняют воркеры через очередь в Neon.
+
+    Воркер сам пришлёт файл в чат (публичного HTTP у воркеров нет), бот
+    здесь только ставит джобу и рисует прогресс по её статусу. Кнопки
+    «отменить» у удалённых джоб пока нет — неактуальные задачи дворятся
+    TTL lease'а."""
+    from core.config import settings
+    from services import catalog
+    from .. import mediajobs
+
+    user_id = cb.from_user.id
+    try:
+        async with AsyncSessionLocal() as s:
+            t = await catalog.upsert_track(s, mediajobs.candidate_meta(candidate))
+            await s.commit()
+            if await mediajobs.find_active(s, t.id, user_id) is not None:
+                await view.finish("⏳ Эта загрузка уже выполняется…",
+                                  reply_markup=kb.back_menu_kb())
+                return
+            if await mediajobs.count_active(s, user_id) >= _active_limit():
+                await view.finish(
+                    "⏳ Слишком много одновременных загрузок. "
+                    "Дождись завершения текущих.",
+                    reply_markup=kb.back_menu_kb())
+                return
+            job = await mediajobs.create_job(
+                s, track_id=t.id, uid=user_id,
+                quality=settings.DEFAULT_QUALITY, source=t.source)
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.exception("remote enqueue")
+        await view.finish(
+            f"⚠️ Не удалось поставить задачу: {_esc(type(exc).__name__)}",
+            reply_markup=kb.back_menu_kb())
+        return
+
+    await view.update("queued", 0, force=True)
+    task = asyncio.create_task(_watch_remote_job(view, job.id, fallback_url),
+                               name=f"media-watch-{job.id}")
+    _REMOTE_WATCHERS.add(task)
+    task.add_done_callback(_REMOTE_WATCHERS.discard)
+
+
+async def _watch_remote_job(view: ProgressView, job_id: str, fallback_url: str,
+                            delay: float = 3.0, max_sec: float = 45 * 60.0) -> None:
+    """Статус джобы в Neon → прогресс в сообщении бота до терминала."""
+    from .. import mediajobs
+
+    deadline = time.monotonic() + max_sec
+    last_pct = -1
+    while time.monotonic() < deadline:
+        await asyncio.sleep(delay)
+        try:
+            async with AsyncSessionLocal() as s:
+                row = await mediajobs.get_job(s, job_id)
+        except Exception:  # noqa: BLE001
+            continue                    # сеть/БД моргнули — вотчер не падает
+        if row is None:
+            return
+        if row.status == "done":
+            note = " (30-сек фрагмент)" if row.preview else ""
+            await view.finish(f"✅ <b>Готово — файл отправлен в чат</b>{note}",
+                              reply_markup=kb.back_menu_kb())
+            return
+        if row.status == "error":
+            lines = ["⚠️ <b>Не удалось получить файл</b>"]
+            if row.error:
+                lines.append(_esc(row.error[:500]))
+            await view.finish("\n".join(lines),
+                              reply_markup=kb.error_kb(fallback_url))
+            return
+        pct = int(row.progress or 0)
+        if pct != last_pct:
+            last_pct = pct
+            step = "download" if row.status == "leased" else "queued"
+            await view.update(step, pct)
+
+
 async def _start_download(cb: types.CallbackQuery, candidate: TrackCandidate,
                           *, precheck: bool = True) -> None:
     if not _allow(cb.from_user.id):
@@ -649,6 +740,14 @@ async def _start_download(cb: types.CallbackQuery, candidate: TrackCandidate,
     user_id = cb.from_user.id
     chat_id = progress_msg.chat.id
     fallback_url = candidate.source_url or ""
+
+    if music_settings.media_role == "app":
+        # Релиз 1.5: кнопки хаба тоже качают через воркеров — иначе при
+        # MEDIA_ROLE=app локальная очередь всё равно гоняла бы yt-dlp
+        # на Render (источник OOM). Локальный путь остаётся для ролей
+        # local/worker и upload-флоу (файл юзера уже на диске APP-хоста).
+        await _start_remote_download(cb, candidate, view, fallback_url)
+        return
 
     async def on_done(outcome: DownloadOutcome) -> None:
         await _deliver(cb.bot, chat_id, user_id, view, outcome, fallback_url)
