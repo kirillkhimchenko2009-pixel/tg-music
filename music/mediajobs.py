@@ -212,11 +212,15 @@ async def release_stale(session, *, max_attempts: int | None = None,
 
 
 async def touch_progress(job_id: str, progress: float) -> None:
+    """Прогресс + продление lease: долгое легитимное скачивание не должно
+    попадать под release_stale (иначе TTL раз за разом отбирает джобу у
+    живого воркера и сжигает попытки)."""
+    now = utcnow()
     async with AsyncSessionLocal() as session:
         await session.execute(
             update(MediaDownloadJob)
             .where(MediaDownloadJob.id == job_id)
-            .values(progress=float(progress), updated_at=utcnow()))
+            .values(progress=float(progress), lease_ts=now, updated_at=now))
         await session.commit()
 
 
@@ -288,10 +292,7 @@ async def execute(job: MediaDownloadJob) -> str:
     Возвращает "done" (терминальное состояние) или "retry" (вернули в
     очередь — случился транзиентный сбой при незаконченных попытках).
     """
-    from bot import runtime
-    from services import catalog, ingest
-
-    bot = await _bot()
+    bot = None
     uid = job.uid
     track_id = job.track_id
     quality = job.quality
@@ -315,6 +316,13 @@ async def execute(job: MediaDownloadJob) -> str:
         return ok
 
     try:
+        # Ленивые импорты и Bot — ВНУТРИ try: любой их сбой обязан пометить
+        # джобу (mark_error), а не оставлять её leased-зомби до TTL.
+        from bot import runtime
+        from services import catalog, ingest
+
+        bot = await _bot()
+
         from services.catalog import meta_of
         async with runtime.get_session() as s:
             t = await catalog.get_track(s, track_id)
@@ -458,7 +466,8 @@ class MediaJobPoller:
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001
-                    log.warning("media poller %s: цикл упал: %s", self.name, e)
+                    log.warning("media poller %s: цикл упал: %s",
+                                self.name, e, exc_info=True)
                     await asyncio.sleep(min(self.poll_sec * 2, 30))
                     continue
                 # только что освободившийся воркер может сразу брать следующую;
@@ -485,7 +494,18 @@ class MediaJobPoller:
             return "empty"
         log.info("media poller %s: джоба %s (track=%s uid=%s attempt=%s)",
                  self.name, job.id, job.track_id, job.uid, job.attempts)
-        return await execute(job)
+        try:
+            return await execute(job)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            # execute уже обязан ловить своё, но дыра здесь = leased-зомби
+            # до TTL. Падение до/в обход его mark_error гасим тут же.
+            log.error("media poller %s: execute %s упал вне своей обработки:",
+                      self.name, job.id, exc_info=True)
+            retry = job.attempts < music_settings.media_max_attempts
+            await mark_error(job.id, f"execute: {e}"[:200], retry=retry)
+            return "done" if not retry else "retry"
 
 
 # ------------------- локальный резерв APP-хоста -------------------
