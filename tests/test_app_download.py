@@ -567,3 +567,69 @@ class TestBulkDownload:
                                  json={"track_ids": [987654]})
         assert resp.status_code == 200
         assert resp.json() == {"jobs": [], "total": 0}
+
+
+# ------------------- Плейлист целиком → «❤ Любимое» -------------------
+
+class TestLikesBulk:
+    @pytest.fixture
+    async def likes_env(self, db_engine, monkeypatch):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        from core.models import Base as CoreBase
+        from server.routes import playlists
+
+        async with db_engine.begin() as conn:
+            await conn.run_sync(CoreBase.metadata.create_all)
+        maker = async_sessionmaker(db_engine, expire_on_commit=False,
+                                   class_=AsyncSession)
+        monkeypatch.setattr(playlists.runtime, "get_session", maker)
+        app = FastAPI()
+        app.include_router(playlists.router)
+        app.include_router(playlists.likes_router)
+        app.dependency_overrides[tg_user] = lambda: CurrentUser(id=7)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://test") as http:
+            yield http, maker
+
+    async def _seed_tracks(self, maker, n=3):
+        from core.models import Track
+
+        async with maker() as s:
+            ts = [Track(source="yandex", external_id=f"y:{i}",
+                        title=f"T{i}", artist="A") for i in range(n)]
+            s.add_all(ts)
+            await s.commit()
+            return [t.id for t in ts]
+
+    async def test_adds_all_dedups_and_reports(self, likes_env):
+        http, maker = likes_env
+        ids = await self._seed_tracks(maker)
+
+        r1 = await http.post("/api/likes/bulk", json={"track_ids": ids})
+        assert r1.status_code == 200
+        assert r1.json()["added"] == 3
+
+        # повторное «всё в любимое» — ничего не добавилось, всё existing
+        r2 = await http.post("/api/likes/bulk", json={"track_ids": ids})
+        assert r2.json()["added"] == 0
+        assert r2.json()["existing"] == ids
+
+        # GET /api/likes видит все треки
+        r3 = await http.get("/api/likes")
+        assert set(r3.json()["ids"]) == set(ids)
+
+    async def test_unknown_tracks_are_skipped(self, likes_env):
+        http, _maker = likes_env
+        r = await http.post("/api/likes/bulk", json={"track_ids": [424242]})
+        assert r.status_code == 200
+        assert r.json() == {"added": 0, "ids": [], "existing": []}
+
+    async def test_bulk_route_does_not_swallow_toggle(self, likes_env):
+        # POST /api/likes/{id} не сломан новым роутом /bulk
+        http, maker = likes_env
+        ids = await self._seed_tracks(maker, n=1)
+        r = await http.post(f"/api/likes/{ids[0]}")
+        assert r.status_code == 200
+        assert r.json() == {"liked": True}

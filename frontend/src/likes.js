@@ -38,3 +38,30 @@ export async function toggleLike(id) {
   }
   return !was;
 }
+
+/* «Всё в любимое»: пачка треков одним POST-ом. Оптимистично помечаем,
+   сервер вернёт только реально добавленные (existing = уже были) —
+   снимаем лишь те, что он молча пропустил (нет в каталоге). */
+export async function addLikesBulk(list) {
+  const want = list || [];
+  if (!loaded) { try { await loadLikes(); } catch { /* живём и так */ } }
+  const fresh = want.filter(id => !ids.has(id));
+  if (!fresh.length) return { added: 0, ids: [], existing: want };
+  fresh.forEach(id => ids.add(id));
+  emit();
+  try {
+    const j = await api('/api/likes/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ track_ids: want }),
+    });
+    const got = new Set(j.ids || []);
+    const had = new Set(j.existing || []);
+    for (const id of fresh) if (!got.has(id) && !had.has(id)) ids.delete(id);
+    emit();
+    return j;
+  } catch {
+    for (const id of fresh) ids.delete(id);   // откат при сбое сети
+    emit();
+    throw new Error('Не удалось добавить в любимое');
+  }
+}

@@ -81,7 +81,10 @@ async def download_track(meta: TrackMeta, quality: str = "aac320",
         yt_dlp_binary(), "-f", yt_format,
         "-x", "--audio-format", "m4a", "--audio-quality", "320K",
         "--postprocessor-args", "ffmpeg: -b:a 320k",
-        "--embed-metadata", "--embed-thumbnail",
+        "--embed-metadata",
+        # --embed-thumbnail убран: вшитая обложка YouTube (обычно 448px) в
+        # плеерах выглядит размытой/с полями, а постобработка с ней
+        # скачивает картинку и гоняет лишний ffmpeg на каждый трек
         "--no-playlist", "--quiet", "--no-warnings",
         "--retries", "5", "--fragment-retries", "5", "--socket-timeout", "20",
         *yt_dlp_proxy_args(), *yt_extra,
@@ -202,7 +205,7 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
             total = int(resp.headers.get("content-length") or 0)
             done = 0
             with open(out_path, "wb") as f:
-                async for chunk in resp.aiter_bytes(1 << 16):
+                async for chunk in resp.aiter_bytes(1 << 18):
                     f.write(chunk)
                     done += len(chunk)
                     if on_progress and total:
@@ -240,7 +243,7 @@ async def download_innertube(meta: TrackMeta, quality: str = "aac320",
             resp.raise_for_status()
             total = int(resp.headers.get("content-length") or total or 0)
             with open(raw, "wb") as f:
-                async for chunk in resp.aiter_bytes(1 << 16):
+                async for chunk in resp.aiter_bytes(1 << 18):
                     f.write(chunk)
                     done += len(chunk)
                     if on_progress and total:

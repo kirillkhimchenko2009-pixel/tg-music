@@ -1,4 +1,6 @@
 """REST API плейлистов для Mini App."""
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -17,6 +19,10 @@ class PlaylistIn(BaseModel):
 
 class TrackIn(BaseModel):
     track_id: int
+
+
+class LikesBulkIn(BaseModel):
+    track_ids: list[int]
 
 async def _owned_playlist(user: CurrentUser, playlist_id, session):
     from core.models import Playlist
@@ -180,6 +186,48 @@ async def liked_ids(user: CurrentUser = Depends(tg_user)):
             select(PlaylistTrack.track_id).where(PlaylistTrack.playlist_id == pl.id)
         )).scalars().all()
     return {"ids": list(rows)}
+
+
+_LIKES_BULK_MAX = max(1, int(os.getenv("WEBAPP_LIKES_BULK_MAX", "500")))
+
+
+@likes_router.post("/bulk")
+async def likes_bulk(body: LikesBulkIn, user: CurrentUser = Depends(tg_user)):
+    """«Всё в любимое»: весь плейлист → «❤ Любимое» одним запросом.
+
+    Дубликаты списка и уже лайкнутые пропускаются, неизвестные каталогу
+    — мимо. Один INSERT + один коммит: N транзакций по треку на Neon
+    медленны и плодят «database is locked»."""
+    from sqlalchemy import func
+
+    from core.models import PlaylistTrack, Track
+    ids = list(dict.fromkeys(int(t) for t in body.track_ids))[:_LIKES_BULK_MAX]
+    if not ids:
+        return {"added": 0, "ids": [], "existing": []}
+    async with runtime.get_session() as s:
+        pl = await _likes_playlist(user, s)
+        have = set((await s.execute(
+            select(PlaylistTrack.track_id).where(
+                PlaylistTrack.playlist_id == pl.id,
+                PlaylistTrack.track_id.in_(ids)))).scalars())
+        known = set((await s.execute(
+            select(Track.id).where(Track.id.in_(ids)))).scalars())
+        pos = ((await s.execute(
+            select(func.count()).select_from(PlaylistTrack)
+            .where(PlaylistTrack.playlist_id == pl.id))).scalar() or 0)
+        added: list[int] = []
+        existing: list[int] = []
+        for tid in ids:
+            if tid in have:
+                existing.append(tid)
+                continue
+            if tid not in known:
+                continue
+            s.add(PlaylistTrack(playlist_id=pl.id, track_id=tid, position=pos))
+            pos += 1
+            added.append(tid)
+        await s.commit()
+    return {"added": len(added), "ids": added, "existing": existing}
 
 
 @likes_router.post("/{track_id}")

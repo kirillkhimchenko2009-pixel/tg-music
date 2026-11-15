@@ -20,8 +20,6 @@ from services.providers.base import TrackMeta
 router = Router(name="batch")
 log = logging.getLogger("bot.batch")
 
-BATCH_CHUNK = 100  # шаг отображения в стартовой сводке (историческое имя)
-
 # занятые юзеры и их задачи; CANCEL — флаг-запрос на остановку
 BUSY: set[int] = set()
 CANCEL: set[int] = set()
@@ -34,9 +32,11 @@ def external_kb(count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"⬇ Скачать всё ({count}) в ТГ",
                               callback_data="extdl")],
-        [InlineKeyboardButton(text="➕ В мой плейлист",
-                              callback_data="extpl"),
-         InlineKeyboardButton(text="✖ Отмена", callback_data="extcancel")],
+        [InlineKeyboardButton(text="❤ В любимое всё",
+                              callback_data="extfav"),
+         InlineKeyboardButton(text="➕ В мой плейлист",
+                              callback_data="extpl")],
+        [InlineKeyboardButton(text="✖ Отмена", callback_data="extcancel")],
     ])
 
 
@@ -57,7 +57,7 @@ async def start_batch(message: types.Message, title: str, metas: list[TrackMeta]
     n = len(metas)
     head = ", ".join(t.display() for t in metas[:3])
     await message.answer(
-        f"<b>{title}</b>\nТреков: <b>{n}</b> · качаю целиком частями по {BATCH_CHUNK}\n\n"
+        f"<b>{title}</b>\nТреков: <b>{n}</b>\n\n"
         f"Примеры: {head}…\nЧто делаем?",
         reply_markup=external_kb(n))
 
@@ -248,6 +248,50 @@ async def cb_extdl(cb: types.CallbackQuery):
         await cb.answer("Уже качаю список — дождись завершения", show_alert=True)
         return
     await cb.answer("⬇ Качаю в фоне — прогресс придёт сообщениями")
+
+
+@router.callback_query(F.data == "extfav")
+async def cb_extfav(cb: types.CallbackQuery):
+    """Весь список → системный плейлист «❤ Любимое» (без скачивания).
+
+    Треки сначала попадают в каталог (upsert), затем одним INSERT-батчем
+    в «Любимое»: N коммитов по треку на Neon медленны и дают «database
+    is locked». Уже лайкнутые пропускаются."""
+    data = EXT_CACHE.get(cb.from_user.id)
+    if not data:
+        await cb.answer("Список устарел", show_alert=True)
+        return
+    uid = cb.from_user.id
+    from core.models import PlaylistTrack
+    added = 0
+    try:
+        async with runtime.get_session() as s:
+            await runtime.ensure_user(s, uid, cb.from_user.username,
+                                      cb.from_user.first_name or "")
+            pl = await runtime.get_favorites_playlist(s)
+            have = set((await s.execute(
+                select(PlaylistTrack.track_id).where(
+                    PlaylistTrack.playlist_id == pl.id))).scalars())
+            pos = len(have)
+            for meta in data["metas"]:
+                track = await catalog.upsert_track(s, meta)
+                await s.flush()
+                if track.id in have:
+                    continue
+                have.add(track.id)
+                s.add(PlaylistTrack(playlist_id=pl.id, track_id=track.id,
+                                    position=pos))
+                pos += 1
+                added += 1
+            await s.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("extfav %s: добавление в любимое упало", uid)
+        await cb.answer("Не получилось — попробуй ещё раз", show_alert=True)
+        return
+    await cb.answer("❤ Добавляю…" if added else "Всё уже в любимом")
+    tail = "" if added == len(data["metas"]) else "\nОстальные уже были в любимом"
+    await cb.message.answer(
+        f"❤ В «{runtime.FAVORITES_TITLE}» добавлено треков: <b>{added}</b>{tail}")
 
 
 @router.callback_query(F.data == "extstop")

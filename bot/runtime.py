@@ -172,22 +172,12 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
         return False
 
 async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | None:
-    """Загрузка уже скачанного файла в ТГ c обложкой; возвращает file_id."""
-    cover = None
-    try:
-        from pathlib import Path
-        if track and track.cover_url:
-            cover_path = settings.COVERS_DIR / f"{track.id}.jpg"
-            if not cover_path.exists():
-                import httpx
-                async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
-                    r = await c.get(track.cover_url)
-                    r.raise_for_status()
-                    cover_path.write_bytes(r.content)
-            cover = FSInputFile(cover_path)
-    except Exception:
-        cover = None
+    """Загрузка уже скачанного файла в ТГ; возвращает file_id.
 
+    Без обложки (thumbnail): Telegram рисует из неё размытый фон плеера
+    (просили «без блюра»), а заодно отпадают скачивание обложки и её
+    аплоад на каждый трек — в пачках это минуты. Квадрат в списке чата
+    станет иконкой ноты — плата за чистый плеер."""
     from bot.keyboards import action_kb
     in_fav = await _fav_state(chat_id, track.id)
     msg = None
@@ -195,10 +185,11 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
                                     TelegramNetworkError, TelegramRetryAfter)
     for attempt in range(3):
         try:
+            # chunk_size 1 МиБ: дефолтные 64 КиБ душат скорость аплоада —
+            # именно фаза upload чаще всего «зависает»
             msg = await bot.send_audio(
-                chat_id, FSInputFile(path),
+                chat_id, FSInputFile(path, chunk_size=1 << 20),
                 title=track.title or "Трек", performer=track.artist or None,
-                thumbnail=cover,
                 request_timeout=300,
                 reply_markup=action_kb(track.id, in_fav),
             )
@@ -211,16 +202,6 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
             if attempt == 2:
                 raise
             await asyncio.sleep(3 * (attempt + 1))
-        except TelegramBadRequest as e:
-            # Чаще всего Telegram отвергает обложку (размер/формат/битые
-            # пиксели). Из-за этого нельзя терять весь трек и отдавать
-            # 30-секундный фрагмент — повторяем отправку без обложки.
-            if cover is not None:
-                log.warning("send_audio: обложка трека %s отвергнута (%s) — "
-                            "повторяю без неё", track.id, e)
-                cover = None
-                continue
-            raise
     if msg is None:
         raise TelegramNetworkError(method=None, message="send failed after retries")
     audio = msg.audio

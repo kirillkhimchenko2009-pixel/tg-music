@@ -11,6 +11,7 @@ import {
   FadeImg, fmtTime, plural, groupAlbums, gradFor, dominantColor, coverOr,
   IcoHeart, IcoPlus, IcoDl, IcoChevR, IcoNote, IcoCheck, IcoX, IcoWave,
 } from '../ui.jsx';
+import { addLikesBulk, loadLikes } from '../likes.js';
 import * as routes from '../routes.js';
 import { Sheet, toast } from '../motion/index.js';
 import Reveal from '../motion/components/Reveal.jsx';
@@ -265,6 +266,7 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   const [menu, setMenu] = useState(null);                // трек для меню
   const [glow, setGlow] = useState(null);
   const [err, setErr] = useState('');
+  const [favBusy, setFavBusy] = useState(false);         // «Всё в любимое»
 
   useEffect(() => {
     api('/api/playlists').then(d => {
@@ -323,6 +325,21 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   };
 
   const totalDur = (tracks || []).reduce((s, t) => s + (t.duration || 0), 0);
+  const isLikesPl = /любимое/i.test(meta?.title || '');
+  const likeAll = async () => {
+    if (!tracks?.length || favBusy) return;
+    haptic('medium');
+    setFavBusy(true);
+    try {
+      const j = await addLikesBulk(tracks.map(t => t.id));
+      haptic('ok');
+      toast(j.added ? `В «Любимом»: +${j.added}` : 'Всё уже в любимом',
+            { kind: 'success' });
+    } catch (e) {
+      toast(e.message || 'Не получилось', { kind: 'error' });
+    }
+    setFavBusy(false);
+  };
 
   return (
     <div>
@@ -365,6 +382,12 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
           <button className="iconact" onClick={downloadAll} aria-label="Скачать всё" disabled={!!prog}>
             {prog ? <span className="minispinner" /> : <IcoDl />}
           </button>
+          {!isLikesPl && (
+            <button className="iconact" onClick={likeAll}
+                    aria-label="Всё в любимое" disabled={favBusy || !tracks?.length}>
+              {favBusy ? <span className="minispinner" /> : <IcoHeart />}
+            </button>
+          )}
         </div>
         {prog && <div className="np-chip" style={{ marginTop: 12 }}><span className="np-dot" /> Скачиваю: {prog.done}/{prog.total}</div>}
         {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
