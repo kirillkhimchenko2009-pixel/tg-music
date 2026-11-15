@@ -27,8 +27,9 @@ export const scaleIn = (delay = 0) => ({
   exit: { opacity: 0, scale: 0.985, transition: { duration: durations.fast, ease: easings.exit } },
 });
 
-/* Контейнер-стагер: дети проявляются волной, но не более 6–8 шагов. */
-export const staggerContainer = (stagger = 0.045, delayChildren = 0) => ({
+/* Контейнер-стагер: дети проявляются волной, но не более 6–8 шагов.
+   Стаггер чуть свободнее — «волна» читается глазом, а не мельтешит. */
+export const staggerContainer = (stagger = 0.05, delayChildren = 0) => ({
   hidden: {},
   visible: {
     transition: { staggerChildren: stagger, delayChildren },
@@ -62,5 +63,5 @@ export const listItem = {
 export const page = {
   initial: { opacity: 0, y: 7 },
   enter: { opacity: 1, y: 0, transition: { duration: durations.normal, ease: easings.enter } },
-  exit: { opacity: 0, y: -4, transition: { duration: 0.115, ease: easings.exit } },
+  exit: { opacity: 0, y: -4, transition: { duration: 0.15, ease: easings.exit } },
 };

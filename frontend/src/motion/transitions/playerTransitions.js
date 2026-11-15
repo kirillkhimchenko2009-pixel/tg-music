@@ -7,9 +7,9 @@ import { springs } from '../config/springs.js';
 
 export const player = {
   /* общая обложка: 450–650 ms, как в промте */
-  sharedCover: { type: 'spring', stiffness: 240, damping: 30, mass: 1 },
-  surface: { duration: 0.46, ease: easings.emphasized },
-  surfaceExit: { duration: 0.32, ease: easings.exit },
+  sharedCover: { type: 'spring', stiffness: 200, damping: 32, mass: 1 },
+  surface: { duration: durations.slow, ease: easings.emphasized },
+  surfaceExit: { duration: durations.medium, ease: easings.exit },
   content: { duration: durations.medium, ease: easings.enter },
   track: { duration: durations.normal, ease: easings.standard },
   queue: springs.gentle,
@@ -45,7 +45,7 @@ export const queueItemVariants = {
   hidden: { opacity: 0, x: -7 },
   visible: (i = 0) => ({
     opacity: 1, x: 0,
-    transition: { duration: durations.normal, ease: easings.enter, delay: Math.min(i, 12) * 0.028 },
+    transition: { duration: durations.normal, ease: easings.enter, delay: Math.min(i, 12) * 0.035 },
   }),
   exit: { opacity: 0, transition: { duration: durations.fast, ease: easings.exit } },
 };

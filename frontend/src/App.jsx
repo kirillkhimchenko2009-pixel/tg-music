@@ -169,7 +169,7 @@ function SideItem({ view, item }) {
     <motion.button
       className={'side-item' + (on ? ' on' : '')}
       whileTap={{ scale: 0.985 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
       onClick={() => { haptic('soft'); navPush({ tab: item.tab, sub: item.sub || null }); }}
     >
       {on && <motion.span layoutId="side-active" className="side-plate" transition={layoutSpring} />}
@@ -306,7 +306,7 @@ function TabBar({ tab }) {
             key={t.id}
             className={'tab' + (active ? ' on' : '')}
             whileTap={{ scale: 0.94 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
             onClick={() => { haptic('soft'); navPush({ tab: t.id, sub: null }); }}
           >
             {active && <motion.span layoutId="tab-active" className="tab-plate" transition={layoutSpring} />}
@@ -330,7 +330,7 @@ function PlayerBar({ onExpand }) {
       className="pbar"
       initial={{ opacity: 0, y: 26 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 30, mass: 1 }}
+      transition={{ type: 'spring', stiffness: 220, damping: 32, mass: 1 }}
     >
       <motion.div
         className="pcovwrap"
@@ -354,7 +354,7 @@ function PlayerBar({ onExpand }) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: .22, ease: [.16, 1, .3, 1] }}
+            transition={{ duration: .26, ease: [.16, 1, .3, 1] }}
           >
             <div className="pl-title">{cur.title}</div>
             <div className="pl-artist">{cur.artist}</div>
@@ -375,7 +375,7 @@ function PlayerBar({ onExpand }) {
           <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
           <motion.button className="pl-play" aria-label="Играть/пауза"
                          whileTap={{ scale: 0.9 }}
-                         transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+                         transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
                          onClick={() => { haptic('medium'); P.toggle(); }}>
             <PlayPause playing={st.playing} loading={st.loading} />
           </motion.button>
@@ -390,7 +390,7 @@ function PlayerBar({ onExpand }) {
         <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
         <motion.button className="pl-play" aria-label="Играть/пауза"
                        whileTap={{ scale: 0.9 }}
-                       transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .8 }}
+                       transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
                        onClick={() => { haptic('medium'); P.toggle(); }}>
           <PlayPause playing={st.playing} loading={st.loading} />
         </motion.button>
@@ -411,6 +411,12 @@ function PlayerBar({ onExpand }) {
                  onChange={e => P.setVolume(+e.target.value / 100)} />
         </div>
         <button className="pl-ctl" aria-label="Раскрыть плеер" onClick={onExpand}><IcoExpand /></button>
+      </div>
+
+      {/* нитка прогресса по верхней кромке бара (мобайл) */}
+      <div className="pbar-line" aria-hidden="true">
+        <div className="pbar-line-fill"
+             style={{ transform: `scaleX(${st.duration ? Math.min(1, st.currentTime / st.duration) : 0})` }} />
       </div>
     </motion.div>
   );
@@ -469,7 +475,7 @@ function NowPlaying({ onClose }) {
     d.active = false;
     if (!d.locked) return;
     if (y.get() > 110) { haptic('soft'); onClose(); }
-    else animate(y, 0, { type: 'spring', stiffness: 260, damping: 30, mass: 1 });
+    else animate(y, 0, { type: 'spring', stiffness: 220, damping: 32, mass: 1 });
   };
 
   if (!cur) return null;
@@ -494,11 +500,13 @@ function NowPlaying({ onClose }) {
     <motion.div
       ref={scrollRef}
       className="np"
-      style={{ y, '--g': glow ? `radial-gradient(120% 90% at 50% -8%, ${glow}, transparent 68%)` : undefined }}
+      style={{ y,
+               '--g': glow ? `radial-gradient(120% 90% at 50% -8%, ${glow}, transparent 68%)` : undefined,
+               '--g2': glow ? `radial-gradient(70% 70% at 50% 52%, ${glow}, transparent 72%)` : undefined }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: .22, ease: [.2, 0, 0, 1] }}
+      transition={{ duration: .3, ease: [.16, 1, .3, 1] }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
