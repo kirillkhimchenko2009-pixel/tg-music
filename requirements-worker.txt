@@ -1,0 +1,25 @@
+# Воркер скачиваний (run_worker.py) для Botkeep/serv00 — минимальный набор.
+# Состав выверен по фактическим импортам пути execute():
+#   aiogram        — bot.main/bot.runtime/bot.keyboards (sendAudio, клавиатуры)
+#   aiohttp        — транспорт aiogram
+#   sqlalchemy     — AsyncSessionLocal, модели, claim-запросы
+#   asyncpg        — Neon (DATABASE_URL)
+#   aiosqlite      — страховка fallback'а локальной БД
+#   python-dotenv  — core.config грузит .env (Botkeep доставляет env файлом)
+#   httpx          — providers/downloader/net, обложки в bot.runtime
+#   yt-dlp         — ytmusic/soundcloud (нужен ещё ffmpeg в системе; если его
+#                    нет — воркер сам сужает caps и не берёт такие джобы)
+#   numpy          — services.censor (детект цензурных заливок)
+#   mutagen        — разбор/теги аудио в пайплайне
+#   cryptography   — расшифровка токенов источников (authstore)
+aiogram>=3.15
+aiohttp>=3.10
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.29
+aiosqlite>=0.20
+python-dotenv>=1.0
+httpx>=0.27
+yt-dlp>=2024.10.22
+numpy>=1.26
+mutagen>=1.47
+cryptography>=43.0
