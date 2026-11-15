@@ -36,3 +36,10 @@ data/temp/
 
 # binaries are not in the repo
 tools/*.exe
+
+# весь runtime-каталог вне репо: воркеры пишут сюда временные файлы и БД
+data/
+
+# деплой-артефакты (Botkeep/serv00)
+*.zip
+
