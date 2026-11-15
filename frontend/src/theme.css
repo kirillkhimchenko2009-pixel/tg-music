@@ -19,7 +19,7 @@
 
   --t1: #F4F6FA;
   --t2: #9AA3B2;
-  --t3: #666F7E;
+  --t3: #737D8D;   /* ≥4.5:1 на --bg (доступность мелких подписей) */
 
   --accent: #D9ED3A;
   --accent-hover: #E7F56B;
@@ -115,7 +115,8 @@ input { font: inherit; color: inherit; }
 input:focus, button:focus-visible {
   outline: 2px solid rgba(217, 237, 58, .55);
   outline-offset: 2px;
-  border-radius: 6px;
+  /* радиус не переопределяем: outline следует родному радиусу элемента,
+     иначе круглые кнопки «квадратятся» при клавиатурном фокусе */
 }
 ::selection { background: rgba(217, 237, 58, .30); }
 
@@ -822,7 +823,7 @@ h1.h {
   font-size: 15px; color: var(--t1);
 }
 .searchbar input::placeholder { color: var(--t3); }
-.searchclr { color: var(--t3); width: 26px; height: 26px; display: grid; place-items: center; }
+.searchclr { color: var(--t3); width: 32px; height: 32px; display: grid; place-items: center; margin-right: -4px; }
 .searchclr svg { width: 16px; height: 16px; }
 
 .tagcloud { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
