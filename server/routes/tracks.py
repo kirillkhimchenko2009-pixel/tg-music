@@ -303,8 +303,10 @@ async def download_bulk(body: BulkDownloadBody,
     """Пачка треков («Скачать всё») — одним запросом в очередь Neon.
 
     APP-роль: каждый трек → джоба (дедуп по активной джобе юзера/трека).
-    Лимит одиночных загрузок сюда не применяется: работу сериализует сама
-    очередь (воркер качает по одной джобе), а не счётчик процесса.
+    Уже скачанные (кеш file_id) в очередь НЕ ставятся — повторно не качаем:
+    их id уходят в ответ как skipped. Лимит одиночных загрузок сюда не
+    применяется: работу сериализует сама очередь (воркер качает по одной
+    джобе), а не счётчик процесса.
     Файлы в чат шлют воркеры; прогресс — GET /api/jobs-bulk?ids=..."""
     uid = int(user.id)
     if is_guest_id(uid):
@@ -312,9 +314,10 @@ async def download_bulk(body: BulkDownloadBody,
         raise HTTPException(409, "telegram_required")
     ids = list(dict.fromkeys(int(t) for t in body.track_ids))[:_BULK_MAX]
     if not ids:
-        return {"jobs": [], "total": 0}
+        return {"jobs": [], "total": 0, "skipped": 0}
     quality = settings.DEFAULT_QUALITY
     out: list[dict] = []
+    skipped: list[int] = []
     async with runtime.get_session() as s:
         tracks = (await s.execute(
             select(Track).where(Track.id.in_(ids)))).scalars().all()
@@ -322,6 +325,10 @@ async def download_bulk(body: BulkDownloadBody,
         for tid in ids:
             t = by_id.get(tid)
             if t is None:
+                continue
+            # уже скачан ранее (file_id в кеше) — не качаем повторно
+            if getattr(t, "file_id", None):
+                skipped.append(tid)
                 continue
             active = await mediajobs.find_active(s, tid, uid)
             if active is not None:
@@ -331,7 +338,7 @@ async def download_bulk(body: BulkDownloadBody,
                                              quality=quality, source=t.source)
             await s.commit()
             out.append({"track_id": tid, "job": job.id})
-    return {"jobs": out, "total": len(out)}
+    return {"jobs": out, "total": len(out), "skipped": skipped}
 
 
 @router.get("/jobs-bulk")

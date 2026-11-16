@@ -566,7 +566,31 @@ class TestBulkDownload:
         resp = await client.post("/api/download-bulk",
                                  json={"track_ids": [987654]})
         assert resp.status_code == 200
-        assert resp.json() == {"jobs": [], "total": 0}
+        assert resp.json() == {"jobs": [], "total": 0, "skipped": []}
+
+    async def test_cached_tracks_not_requeued(self, client, bulk_db):
+        """Уже скачанные (file_id в кеше) не ставятся в очередь повторно."""
+        from core.models import Track
+
+        ids = await self._seed_tracks(bulk_db)
+        async with bulk_db() as s:
+            cached = (await s.get(Track, ids[0]))
+            cached.file_id = "tg-file-id-1"
+            await s.commit()
+        resp = await client.post("/api/download-bulk",
+                                 json={"track_ids": ids})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["skipped"] == [ids[0]]
+        assert [j["track_id"] for j in data["jobs"]] == [ids[1]]
+
+        # и повторно — стабильный результат, новых джоб нет
+        resp2 = await client.post("/api/download-bulk",
+                                  json={"track_ids": ids})
+        data2 = resp2.json()
+        assert data2["total"] == 1
+        assert data2["skipped"] == [ids[0]]
 
 
 # ------------------- Плейлист целиком → «❤ Любимое» -------------------

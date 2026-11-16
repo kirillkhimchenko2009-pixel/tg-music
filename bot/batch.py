@@ -79,14 +79,16 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
     stop_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✖ Остановить", callback_data="extstop")]])
     msg = await bot.send_message(
-        chat_id, f"⬇ Ставлю в очередь: <b>{total}</b> треков\n"
-                 "Файлы будут приходить в чат по мере готовности.",
+        chat_id, f"⬇ Принял: <b>{total}</b> треков\n"
+                 "Смотрю, что уже скачано…",
         reply_markup=stop_kb)
 
     # --- постановка в очередь: дедуп по активной джобе, по одной джобе за раз
     # BATCH_JOBS ссылается на ЖИВОЙ список: отмена видна даже во время постановки
     job_ids: list[str] = []
     BATCH_JOBS[user_id] = job_ids
+    jobs_meta: dict[str, TrackMeta] = {}      # job_id → метаданные (для сводки)
+    skipped = 0                               # уже скачаны ранее (кеш file_id)
     t0 = time.monotonic()
     try:
         async with runtime.get_session() as session:
@@ -95,23 +97,41 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
                     break
                 track = await catalog.upsert_track(session, meta)
                 await session.commit()
+                # уже скачан ранее и лежит в кеше Telegram (file_id) —
+                # повторно не качаем (fix 16.11: очередь ставила джобы на все)
+                if getattr(track, "file_id", None):
+                    skipped += 1
+                    continue
                 active = await mediajobs.find_active(session, track.id, user_id)
                 if active is not None:
                     job_ids.append(active.id)
+                    jobs_meta[active.id] = meta
                     continue
                 job = await mediajobs.create_job(
                     session, track_id=track.id, uid=user_id,
                     quality=quality, source=track.source)
                 await session.commit()
                 job_ids.append(job.id)
+                jobs_meta[job.id] = meta
     except Exception:  # noqa: BLE001
         log.exception("батч %s: постановка в очередь упала", user_id)
+
+    queued = len(job_ids)                    # реально ждём только новые
+    if skipped:
+        try:
+            await msg.edit_text(
+                f"⬇ Уже скачано: <b>{skipped}</b> — пропускаю\n"
+                f"В очередь: <b>{queued}</b> новых треков."
+                if queued else
+                f"✅ Все <b>{skipped}</b> треков уже скачаны — повторно не качаю")
+        except Exception:  # noqa: BLE001
+            pass
 
     # --- вотчер: статусы всех джоб одним запросом, правка не чаще 5 с
     sent, settled, stopped = 0, 0, False
     errored, canceled = 0, 0
     failed: list[str] = []
-    deadline = time.monotonic() + max(45 * 60.0, 150.0 * total)
+    deadline = time.monotonic() + max(45 * 60.0, 150.0 * max(queued, 1))
     last_edit = 0.0
     st_map: dict[str, str] = {}
     while job_ids and time.monotonic() < deadline:
@@ -132,19 +152,21 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
             continue
         settled = new_settled
         now = time.monotonic()
-        if now - last_edit < 5.0 and settled < total:
+        if now - last_edit < 5.0 and settled < queued:
             continue
         last_edit = now
-        eta = (total - settled) * (now - t0) / max(settled, 1)
+        eta = (queued - settled) * (now - t0) / max(settled, 1)
         extra = f" · ⏹ {canceled}" if canceled else ""
-        tail = f"\nОсталось {_fmt_eta(eta)}" if settled < total else ""
+        skip_note = f" · ⏭ {skipped} из кеша" if skipped else ""
+        tail = f"\nОсталось {_fmt_eta(eta)}" if settled < queued else ""
         try:
             await msg.edit_text(
-                f"⬇ Готово: <b>{done}</b>/{total} · ⛔ {errored}{extra}{tail}",
-                reply_markup=stop_kb if settled < total else None)
+                f"⬇ Готово: <b>{done}</b>/{queued} · ⛔ {errored}"
+                f"{extra}{skip_note}{tail}",
+                reply_markup=stop_kb if settled < queued else None)
         except Exception:  # noqa: BLE001
             pass
-        if settled >= total:
+        if settled >= queued:
             break
 
     # финальный снапшот (после отмены/дедлайна статусы могли догнать)
@@ -158,10 +180,12 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
     errored = sum(1 for v in st_map.values() if v == "error")
     canceled = sum(1 for v in st_map.values() if v == "canceled")
     settled = sent + errored + canceled
-    failed = [m.display() for m, jid in zip(metas, job_ids)
-              if st_map.get(jid) == "error"]
+    failed = [jobs_meta[jid].display() for jid in job_ids
+              if st_map.get(jid) == "error" and jid in jobs_meta]
 
-    if not job_ids:
+    if queued == 0 and skipped and not stopped:
+        pass                            # сводка «все уже скачаны» уже отправлена
+    elif queued == 0:
         try:
             await msg.edit_text("⚠️ Не удалось поставить треки в очередь")
         except Exception:  # noqa: BLE001
@@ -170,7 +194,8 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
         try:
             await msg.edit_text(
                 f"⏹ Остановлено\n\nОтправлено: <b>{sent}</b>"
-                f" · отменено: {canceled} · не удалось: {errored}",
+                f" · отменено: {canceled} · не удалось: {errored}"
+                + (f" · из кеша: {skipped}" if skipped else ""),
                 reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
@@ -181,10 +206,12 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
                     + "\n".join(f"• {s}" for s in failed[:15]))
             if len(failed) > 15:
                 tail += f"\n… +{len(failed) - 15}"
-        extra = "\nФайлы продолжают приходить в чат" if settled < total else ""
+        skip_note = f" · из кеша: <b>{skipped}</b>" if skipped else ""
+        extra = "\nФайлы продолжают приходить в чат" if settled < queued else ""
         try:
-            await msg.edit_text(f"✅ Готово: {sent}/{total}{extra}{tail}",
-                                reply_markup=None)
+            await msg.edit_text(
+                f"✅ Готово: {sent}/{queued}{skip_note}{extra}{tail}",
+                reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
     BATCH_JOBS.pop(user_id, None)

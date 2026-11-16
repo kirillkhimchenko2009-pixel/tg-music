@@ -293,13 +293,20 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
     haptic('medium');
     const ids = tracks.map(t => t.id);
     setProg({ done: 0, total: ids.length });
-    let jobs;
+    let jobs, skipped = 0;
     try {
       const res = await api('/api/download-bulk', {
         method: 'POST',
         body: JSON.stringify({ track_ids: ids }),
       });
       jobs = (res.jobs || []).map(j => j.job);
+      skipped = (res.skipped || []).length;
+      if (!jobs.length) {
+        setProg(null);
+        toast(skipped ? 'Всё уже скачано — повторно не качаю'
+                      : 'Нечего скачивать', { kind: 'success' });
+        return;
+      }
     } catch (e) {
       if (e.message === 'telegram_required') { setProg(null); return; }
       toast('Не удалось поставить загрузку: ' + e.message, { kind: 'error' });
@@ -316,11 +323,12 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
       const vals = Object.values(st.jobs || {});
       const done = vals.filter(s => s === 'done').length;
       const settled = vals.filter(s => s === 'done' || s === 'error' || s === 'canceled').length;
-      setProg({ done, total });
+      setProg({ done, total: total + skipped, fromCache: skipped });
       if (settled >= total) break;
     }
     haptic('ok');
-    toast('Плейлист скачан в чат', { kind: 'success' });
+    toast(skipped ? `Готово: ${total} новых · из кеша: ${skipped}`
+                  : 'Плейлист скачан в чат', { kind: 'success' });
     setProg(null);
   };
 

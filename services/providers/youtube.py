@@ -115,29 +115,16 @@ class YouTubeProvider:
 
         WEB_REMIX-броум не проходит bot-check игрального API — и работает
         с серверных IP (проверено). Возвращает TrackMeta; пустой список — если
-        плейлист приватный/недоступен."""
+        плейлист приватный/недоступен.
+
+        Пагинация (fix 16.11): первый browse отдаёт лишь ~100 первых позиций,
+        остальное добираем по continuation-токенам тем же броком — иначе
+        большие плейлисты приходили обрезанными до первой страницы."""
         from services.net import httpx_client
 
-        body = {
-            "context": {"client": {"clientName": "WEB_REMIX",
-                                   "clientVersion": "1.20260101.01.00",
-                                   "hl": "ru", "gl": "RU"}},
-            "browseId": f"VL{playlist_id}",
-        }
-        # прокси-aware клиент: на серверных IP innertube отдаёт обрывок (botwall),
-        # через PROXY_URL — полный browse 200 (диагностика 347КБ против 836Б)
-        async with httpx_client(timeout=35, follow_redirects=True,
-                                trust_env=False) as c:
-            r = await c.post(_YTI, params={"prettyPrint": "false"},
-                             json=body, headers={"User-Agent": _UA})
-        r.raise_for_status()
-        if r.status_code != 200:
-            log.info("ytm innertube browse %s: HTTP %s", playlist_id[:20],
-                     r.status_code)
-            return []
-        j = r.json()
-        if j.get("alertRenderer") or j.get("error"):
-            return []
+        ctx = {"context": {"client": {"clientName": "WEB_REMIX",
+                                      "clientVersion": "1.20260101.01.00",
+                                      "hl": "ru", "gl": "RU"}}}
         out: list[TrackMeta] = []
         seen: set[str] = set()
 
@@ -147,42 +134,79 @@ class YouTubeProvider:
                 seen.add(meta.external_id)
                 out.append(meta)
 
-        for pi in _walk(j, "playlistItemRenderer"):           # yt-стиль (RD-/PL-)
-            vid = pi.get("videoId") or ""
-            title = _runs_text(pi.get("title") or {})
-            artist = _runs_text((pi.get("shortBylineText") or {})) or \
-                _runs_text((pi.get("byline") or {}))
-            dur = parse_duration((pi.get("lengthText") or {}).get("simpleText"))
-            thumbs = ((pi.get("thumbnail") or {}).get("thumbnails") or [])
-            add(TrackMeta(source="ytmusic", external_id=vid, title=title,
-                          artist=artist, duration=dur,
-                          cover_url=thumbs[-1]["url"] if thumbs else None))
+        def parse_items(j: dict) -> None:
+            for pi in _walk(j, "playlistItemRenderer"):           # yt-стиль (RD-/PL-)
+                vid = pi.get("videoId") or ""
+                title = _runs_text(pi.get("title") or {})
+                artist = _runs_text((pi.get("shortBylineText") or {})) or \
+                    _runs_text((pi.get("byline") or {}))
+                dur = parse_duration((pi.get("lengthText") or {}).get("simpleText"))
+                thumbs = ((pi.get("thumbnail") or {}).get("thumbnails") or [])
+                add(TrackMeta(source="ytmusic", external_id=vid, title=title,
+                              artist=artist, duration=dur,
+                              cover_url=thumbs[-1]["url"] if thumbs else None))
 
-        for ri in _walk(j, "musicResponsiveListItemRenderer"):  # ytm-стиль
-            vid = ((ri.get("playlistItemData") or {}).get("videoId")
-                   or ri.get("videoId") or "")
-            cols = ri.get("flexColumns") or []
+            for ri in _walk(j, "musicResponsiveListItemRenderer"):  # ytm-стиль
+                vid = ((ri.get("playlistItemData") or {}).get("videoId")
+                       or ri.get("videoId") or "")
+                cols = ri.get("flexColumns") or []
 
-            def col(i: int) -> str:
-                if i >= len(cols):
-                    return ""
-                txt = ((cols[i].get("musicResponsiveListItemFlexColumnRenderer")
-                        or {}).get("text") or {})
-                return _runs_text(txt)
+                def col(i: int) -> str:
+                    if i >= len(cols):
+                        return ""
+                    txt = ((cols[i].get("musicResponsiveListItemFlexColumnRenderer")
+                            or {}).get("text") or {})
+                    return _runs_text(txt)
 
-            fixed = ri.get("fixedColumns") or []
-            dur = ""
-            if fixed:
-                ft = ((fixed[0].get("musicResponsiveListItemFixedColumnRenderer")
-                       or {}).get("text") or {})
-                dur = _runs_text(ft)
-            thumbs = (((ri.get("thumbnail") or {})
-                       .get("musicThumbnailRenderer") or {})
-                      .get("thumbnail") or {}).get("thumbnails") or []
-            add(TrackMeta(source="ytmusic", external_id=vid, title=col(0),
-                          artist=col(1), duration=parse_duration(dur),
-                          cover_url=thumbs[-1]["url"] if thumbs else None))
+                fixed = ri.get("fixedColumns") or []
+                dur = ""
+                if fixed:
+                    ft = ((fixed[0].get("musicResponsiveListItemFixedColumnRenderer")
+                           or {}).get("text") or {})
+                    dur = _runs_text(ft)
+                thumbs = (((ri.get("thumbnail") or {})
+                           .get("musicThumbnailRenderer") or {})
+                          .get("thumbnail") or {}).get("thumbnails") or []
+                add(TrackMeta(source="ytmusic", external_id=vid, title=col(0),
+                              artist=col(1), duration=parse_duration(dur),
+                              cover_url=thumbs[-1]["url"] if thumbs else None))
 
+        def cont_token(j: dict) -> str | None:
+            for cr in _walk(j, "continuationItemRenderer"):
+                tok = ((cr.get("continuationEndpoint") or {})
+                       .get("continuationCommand") or {}).get("token")
+                if tok:
+                    return tok
+                tok = ((cr.get("nextContinuationData") or {}).get("continuation"))
+                if tok:
+                    return str(tok)
+            return None
+
+        # прокси-aware клиент: на серверных IP innertube отдаёт обрывок (botwall),
+        # через PROXY_URL — полный browse 200 (диагностика 347КБ против 836Б)
+        async with httpx_client(timeout=35, follow_redirects=True,
+                                trust_env=False) as c:
+            token: str | None = None
+            for page in range(40):          # 40 × ~100 позиций ≈ потолок 4000 треков
+                body = dict(ctx)
+                if token:
+                    body["continuation"] = token
+                else:
+                    body["browseId"] = f"VL{playlist_id}"
+                r = await c.post(_YTI, params={"prettyPrint": "false"},
+                                 json=body, headers={"User-Agent": _UA})
+                r.raise_for_status()
+                j = r.json()
+                if not token and (j.get("alertRenderer") or j.get("error")):
+                    return []
+                before = len(out)
+                parse_items(j)
+                token = cont_token(j)
+                # страница не дала ничего нового либо продолжения нет — конец
+                if len(out) == before or not token:
+                    break
+                if limit and len(out) >= limit:
+                    break
         return out[:limit] if limit else out
 
     async def playlist(self, playlist_id: str, limit: int | None = None) -> list[TrackMeta]:
