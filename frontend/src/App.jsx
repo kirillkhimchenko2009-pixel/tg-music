@@ -168,8 +168,8 @@ function SideItem({ view, item }) {
   return (
     <motion.button
       className={'side-item' + (on ? ' on' : '')}
-      whileTap={{ scale: 0.985 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 38, mass: 1 }}
       onClick={() => { haptic('soft'); navPush({ tab: item.tab, sub: item.sub || null }); }}
     >
       {on && <motion.span layoutId="side-active" className="side-plate" transition={layoutSpring} />}
@@ -305,8 +305,8 @@ function TabBar({ tab }) {
           <motion.button
             key={t.id}
             className={'tab' + (active ? ' on' : '')}
-            whileTap={{ scale: 0.94 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
+            whileTap={{ scale: 0.955 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 38, mass: 1 }}
             onClick={() => { haptic('soft'); navPush({ tab: t.id, sub: null }); }}
           >
             {active && <motion.span layoutId="tab-active" className="tab-plate" transition={layoutSpring} />}
@@ -330,7 +330,7 @@ function PlayerBar({ onExpand }) {
       className="pbar"
       initial={{ opacity: 0, y: 26 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 220, damping: 32, mass: 1 }}
+      transition={{ type: 'spring', stiffness: 190, damping: 34, mass: 1 }}
     >
       <motion.div
         className="pcovwrap"
@@ -374,8 +374,8 @@ function PlayerBar({ onExpand }) {
                   onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}><IcoShuffle /></button>
           <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
           <motion.button className="pl-play" aria-label="Играть/пауза"
-                         whileTap={{ scale: 0.9 }}
-                         transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
+                         whileTap={{ scale: 0.94 }}
+                         transition={{ type: 'spring', stiffness: 260, damping: 38, mass: 1 }}
                          onClick={() => { haptic('medium'); P.toggle(); }}>
             <PlayPause playing={st.playing} loading={st.loading} />
           </motion.button>
@@ -389,8 +389,8 @@ function PlayerBar({ onExpand }) {
       <div className="pl-mctl" onClick={e => e.stopPropagation()}>
         <button className="pl-ctl" aria-label="Предыдущий" onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></button>
         <motion.button className="pl-play" aria-label="Играть/пауза"
-                       whileTap={{ scale: 0.9 }}
-                       transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
+                       whileTap={{ scale: 0.94 }}
+                       transition={{ type: 'spring', stiffness: 260, damping: 38, mass: 1 }}
                        onClick={() => { haptic('medium'); P.toggle(); }}>
           <PlayPause playing={st.playing} loading={st.loading} />
         </motion.button>
@@ -475,7 +475,7 @@ function NowPlaying({ onClose }) {
     d.active = false;
     if (!d.locked) return;
     if (y.get() > 110) { haptic('soft'); onClose(); }
-    else animate(y, 0, { type: 'spring', stiffness: 220, damping: 32, mass: 1 });
+    else animate(y, 0, { type: 'spring', stiffness: 190, damping: 34, mass: 1 });
   };
 
   if (!cur) return null;
@@ -528,7 +528,7 @@ function NowPlaying({ onClose }) {
             <span className="np-now"><Eq playing={st.playing} /></span>
             Сейчас играет
           </span>
-          <motion.button className="np-x" whileTap={{ scale: 0.9 }} onClick={onClose}
+          <motion.button className="np-x" whileTap={{ scale: 0.94 }} onClick={onClose}
                          aria-label="Свернуть плеер"><IcoChevL style={{ transform: 'rotate(-90deg)' }} /></motion.button>
         </div>
 
@@ -580,13 +580,13 @@ function NowPlaying({ onClose }) {
         </div>
 
         <div className="np-btns">
-          <motion.button className="cbtn glass" whileTap={{ scale: .88 }} aria-label="Предыдущий"
+          <motion.button className="cbtn glass" whileTap={{ scale: .93 }} aria-label="Предыдущий"
                          onClick={() => { haptic('light'); P.prev(); }}><IcoPrev /></motion.button>
           <motion.button className="cbtn big" whileTap={{ scale: .9 }} aria-label="Играть/пауза"
                          onClick={() => { haptic('medium'); P.toggle(); }}>
             <PlayPause playing={st.playing} loading={st.loading} big />
           </motion.button>
-          <motion.button className="cbtn glass" whileTap={{ scale: .88 }} aria-label="Следующий"
+          <motion.button className="cbtn glass" whileTap={{ scale: .93 }} aria-label="Следующий"
                          onClick={() => { haptic('light'); P.next(); }}><IcoNext /></motion.button>
         </div>
 

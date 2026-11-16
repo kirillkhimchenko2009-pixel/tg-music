@@ -190,8 +190,8 @@ export function PlayCard({ title, sub, t, grad, glyph, badge, onOpen, onPlay, ce
         <span className="cardclick" onClick={onOpen} />
         {onPlay && (
           <motion.button className="cplay" aria-label={`Слушать: ${title || ''}`}
-                         whileHover={{ scale: 1.07 }} whileTap={{ scale: 0.88 }}
-                         transition={{ type: 'spring', stiffness: 300, damping: 36, mass: 1 }}
+                         whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }}
+                         transition={{ type: 'spring', stiffness: 260, damping: 38, mass: 1 }}
                          onPointerDown={e => e.stopPropagation()}
                          onClick={e => { e.stopPropagation(); haptic('light'); onPlay(e); }}>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.5 5.2v13.6L19.2 12z" /></svg>
@@ -293,8 +293,8 @@ export function HeartBtn({ id, big }) {
     <motion.button
       className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
       aria-label="В любимое"
-      whileTap={{ scale: 0.85 }}
-      transition={{ type: 'spring', stiffness: 280, damping: 34, mass: 1 }}
+      whileTap={{ scale: 0.9 }}
+      transition={{ type: 'spring', stiffness: 240, damping: 36, mass: 1 }}
       onClick={async e => {
         e.stopPropagation();
         haptic(liked ? 'soft' : 'light');

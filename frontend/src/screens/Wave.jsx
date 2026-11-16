@@ -303,14 +303,14 @@ export default function Wave() {
         <div className="wave-head-r">
           <motion.button className={'wave-shake' + (shakeBusy ? ' busy' : '')}
                          aria-label="Встряхнуть волну" title="Встряхнуть волну"
-                         whileTap={{ scale: .88 }}
+                         whileTap={{ scale: .955 }}
                          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                          transition={{ duration: .28, ease: EASE, delay: .02 }}
                          onClick={doShake} disabled={shakeBusy || !sess}>
             <ShakeIcon />
           </motion.button>
           <motion.button className={'wave-formula' + (dirty ? ' dirty' : '')}
-                         whileTap={{ scale: .965 }}
+                         whileTap={{ scale: .98 }}
                          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                          transition={{ duration: .28, ease: EASE, delay: .04 }}
                          onClick={() => { haptic('soft'); setSheet(true); }}>
@@ -331,7 +331,7 @@ export default function Wave() {
                     background: hexA(s.colors.accent, .09) || undefined,
                   }
                 : undefined}
-              whileTap={{ scale: .96 }}
+              whileTap={{ scale: .97 }}
               initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
               transition={{ duration: .26, ease: EASE, delay: Math.min(i, 5) * .035 }}
               onClick={() => (scen?.id || 'foryou') === s.id
@@ -399,7 +399,7 @@ export default function Wave() {
 
             <div className="wave-ctrl">
               <motion.button className="cbtn glass wave-no" aria-label="Не нравится"
-                             whileTap={{ scale: .86 }}
+                             whileTap={{ scale: .955 }}
                              onClick={dislike} disabled={!cur}>
                 <WaveNoIcon />
               </motion.button>
@@ -407,7 +407,7 @@ export default function Wave() {
               <WaveHeart id={cur.id} big session={sess?.session_id} />
 
               <motion.button className="cbtn glass wave-dl" aria-label="Скачать в чат"
-                             whileTap={{ scale: .86 }}
+                             whileTap={{ scale: .955 }}
                              onClick={download} disabled={dl === 'busy'}>
                 <AnimatedIcon name={dl === 'busy' ? 'busy' : dl === 'done' ? 'done' : dl === 'err' ? 'err' : 'idle'}>
                   {dl === 'busy' ? <span className="minispinner" />
@@ -418,13 +418,13 @@ export default function Wave() {
               </motion.button>
 
               <motion.button className="cbtn big wave-next" aria-label="Другой трек"
-                             whileTap={{ scale: .9 }}
+                             whileTap={{ scale: .94 }}
                              onClick={() => { haptic('medium'); P.next(); }}>
                 <IcoNext />
               </motion.button>
 
               <motion.button className="cbtn big" aria-label="Играть/пауза"
-                             whileTap={{ scale: .9 }}
+                             whileTap={{ scale: .94 }}
                              onClick={() => { haptic('medium'); P.toggle(); }}>
                 <PlayPause playing={st.playing} loading={st.loading} big />
               </motion.button>
@@ -445,8 +445,8 @@ export default function Wave() {
                       initial={{ opacity: 0, scale: .78 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: .24, ease: EASE, delay: Math.min(i, 6) * .03 }}
-                      whileHover={{ scale: 1.07 }}
-                      whileTap={{ scale: .93 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: .955 }}
                       onClick={() => openDiscovery(c)}
                     >
                       {c.cover_url
@@ -555,8 +555,8 @@ function WaveHistory({ queue, index }) {
             initial={{ opacity: 0, scale: .78 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: .24, ease: EASE, delay: Math.min(i, 6) * .03 }}
-            whileHover={{ scale: 1.07 }}
-            whileTap={{ scale: .93 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: .955 }}
             onClick={() => {
               haptic('soft');
               const qi = queue.findIndex(x => x.id === t.id);
@@ -580,7 +580,7 @@ function WaveHeart({ id, session, big }) {
     <motion.button
       className={'heart' + (liked ? ' on' : '') + (big ? ' lg' : '')}
       aria-label="В любимое"
-      whileTap={{ scale: .82 }}
+      whileTap={{ scale: .9 }}
       animate={controls}
       onClick={async (e) => {
         e.stopPropagation();
@@ -615,7 +615,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
       <div className="wsheet-head">
         <div className="wsheet-title" id="wave-formula-title">Формула волны</div>
         <motion.button className="wsheet-x" aria-label="Закрыть формулу"
-                       whileTap={{ scale: .88 }} onClick={onClose}>✕</motion.button>
+                       whileTap={{ scale: .955 }} onClick={onClose}>✕</motion.button>
       </div>
 
       {dirty && (
@@ -634,7 +634,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {MOODS.map(m => (
             <motion.button key={String(m.id)} className={chipOn((ws.mood ?? null) === m.id)}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onChange({ mood: m.id })}
                            disabled={m.id === null && ws.mood === null}>
               {m.icon} {m.label}
@@ -647,7 +647,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {FAMILIARITY.map(f => (
             <motion.button key={String(f.id)} className={chipOn((fam ?? null) === f.id)}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onFam(f.id)}
                            disabled={f.id === null && (fam ?? null) === null}>
               {f.icon} {f.label}
@@ -660,7 +660,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {DIVERSITY.map(v => (
             <motion.button key={v.id} className={chipOn((ws.diversity || 'default') === v.id)}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onChange({ diversity: v.id })}>
               {v.icon} {v.label}
             </motion.button>))}
@@ -672,7 +672,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {ACTIVITIES.map(a => (
             <motion.button key={a.id} className={chipOn((ws.activities || []).includes(a.id))}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onChange({
                              activities: ((ws.activities || []).includes(a.id)
                                ? (ws.activities || []).filter(x => x !== a.id)
@@ -687,7 +687,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {GENRES.map(g => (
             <motion.button key={g} className={chipOn((ws.genres || []).includes(g))}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onChange({
                              genres: ((ws.genres || []).includes(g)
                                ? (ws.genres || []).filter(x => x !== g)
@@ -702,7 +702,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div className="chiprow">
           {LANGS.map(v => (
             <motion.button key={v.id} className={chipOn((ws.language || 'any') === v.id)}
-                           whileTap={{ scale: .95 }}
+                           whileTap={{ scale: .97 }}
                            onClick={() => onChange({ language: v.id })}>
               {v.icon} {v.label}
             </motion.button>))}
@@ -716,10 +716,10 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         </div>
         <div className="chiprow">
           <motion.button className={chipOn(ws.context_enabled !== false)}
-                         whileTap={{ scale: .95 }}
+                         whileTap={{ scale: .97 }}
                          onClick={() => onChange({ context_enabled: true })}>Учитывать</motion.button>
           <motion.button className={chipOn(ws.context_enabled === false)}
-                         whileTap={{ scale: .95 }}
+                         whileTap={{ scale: .97 }}
                          onClick={() => onChange({ context_enabled: false })}>Отключить</motion.button>
         </div>
       </div>
@@ -728,9 +728,9 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
         <div>
           <div className="wsec-t">Треки 18+</div>
           <div className="chiprow">
-            <motion.button className={chipOn(ws.allow_explicit)} whileTap={{ scale: .95 }}
+            <motion.button className={chipOn(ws.allow_explicit)} whileTap={{ scale: .97 }}
                            onClick={() => onChange({ allow_explicit: true })}>Разрешено</motion.button>
-            <motion.button className={chipOn(!ws.allow_explicit)} whileTap={{ scale: .95 }}
+            <motion.button className={chipOn(!ws.allow_explicit)} whileTap={{ scale: .97 }}
                            onClick={() => onChange({ allow_explicit: false })}>Без 18+</motion.button>
           </div>
         </div>
@@ -739,7 +739,7 @@ function FormulaSheet({ open, ws, dirty, fam, autoPend, onClose, onChange, onFam
           <div className="chiprow">
             {ENGINES.map(v => (
               <motion.button key={v.id} className={chipOn((ws.engine || 'auto') === v.id)}
-                             title={v.hint} whileTap={{ scale: .95 }}
+                             title={v.hint} whileTap={{ scale: .97 }}
                              onClick={() => onChange({ engine: v.id })}>
                 {v.label}
               </motion.button>))}

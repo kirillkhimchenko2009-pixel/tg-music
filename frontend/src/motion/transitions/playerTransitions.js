@@ -7,7 +7,7 @@ import { springs } from '../config/springs.js';
 
 export const player = {
   /* общая обложка: 450–650 ms, как в промте */
-  sharedCover: { type: 'spring', stiffness: 200, damping: 32, mass: 1 },
+  sharedCover: { type: 'spring', stiffness: 180, damping: 34, mass: 1 },
   surface: { duration: durations.slow, ease: easings.emphasized },
   surfaceExit: { duration: durations.medium, ease: easings.exit },
   content: { duration: durations.medium, ease: easings.enter },
