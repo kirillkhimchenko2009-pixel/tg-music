@@ -90,6 +90,7 @@ def _results(tracks: list[Track], bot_username: str | None) -> list[types.Inline
 
 @router.inline_query()
 async def on_inline(q: types.InlineQuery):
+    log.info("inline: запрос %r от %s", (q.query or "")[:60], q.from_user.id)
     me = await _me(q.bot)
     try:
         async with runtime.get_session() as s:
@@ -101,10 +102,12 @@ async def on_inline(q: types.InlineQuery):
         if tracks:
             await q.answer(results=_results(tracks, me.username),
                            cache_time=5, is_personal=True)
+            log.info("inline: %r → %d карточек", (q.query or "")[:40], len(tracks))
         else:
             await q.answer(
                 results=[], cache_time=10,
                 switch_pm_text="Открыть приложение 🎧",
                 switch_pm_parameter="inline")
+            log.info("inline: %r → пусто (switch_pm)", (q.query or "")[:40])
     except Exception:  # noqa: BLE001
         log.exception("inline answer failed for %r", q.query)
