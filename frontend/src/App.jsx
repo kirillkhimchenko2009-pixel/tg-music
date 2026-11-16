@@ -603,14 +603,12 @@ function NowPlaying({ onClose }) {
             {st.queue.map((t, i) => (
               <motion.button
                 key={t.id + ':' + i}
-                layout
                 className={'npq' + (i === st.index ? ' on' : '')}
                 variants={queueVariants}
                 custom={i}
-                initial="hidden"
+                initial={i < 14 ? 'hidden' : false}
                 animate="visible"
                 exit="exit"
-                transition={{ layout: player.queue }}
                 onClick={() => { haptic('select'); P.play(st.queue, i); }}
               >
                 {i === st.index && (

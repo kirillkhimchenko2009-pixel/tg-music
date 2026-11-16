@@ -1622,3 +1622,22 @@ h1.h {
   width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto;
   display: grid; place-items: center; background: var(--accent); color: var(--accent-ink);
 }
+
+/* ---------------- мобильная производительность ----------------
+   Стекло (backdrop-filter) — самая дорогая операция на телефоне: под
+   движущимся контентом блюр пересчитывается каждый кадр. На мобиле
+   уменьшаем радиусы и убираем saturate-проходы; десктоп не трогаем. */
+@media (max-width: 1023px) {
+  :root {
+    --glass-blur: blur(8px) saturate(1.25);
+  }
+  .pbar,
+  .tabbar {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  /* фикс-бары мелкие: постоянный композитный слой дешевле переповторов
+     их содержимого при скролле контента под стеклом */
+  .pbar,
+  .tabbar { will-change: transform; }
+}

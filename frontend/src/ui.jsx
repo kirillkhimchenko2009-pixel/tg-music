@@ -238,20 +238,25 @@ export function Rail({ children }) {
 }
 
 /* ---------------- ряд трека ---------------- */
-export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, children, layout = true }) {
-  const st = P.usePlayerSnap();
-  const cur = st.queue[st.index];
-  const isCur = cur && cur.id === t.id;
-  const playing = isCur && st.playing;
+export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, children, layout = false }) {
+  /* Лёгкая подписка вместо полного снапшота: строка перерисовывается
+     только при смене трека/play-pause, а не на каждом timeupdate. */
+  const [curId, curRun] = P.useCurKey().split(':');
+  const isCur = curId !== '' && +curId === t.id;
+  const playing = isCur && curRun === '1';
   const cov = coverOr(t);
+  /* Вход без y-сдвига и только у первых строк: в больших списках (500+)
+     волна transform-анимаций + layout-измерения «вешали» переход и дёргали
+     скролл. Остальные строки рендерятся сразу (initial=false). */
+  const wake = (i ?? 0) < 14;
   return (
     <motion.div
       layout={layout}
       className={'trow' + (playing ? ' playing' : '')}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.985, transition: { duration: .16, ease: [.4, 0, 1, 1] } }}
-      transition={{ duration: .22, ease: [.16, 1, .3, 1], delay: Math.min(i ?? 0, 12) * 0.022 }}
+      initial={wake ? { opacity: 0 } : false}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: .16, ease: [.4, 0, 1, 1] } }}
+      transition={{ duration: .2, ease: [.16, 1, .3, 1], delay: wake ? (i ?? 0) * 0.018 : 0 }}
       onClick={() => { haptic('light'); onPlay?.(); }}
     >
       {num && (

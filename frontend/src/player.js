@@ -43,6 +43,19 @@ export function usePlayerSnap() {
   return useSyncExternalStore(subscribe, getState, getState);
 }
 
+/* Облегчённая подписка для длинных списков (TrackRow × 500+): полный
+   снапшот меняется на каждом timeupdate (~4 Гц) и заставлял перерисовываться
+   весь трек-лист во время воспроизведения — главный источник дёрганий.
+   Здесь снапшот — примитив «id:playing»: React сравнивает по значению,
+   поэтому строка перерисовывается только при смене трека или play/pause. */
+export function useCurKey() {
+  return useSyncExternalStore(
+    subscribe,
+    () => `${state.queue[state.index]?.id ?? ''}:${state.playing ? 1 : 0}`,
+    () => '-:-',
+  );
+}
+
 export function getState() { return state; }
 
 export function current() {

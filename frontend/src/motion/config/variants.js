@@ -61,7 +61,10 @@ export const listItem = {
 };
 
 export const page = {
-  initial: { opacity: 0, y: 7 },
-  enter: { opacity: 1, y: 0, transition: { duration: durations.normal, ease: easings.enter } },
-  exit: { opacity: 0, y: -4, transition: { duration: 0.18, ease: easings.exit } },
+  /* Без y-трансформа: сдвиг целой страницы под фиксированными барами
+     с backdrop-filter заставляет их пересчитывать блюр каждый кадр —
+     на мобиле это «виснет и дёргается». Fade дешёвый и плавный. */
+  initial: { opacity: 0 },
+  enter: { opacity: 1, transition: { duration: 0.22, ease: easings.enter } },
+  exit: { opacity: 0, transition: { duration: 0.14, ease: easings.exit } },
 };

@@ -267,6 +267,17 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   const [glow, setGlow] = useState(null);
   const [err, setErr] = useState('');
   const [favBusy, setFavBusy] = useState(false);         // «Всё в любимое»
+  /* Поэтапный маунт: «Любимое» может быть 500+ строк — рендер всех в один
+     кадр подвешивал переход на страницу. Первые ~120 сразу, остальные
+     добираются чанками в свободных кадрах (визуально незаметно). */
+  const [shown, setShown] = useState(120);
+  useEffect(() => { setShown(120); }, [plId]);
+  useEffect(() => {
+    const total = tracks?.length || 0;
+    if (shown >= total) return undefined;
+    const t = setTimeout(() => setShown(n => Math.min(n + 120, total)), 0);
+    return () => clearTimeout(t);
+  }, [tracks, shown]);
 
   useEffect(() => {
     api('/api/playlists').then(d => {
@@ -409,13 +420,11 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
         </div>
       )}
       <div className="tracks">
-        <AnimatePresence initial={false}>
-          {(tracks || []).map((t, i) => (
-            <TrackRow key={t.id + ':' + t.pt_id} t={t} i={i} num={i + 1} time={t.duration}
-                      onPlay={() => P.play(tracks, i)}
-                      onMenu={() => setMenu(t)} />
-          ))}
-        </AnimatePresence>
+        {(tracks || []).slice(0, shown).map((t, i) => (
+          <TrackRow key={t.id + ':' + t.pt_id} t={t} i={i} num={i + 1} time={t.duration}
+                    onPlay={() => P.play(tracks, i)}
+                    onMenu={() => setMenu(t)} />
+        ))}
       </div>
       <TrackMenu t={menu} open={!!menu} onClose={() => setMenu(null)}
                  playlistId={plId} ptId={menu?.pt_id} onChanged={reload}
