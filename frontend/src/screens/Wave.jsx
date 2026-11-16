@@ -18,6 +18,7 @@ import {
 } from '../ui.jsx';
 import { toggleLike, useLikes } from '../likes.js';
 import { AnimatedIcon, Seek, Sheet, toast } from '../motion/index.js';
+import auroraCity from '../assets/aurora-city.jpg';
 
 const MOODS = [
   { id: null, icon: '∞', label: 'Любое' },
@@ -294,12 +295,16 @@ export default function Wave() {
            '--wacc': hexA(scen.colors.accent, .5) || undefined,
            '--wgl': hexA(scen.colors.glow, .38) || undefined,
          } : undefined}>
+      {/* зимний город + живая CSS-аврора под палитрой сценария */}
+      <div className="wave-city"
+           style={{ backgroundImage: `url("${auroraCity}")` }} aria-hidden="true" />
+      <div className="wave-aurora" aria-hidden="true"><i /><i /><i /></div>
       <div className="wave-aura" style={auraStyle} aria-hidden="true" />
 
       <div className="wave-head">
         <motion.div className="wave-title"
                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                   transition={{ duration: .28, ease: EASE }}>Волна</motion.div>
+                   transition={{ duration: .28, ease: EASE }}>Моя волна</motion.div>
         <div className="wave-head-r">
           <motion.button className={'wave-shake' + (shakeBusy ? ' busy' : '')}
                          aria-label="Встряхнуть волну" title="Встряхнуть волну"

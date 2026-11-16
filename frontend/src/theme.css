@@ -354,8 +354,8 @@ h1.h {
 }
 .sechead h2 {
   font-family: var(--font-display);
-  font-size: clamp(20px, 2.6vw, 24px);
-  font-weight: 800; letter-spacing: -.4px;
+  font-size: clamp(22px, 3.2vw, 27px);
+  font-weight: 800; letter-spacing: -.5px;
   margin: 0;
 }
 .sechead .more {
@@ -543,6 +543,35 @@ h1.h {
 }
 .mixcard:hover .mix-play { background: var(--accent); color: var(--accent-ink); transform: scale(1.04); }
 .mix-play svg { width: 22px; height: 22px; }
+
+/* жанровые плитки: крупная типографика на тёмном (ряд жанров) */
+.genretile {
+  position: relative; flex: 0 0 auto;
+  width: 148px; height: 92px;
+  display: flex; align-items: flex-end;
+  padding: 11px 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: 19px; font-weight: 800;
+  letter-spacing: -.5px; line-height: 1.05;
+  text-transform: uppercase;
+  color: var(--t1);
+  background-color: var(--surface2);
+  background-image: radial-gradient(120% 95% at 88% -12%, var(--glow, transparent), transparent 62%);
+  border: 1px solid var(--border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--shadow-1);
+  transition: transform .2s var(--spring), border-color .18s var(--ease), box-shadow .2s var(--ease);
+}
+.genretile:hover { transform: translateY(-2px); border-color: var(--border); }
+.genretile:active { transform: scale(.965); }
+.genretile[data-h="0"] { --glow: rgba(255, 108, 88, .17); }   /* хип-хоп */
+.genretile[data-h="1"] { --glow: rgba(92, 140, 255, .18); }   /* рок */
+.genretile[data-h="2"] { --glow: rgba(255, 176, 76, .15); }   /* поп */
+.genretile[data-h="3"] { --glow: rgba(168, 112, 255, .17); }  /* электро */
+.genretile[data-h="4"] { --glow: rgba(64, 224, 178, .14); }   /* инди */
+.genretile[data-h="5"] { --glow: rgba(217, 237, 58, .12); }   /* джаз */
 
 /* компакт-карточки «Продолжить слушать» */
 .squircle { border-radius: var(--r-lg); }
@@ -1298,6 +1327,50 @@ h1.h {
   from { opacity: .82; }
   to { opacity: 1; }
 }
+/* зимний аниме-город (Commons, CC BY 4.0) — глубина под палитрой сценария */
+.wave-city {
+  position: absolute; inset: 0; z-index: -2; pointer-events: none;
+  background-size: cover; background-position: center 38%;
+  opacity: .16;
+  -webkit-mask-image: linear-gradient(180deg, transparent 4%, #000 30%, #000 74%, transparent 98%);
+  mask-image: linear-gradient(180deg, transparent 4%, #000 30%, #000 74%, transparent 98%);
+}
+/* живая аврора: три дрейфующих radial-блоба (только transform/opacity — дёшево) */
+.wave-aurora {
+  position: absolute; inset: 0; z-index: -1;
+  overflow: hidden; pointer-events: none;
+}
+.wave-aurora i {
+  position: absolute; display: block; border-radius: 50%;
+  will-change: transform, opacity;
+}
+.wave-aurora i:nth-child(1) {
+  width: 88vmax; height: 88vmax; left: -30%; top: -36%;
+  background: radial-gradient(closest-side, rgba(90, 120, 255, .13), transparent 72%);
+  animation: auroraA 34s ease-in-out infinite alternate;
+}
+.wave-aurora i:nth-child(2) {
+  width: 70vmax; height: 70vmax; right: -32%; top: -12%;
+  background: radial-gradient(closest-side, rgba(64, 224, 180, .10), transparent 70%);
+  animation: auroraB 44s ease-in-out infinite alternate;
+}
+.wave-aurora i:nth-child(3) {
+  width: 78vmax; height: 78vmax; left: -18%; bottom: -40%;
+  background: radial-gradient(closest-side, rgba(217, 237, 58, .075), transparent 70%);
+  animation: auroraC 27s ease-in-out infinite alternate;
+}
+@keyframes auroraA {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: .7; }
+  to { transform: translate3d(15vw, 9vh, 0) scale(1.22); opacity: 1; }
+}
+@keyframes auroraB {
+  from { transform: translate3d(0, 0, 0) scale(1.08); opacity: 1; }
+  to { transform: translate3d(-13vw, 7vh, 0) scale(.94); opacity: .65; }
+}
+@keyframes auroraC {
+  from { transform: translate3d(0, 0, 0) scale(.96); opacity: .8; }
+  to { transform: translate3d(9vw, -8vh, 0) scale(1.18); opacity: 1; }
+}
 .wave-head-r { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 .wave-shake {
   display: inline-grid; place-items: center;
@@ -1343,7 +1416,7 @@ h1.h {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw;
 }
 .wave-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.wave-title { font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -.4px; }
+.wave-title { font-family: var(--font-display); font-size: clamp(27px, 5vw, 33px); font-weight: 800; letter-spacing: -.6px; }
 .wave-formula {
   display: inline-flex; align-items: center; gap: 7px;
   max-width: 62%;

@@ -37,6 +37,16 @@ const MOODS = [
   { q: 'классика фортепиано', g: 'linear-gradient(140deg,#5c5c68,#26262e)', ic: '🎹', t: 'Классика', img: imgClassic },
 ];
 
+/* Жанры — крупные плитки в поисковый запрос (как на SoundCloud) */
+const GENRES = [
+  { q: 'хип-хоп', t: 'Хип-хоп' },
+  { q: 'рок', t: 'Рок' },
+  { q: 'поп', t: 'Поп' },
+  { q: 'танцевальная электроника', t: 'Электро' },
+  { q: 'инди', t: 'Инди' },
+  { q: 'джаз', t: 'Джаз' },
+];
+
 function greeting() {
   const h = new Date().getHours();
   if (h < 5) return 'Тихой ночи';
@@ -110,6 +120,19 @@ export default function Home() {
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
         </span>
       </motion.div>
+
+      {/* жанры — крупные плитки, ведут в поиск */}
+      <Reveal>
+        <SectionHead title="Жанры" />
+        <Rail>
+          {GENRES.map((g, i) => (
+            <button key={g.t} className="genretile" data-h={i % 6}
+                    onClick={() => { haptic('select'); routes.goSearch(g.q); }}>
+              {g.t}
+            </button>
+          ))}
+        </Rail>
+      </Reveal>
 
       {/* Продолжить слушать */}
       {hist?.length > 0 && (
