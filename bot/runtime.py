@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.enums import ChatAction
 from aiogram.types import FSInputFile, Message
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,10 +144,12 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
         in_fav = await _fav_state(chat_id, track.id)
         for attempt in range(3):
             try:
-                await bot.send_audio(chat_id, track.file_id,
-                                     title=track.title or "Трек",
-                                     performer=track.artist or None,
-                                     reply_markup=action_kb(track.id, in_fav))
+                msg = await bot.send_audio(chat_id, track.file_id,
+                                           title=track.title or "Трек",
+                                           performer=track.artist or None,
+                                           reply_markup=action_kb(track.id, in_fav))
+                from bot import fx
+                await fx.react(bot, chat_id, msg.message_id, fx.OK)
                 return True
             except TelegramRetryAfter as e:
                 if attempt == 2:
@@ -179,10 +182,12 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
     аплоад на каждый трек — в пачках это минуты. Квадрат в списке чата
     станет иконкой ноты — плата за чистый плеер."""
     from bot.keyboards import action_kb
+    from bot import fx
     in_fav = await _fav_state(chat_id, track.id)
     msg = None
     from aiogram.exceptions import (TelegramBadRequest, TelegramEntityTooLarge,
                                     TelegramNetworkError, TelegramRetryAfter)
+    fx.typing(chat_id, bot, ChatAction.UPLOAD_DOCUMENT)
     for attempt in range(3):
         try:
             # chunk_size 1 МиБ: дефолтные 64 КиБ душат скорость аплоада —
@@ -204,6 +209,8 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
             await asyncio.sleep(3 * (attempt + 1))
     if msg is None:
         raise TelegramNetworkError(method=None, message="send failed after retries")
+    from bot import fx
+    await fx.react(bot, chat_id, msg.message_id, fx.OK)
     audio = msg.audio
     if audio:
         return audio.file_id

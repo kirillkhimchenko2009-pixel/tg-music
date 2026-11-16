@@ -52,14 +52,31 @@ def _fmt_eta(sec: float) -> str:
 
 
 async def start_batch(message: types.Message, title: str, metas: list[TrackMeta]) -> None:
-    """Кладёт список в кеш и показывает сводку с кнопками."""
+    """Кладёт список в кеш и показывает сводку с кнопками.
+
+    Виджет-карточка (16.11): если у треков есть обложка — сводка приходит
+    ФОТО с подписью и кнопками (красивее текста); обложка битая/приватная
+    → обычный текст. Плюс 🔥-реакция на принятое сообщение."""
+    from bot import fx
     EXT_CACHE[message.from_user.id] = {"title": title, "metas": metas}
     n = len(metas)
     head = ", ".join(t.display() for t in metas[:3])
-    await message.answer(
-        f"<b>{title}</b>\nТреков: <b>{n}</b>\n\n"
-        f"Примеры: {head}…\nЧто делаем?",
-        reply_markup=external_kb(n))
+    caption = (f"<b>{fx.esc_html(title)}</b>\nТреков: <b>{n}</b>\n\n"
+               f"Примеры: {fx.esc_html(head)}…\nЧто делаем?")
+    kb = external_kb(n)
+    cover = next((m.cover_url for m in metas if m.cover_url), None)
+    if cover:
+        try:
+            await message.answer_photo(photo=cover, caption=caption,
+                                       reply_markup=kb)
+            await fx.react(message.bot, message.chat.id,
+                           message.message_id, fx.FIRE)
+            return
+        except Exception as e:  # noqa: BLE001
+            log.info("обложка %s не отправилась (%s) — текстом",
+                     (cover or "")[:60], type(e).__name__)
+    await message.answer(caption, reply_markup=kb)
+    await fx.react(message.bot, message.chat.id, message.message_id, fx.FIRE)
 
 
 async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
@@ -214,6 +231,9 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
                 reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
+    from bot import fx
+    if errored:
+        await fx.react(bot, chat_id, msg.message_id, fx.SAD)
     BATCH_JOBS.pop(user_id, None)
     CANCEL.discard(user_id)
     return sent, failed
@@ -317,8 +337,10 @@ async def cb_extfav(cb: types.CallbackQuery):
         return
     await cb.answer("❤ Добавляю…" if added else "Всё уже в любимом")
     tail = "" if added == len(data["metas"]) else "\nОстальные уже были в любимом"
-    await cb.message.answer(
+    ack = await cb.message.answer(
         f"❤ В «{runtime.FAVORITES_TITLE}» добавлено треков: <b>{added}</b>{tail}")
+    from bot import fx
+    await fx.react(cb.bot, cb.message.chat.id, ack.message_id, fx.HEART)
 
 
 @router.callback_query(F.data == "extstop")

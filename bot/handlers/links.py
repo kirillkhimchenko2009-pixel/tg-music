@@ -95,6 +95,8 @@ async def on_link(message: types.Message):
                                   message.from_user.first_name or "")
         ym_tok = await get_token(s, uid, "ym")
         zv_tok = await get_token(s, uid, "zvuk")
+    from bot import fx
+    fx.typing(message.chat.id, message.bot)
     status = await message.answer("🔗 Изучаю ссылку…")
     try:
         result = await _fetch(link, ym_tok, zv_tok)
@@ -155,13 +157,26 @@ async def on_link(message: types.Message):
         log.exception("не удалось создать плейлист из ссылки")
 
     if pl_id:
-        note = ("<b>📋 Плейлист добавлен в приложение:</b> " + (title or "Импорт") +
+        from bot import fx
+        note = ("<b>📋 Плейлист добавлен в приложение:</b> "
+                + fx.esc_html(title or "Импорт") +
                 f"\n🎵 Треков: {added + already}"
                 + ("\n<i>Новые треки добавлены, дубликаты пропущены.</i>"
                    if already and added else
                    "\n<i>Все эти треки уже были в этом плейлисте.</i>" if already else ""))
-        await message.answer(note,
-                             reply_markup=main_menu())
+        cover = next((m.cover_url for m in metas if m.cover_url), None)
+        sent = False
+        if cover:
+            try:
+                await message.answer_photo(photo=cover, caption=note,
+                                           reply_markup=main_menu())
+                sent = True
+            except Exception:  # noqa: BLE001
+                pass          # обложка битая/приватная — текстом
+        if not sent:
+            await message.answer(note, reply_markup=main_menu())
+        await fx.react(message.bot, message.chat.id,
+                       message.message_id, fx.FIRE)
     else:
         # фолбэк: старое поведение — батч-скачивание
         await start_batch(message, title, metas)
