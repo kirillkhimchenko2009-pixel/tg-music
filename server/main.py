@@ -1,4 +1,5 @@
 """FastAPI приложение: REST API + статика Mini App."""
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -51,6 +52,34 @@ async def startup():
     if music_settings.media_role == "app":
         from music import mediajobs
         mediajobs.start_local_reserve()
+    # RSS baseline вместо SSH (на free-плане Render SSH закрыт платформой):
+    # раз в 5 минут одна строка в логи — снимается render_logs.py по маркеру
+    # server.mem. На Windows/локале /proc нет — цикл молчит.
+    asyncio.create_task(_mem_log_loop())
+
+
+def _read_rss_kb() -> int:
+    """Текущий RSS процесса в КБ (Linux-контейнер), 0 если недоступно."""
+    try:
+        with open("/proc/self/status", encoding="ascii", errors="ignore") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+async def _mem_log_loop():
+    log = logging.getLogger("server.mem")
+    while True:
+        try:
+            kb = _read_rss_kb()
+            if kb:
+                log.info("RSS %d MB", kb // 1024)
+        except Exception:  # noqa: BLE001 — диагностика не должна падать
+            pass
+        await asyncio.sleep(300)
 
 @app.on_event("shutdown")
 async def shutdown():
