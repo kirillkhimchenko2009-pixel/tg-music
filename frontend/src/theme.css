@@ -651,6 +651,30 @@ h1.h {
 }
 .trow .tmark svg { width: 15px; height: 15px; }
 
+/* «уже скачан в чат»: лаймовый бейдж ↓ на углу обложки (как скачанные
+   в ЯМ) + кнопка ↓ у строки для треков, которых в чате ещё нет */
+.trow .covwrap { position: relative; width: 46px; height: 46px; flex: 0 0 auto; }
+.trow .covwrap .cov { width: 46px; height: 46px; }
+.trow .chatok {
+  position: absolute; right: -4px; bottom: -4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4), inset 0 1px 1px rgba(255, 255, 255, .45);
+}
+.trow .chatok svg { width: 10px; height: 10px; }
+.trow .tdl {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; flex: 0 0 auto;
+  color: var(--t2);
+  transition: color .16s var(--ease), transform .2s var(--spring);
+}
+.trow .tdl:hover { color: var(--t1); }
+.trow .tdl:active { transform: scale(.9); }
+.trow .tdl svg { width: 16px; height: 16px; }
+.trow .tdl-p { font-size: 9px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
 /* эквалайзер-индикатор играющего трека */
 .eq { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 14px; }
 .eq i {

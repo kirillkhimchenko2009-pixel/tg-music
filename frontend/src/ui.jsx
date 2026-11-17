@@ -249,6 +249,26 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
      волна transform-анимаций + layout-измерения «вешали» переход и дёргали
      скролл. Остальные строки рендерятся сразу (initial=false). */
   const wake = (i ?? 0) < 14;
+  /* «уже в чате»: бэкенд отдаёт ready (file_id закеширован после отправки
+     в чат); после успешной отправки из приложения ставим локально. */
+  const [dl, setDl] = useState(null);          // null | { s: 'busy'|'done', txt }
+  const inChat = dl?.s === 'done' || t.ready;
+  const sendToChat = () => {
+    if (dl?.s === 'busy') return;
+    setDl({ s: 'busy', txt: '…' });
+    downloadTrack(t, txt => {
+      if (txt === 'в очереди') setDl({ s: 'busy', txt: '…' });
+      else if (txt.startsWith('⬇')) setDl({ s: 'busy', txt: txt.slice(2) });
+      else if (txt.startsWith('✓')) {
+        setDl({ s: 'done', txt: '' });
+        toast('Файл отправлен в чат', { kind: 'success' });
+      } else {
+        setDl(null);
+        toast(txt === 'ошибка' ? 'Не удалось отправить в чат' : txt,
+              { kind: 'error' });
+      }
+    }).catch(() => setDl(null));
+  };
   return (
     <motion.div
       layout={layout}
@@ -269,16 +289,33 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
           </>}
         </span>
       )}
-      {cov
-        ? <FadeImg className="cov" src={cov} alt="" loading="lazy" />
-        : <span className="cph" style={{ borderRadius: 8, flex: '0 0 auto',
-                                         background: gradFor(t.title || t.album || 'x') }}
-                aria-hidden="true"><IcoNote width="1em" height="1em" /></span>}
+      <span className="covwrap">
+        {cov
+          ? <FadeImg className="cov" src={cov} alt="" loading="lazy" />
+          : <span className="cph" style={{ borderRadius: 8, flex: '0 0 auto',
+                                           background: gradFor(t.title || t.album || 'x') }}
+                  aria-hidden="true"><IcoNote width="1em" height="1em" /></span>}
+        {inChat && (
+          <span className="chatok" title="Уже скачан в чат"
+                aria-label="Уже скачан в чат">
+            <IcoDl width="10px" height="10px" />
+          </span>
+        )}
+      </span>
       <div className="tmeta">
         <div className="tt">{t.title}</div>
         <div className="ta">{t.artist}{t.album ? ' · ' + t.album : ''}</div>
       </div>
       {time && <span className="ttime">{fmtTime(t.duration)}</span>}
+      {!inChat && (
+        <button className={'tdl' + (dl?.s === 'busy' ? ' busy' : '')}
+                aria-label="Скачать в чат" title="Скачать в чат"
+                onClick={e => { e.stopPropagation(); haptic('light'); sendToChat(); }}>
+          {dl?.s === 'busy'
+            ? <span className="tdl-p">{dl.txt}</span>
+            : <IcoDl />}
+        </button>
+      )}
       {heart && <HeartBtn id={t.id} />}
       {children}
       {onMenu && (
@@ -444,7 +481,7 @@ export function TrackMenu({
               toast('Не удалось подготовить файл', { kind: 'error' });
             }
           }}>
-            <IcoDl /> {dpid || 'Скачать в чат'}
+            <IcoDl /> {dpid || (track.ready ? 'Отправить в чат снова' : 'Скачать в чат')}
           </button>
 
           {onOpenArtist && track.artist && (
