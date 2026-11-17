@@ -25,7 +25,30 @@ import sys
 
 # Маркер сборки: печатается при старте (build=...). Если в консоли его нет —
 # панель запустила старый код, загрузка архива не дошла до файлов.
-WORKER_BUILD = "r27-20261116"
+WORKER_BUILD = "r28-20261117"
+
+
+async def _keepalive() -> None:
+    """Free-инстанс Render засыпает после ~15 мин без входящих HTTP:
+    холодный старт ~1 мин, бот молчит, мини-апп «не открывается».
+    Входящий пинг /health каждые 12 мин держит инстанс тёплым
+    (~744 инстанс-часа/мес — внутри 750 бесплатных). Исходящий поллинг
+    Telegram сон НЕ предотвращает — поэтому именно HTTP-пинг.
+    Ошибки глушим: это страховка, а не критичный путь."""
+    import httpx
+    base = (os.getenv("WEBAPP_URL")
+            or "https://vibe-music-dk6c.onrender.com").rstrip("/")
+    log = logging.getLogger("keepalive")
+    logged = False
+    while True:
+        try:
+            r = await httpx.get(base + "/health", timeout=30)
+            if not logged:
+                log.info("keepalive: %s %s/health", r.status_code, base)
+                logged = True
+        except Exception:
+            logged = False              # восстановление залогируем снова
+        await asyncio.sleep(720)
 
 
 async def main() -> None:
@@ -68,7 +91,11 @@ async def main() -> None:
              poller.name, music_settings.media_role, poller.poll_sec,
              poller.caps_ffmpeg, "Neon" if os.getenv("DATABASE_URL") else "local",
              WORKER_BUILD)
-    await poller.run_forever()
+    keepalive = asyncio.create_task(_keepalive())
+    try:
+        await poller.run_forever()
+    finally:
+        keepalive.cancel()
 
 
 if __name__ == "__main__":
