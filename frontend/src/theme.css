@@ -1129,8 +1129,7 @@ h1.h {
 }
 .np-x svg { width: 18px; height: 18px; }
 
-.np-covwrap { position: relative; margin: 22px auto 20px; width: min(78vw, 330px); aspect-ratio: 1; }
-/* аура за обложкой: цвет обложки приходит из dominantColor через --g2
+.np-covwrap { position: relative; margin: 22px auto 20px; width: min(78vw, 330px); aspect-ratio: 1; }/* аура за обложкой: цвет обложки приходит из dominantColor через --g2
    на .np; псевдоэлемент живёт внутри layoutId-элемента и наследует
    его движение, стык перехода не ломается */
 .np-covwrap::before {
@@ -1897,3 +1896,53 @@ h1.h {
 .resume-txt b { font-size: 13.5px; font-weight: 650; }
 .resume-txt i { font-style: normal; font-size: 12px; color: var(--t3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* §13: цветной слой свечения NowPlaying — crossfade между треками
+   через AnimatePresence (роль прежнего .np::before) */
+.np-glow {
+  position: fixed; inset: -10% -10% 40% -10%; z-index: 1;
+  pointer-events: none;
+  filter: blur(70px);
+}
+
+/* §11 лирика: только пользовательский LRC, всё локально */
+.lyr { margin-top: 26px; }
+.lyr-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; }
+.lyr-cap { color: var(--t2); font-size: 11px; letter-spacing: .12em;
+  text-transform: uppercase; font-weight: 700; white-space: nowrap; }
+.lyr-acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.lyr-act {
+  background: none; border: 0; color: var(--t3); font: inherit; font-size: 12.5px;
+  cursor: pointer; padding: 6px 8px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.lyr-act:active { background: var(--glass-fill); }
+.lyr-box {
+  margin-top: 8px; max-height: 38vh; overflow-y: auto; overscroll-behavior: contain;
+  display: grid; gap: 2px; padding: 10px 2px 16px;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 7%, #000 93%, transparent);
+}
+.lyr-line {
+  background: none; border: 0; text-align: left; font: inherit; color: var(--t3);
+  font-size: 15px; line-height: 1.45; padding: 5px 6px; border-radius: 8px;
+  cursor: pointer; white-space: pre-wrap;
+}
+.lyr-line.on { color: var(--t1); font-weight: 650; }
+.lyr-line:active { background: var(--glass-fill); }
+.lyr-empty { color: var(--t3); font-size: 13px; padding: 12px 4px 18px; }
+.lyr-edit { margin-top: 8px; display: grid; gap: 8px; }
+.lyr-edit textarea {
+  width: 100%; resize: vertical; background: var(--card); color: var(--t1);
+  border: 1px solid var(--glass-line); border-radius: 12px;
+  padding: 10px 12px; font: inherit; font-size: 13.5px;
+}
+.lyr-editrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.lyr-save {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 10px;
+  padding: 9px 13px; font: inherit; font-size: 13px;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer;
+}
+.lyr-save:disabled { opacity: .5; cursor: default; }
+.lyr-note { color: var(--t3); font-size: 12px; line-height: 1.5; }

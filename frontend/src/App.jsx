@@ -11,7 +11,7 @@ import { setAuthToken, initDataRaw } from './store.js';
 import { firstUserName, haptic } from './tg.js';
 import { navInit, navPush, navBack, navFwd, useNav, useNavMeta } from './nav.js';
 import {
-  coverOr, FadeImg, Eq, HeartBtn, PlayPause, fmtTime, gradFor, dominantColor,
+  coverOr, FadeImg, Eq, HeartBtn, PlayPause, fmtTime, gradFor,
   IcoHome, IcoWave, IcoSearch, IcoLib, IcoImport, IcoPodcast,
   IcoChevL, IcoChevR, IcoBell, IcoX, IcoCheck,
   IcoPrev, IcoNext, IcoShuffle, IcoRepeat, IcoVol, IcoVolOff,
@@ -32,6 +32,8 @@ import Artist from './screens/Artist.jsx';
 import Album from './screens/Album.jsx';
 import Wave from './screens/Wave.jsx';
 import Storage from './screens/Storage.jsx';
+import { LyricsView } from './LyricsView.jsx';
+import { extractPalette } from './local/palette.js';
 
 /* компатибл-экспорт: часть экранов импортирует эти символы из App.jsx */
 export { coverOr, HeartBtn, PlayPause };
@@ -436,6 +438,7 @@ function NowPlaying({ onClose }) {
   const { surfaceVariants, trackVariants, queueVariants, player } = usePlayerMotion();
   const [dl, setDl] = useState('');
   const [glow, setGlow] = useState(null);
+  const [glow2, setGlow2] = useState(null);
   const y = useMotionValue(0);
   const scrollRef = useRef(null);
   const touch = useRef({ active: false, locked: false, startX: 0, startY: 0 });
@@ -446,10 +449,14 @@ function NowPlaying({ onClose }) {
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
 
+  /* §13: палитра по обложке — dominant → верхнее свечение (кроссфейд в
+     .np-glow), accent → аура за обложкой; tainted canvas → базовая тема */
   useEffect(() => {
     let dead = false;
-    dominantColor(coverOr(cur)).then(rgb => {
-      if (!dead && rgb) setGlow(`rgba(${rgb[0]},${rgb[1]},${rgb[2]},.55)`);
+    extractPalette(coverOr(cur)).then(p => {
+      if (dead) return;
+      setGlow(p ? p.glow : null);
+      setGlow2(p ? p.glow2 : null);
     });
     return () => { dead = true; };
   }, [cur?.id]);
@@ -459,6 +466,12 @@ function NowPlaying({ onClose }) {
   const onTouchStart = e => {
     const el = scrollRef.current;
     if (!el || el.scrollTop > 0) return;
+    /* скролл внутри блока лирики не должен тащить весь плеер вниз */
+    const t0 = e.target;
+    if (t0 && t0.closest && t0.closest('.lyr-box, .lyr-edit textarea')) {
+      touch.current = { active: false, locked: false, startX: 0, startY: 0 };
+      return;
+    }
     const t = e.touches[0];
     touch.current = { active: true, locked: false, startX: t.clientX, startY: t.clientY };
   };
@@ -507,8 +520,8 @@ function NowPlaying({ onClose }) {
       ref={scrollRef}
       className="np"
       style={{ y,
-               '--g': glow ? `radial-gradient(120% 90% at 50% -8%, ${glow}, transparent 68%)` : undefined,
-               '--g2': glow ? `radial-gradient(70% 70% at 50% 52%, ${glow}, transparent 72%)` : undefined }}
+               '--g': glow ? 'none' : undefined,
+               '--g2': glow2 ? `radial-gradient(70% 70% at 50% 52%, ${glow2}, transparent 72%)` : undefined }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -528,6 +541,16 @@ function NowPlaying({ onClose }) {
         animate="visible"
         exit="exit"
       />
+      {/* §13: цветное свечение перекрёстно затухает при смене трека */}
+      <AnimatePresence>
+        {glow && (
+          <motion.div key={'glow' + cur.id} className="np-glow"
+                      initial={{ opacity: 0 }} animate={{ opacity: .5 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: .9, ease: [.16, 1, .3, 1] }}
+                      style={{ background: glow }} />
+        )}
+      </AnimatePresence>
       <div className="np-in">
         <div className="np-head">
           <span className="np-kicker">
@@ -602,6 +625,8 @@ function NowPlaying({ onClose }) {
           <button className={'cbtn' + (st.loop ? ' on' : '')} aria-label="Повтор"
                   onClick={() => { haptic('light'); P.setLoop(!st.loop); }}><IcoRepeat /></button>
         </div>
+
+        <LyricsView track={cur} st={st} />
 
         <div className="np-queue">
           <div className="npq-cap">Очередь · {st.queue.length}</div>
