@@ -840,7 +840,12 @@ h1.h {
   color: var(--t2); font-size: 13px;
 }
 .ahero-note b { color: var(--t1); font-weight: 600; }
-.ahero-cta { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.ahero-cta {
+  display: flex; align-items: center; gap: 12px; margin-top: 4px;
+  /* 5 кнопок (после «Сохранить офлайн») на узких экранах не влезают:
+     без переноса последняя («Всё в любимое») уезжала за границу */
+  flex-wrap: wrap; row-gap: 10px;
+}
 .pbtn-lg {
   width: 52px; height: 52px; border-radius: 50%;
   background: var(--accent); color: var(--accent-ink);
