@@ -302,44 +302,69 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   const downloadAll = async () => {
     if (!tracks?.length || prog) return;
     haptic('medium');
-    const ids = tracks.map(t => t.id);
+    /* «Скачать всё» для длинных списков: бэкенд молча режет пачку до
+       WEBAPP_BULK_MAX (200) — тот же класс бага, что «Всё в любимое».
+       Шлём чанками по 200 ПОСЛЕДОВАТЕЛЬНО (параллельные INSERT-ы на Neon
+       плодят «database is locked») и агрегируем ответ; поллинг статусов
+       тоже чанками (кап jobs-bulk — 400 id на запрос). */
+    const ids = [...new Set(tracks.map(t => t.id))];
+    const CHUNK = 200;
+    const jobs = [];
+    let skipped = 0;
     setProg({ done: 0, total: ids.length });
-    let jobs, skipped = 0;
     try {
-      const res = await api('/api/download-bulk', {
-        method: 'POST',
-        body: JSON.stringify({ track_ids: ids }),
-      });
-      jobs = (res.jobs || []).map(j => j.job);
-      skipped = (res.skipped || []).length;
-      if (!jobs.length) {
-        setProg(null);
-        toast(skipped ? 'Всё уже скачано — повторно не качаю'
-                      : 'Нечего скачивать', { kind: 'success' });
-        return;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const res = await api('/api/download-bulk', {
+          method: 'POST',
+          body: JSON.stringify({ track_ids: ids.slice(i, i + CHUNK) }),
+        });
+        jobs.push(...(res.jobs || []).map(j => j.job));
+        skipped += (res.skipped || []).length;
+        setProg({ done: 0, total: jobs.length + skipped });
       }
     } catch (e) {
-      if (e.message === 'telegram_required') { setProg(null); return; }
-      toast('Не удалось поставить загрузку: ' + e.message, { kind: 'error' });
       setProg(null);
+      if (e.message === 'telegram_required') return;
+      /* джобы уже поставленных чанков воркер доработает без нас */
+      if (jobs.length) {
+        toast(`Поставлено ${jobs.length} из ${ids.length} — остальное позже`, { kind: 'error' });
+        return;
+      }
+      toast('Не удалось поставить загрузку: ' + e.message, { kind: 'error' });
+      return;
+    }
+    if (!jobs.length) {
+      setProg(null);
+      toast(skipped ? 'Всё уже скачано — повторно не качаю'
+                    : 'Нечего скачивать', { kind: 'success' });
       return;
     }
     const total = jobs.length;
+    const PCHUNK = 350;                        // бэкенд-кап поллинга — 400
+    let settled = 0, done = 0;
     for (let it = 0; it < 700; it++) {
       await new Promise(r => setTimeout(r, 2000));
-      let st;
-      try {
-        st = await api('/api/jobs-bulk?ids=' + jobs.join(','));
-      } catch { continue; }
-      const vals = Object.values(st.jobs || {});
-      const done = vals.filter(s => s === 'done').length;
-      const settled = vals.filter(s => s === 'done' || s === 'error' || s === 'canceled').length;
+      const merged = {};
+      let polled = true;
+      for (let i = 0; i < jobs.length; i += PCHUNK) {
+        try {
+          const st = await api('/api/jobs-bulk?ids=' + jobs.slice(i, i + PCHUNK).join(','));
+          Object.assign(merged, st.jobs || {});
+        } catch { polled = false; break; }
+      }
+      if (!polled) continue;
+      const vals = Object.values(merged);
+      done = vals.filter(s => s === 'done').length;
+      settled = vals.filter(s => s === 'done' || s === 'error' || s === 'canceled').length;
       setProg({ done, total: total + skipped, fromCache: skipped });
       if (settled >= total) break;
     }
     haptic('ok');
-    toast(skipped ? `Готово: ${total} новых · из кеша: ${skipped}`
-                  : 'Плейлист скачан в чат', { kind: 'success' });
+    const left = Math.max(0, total - settled);
+    toast(left ? `В очереди: ${left} — файлы придут в чат по мере готовности`
+               : (skipped ? `Готово: ${total} новых · из кеша: ${skipped}`
+                          : 'Плейлист скачан в чат'),
+          { kind: 'success' });
     setProg(null);
   };
 
