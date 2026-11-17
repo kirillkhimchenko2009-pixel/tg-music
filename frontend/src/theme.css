@@ -541,7 +541,7 @@ h1.h {
   display: grid; place-items: center;
   transition: background .2s var(--ease), transform .25s var(--spring), color .2s var(--ease);
 }
-.mixcard:hover .mix-play { background: var(--accent); color: var(--accent-ink); transform: scale(1.04); }
+.mixcard:hover .mix-play { transform: scale(1.04); }
 .mix-play svg { width: 22px; height: 22px; }
 
 /* жанровые плитки: крупная типографика на тёмном (ряд жанров) */
@@ -964,7 +964,7 @@ h1.h {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 18px rgba(217, 237, 58, .24);
   transition: transform .2s var(--spring), box-shadow .2s var(--ease), background .2s var(--ease);
 }
-.pl-play:hover { background: var(--accent-hover); transform: scale(1.04); }
+.pl-play:hover { filter: brightness(1.07); transform: scale(1.04); }
 .pl-play:active { transform: scale(.96); }
 .pl-play svg { width: 19px; height: 19px; }
 
@@ -1159,7 +1159,7 @@ h1.h {
   color: var(--accent-ink);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32), 0 10px 26px rgba(217, 237, 58, .26);
 }
-.cbtn.big:hover { background: var(--accent-hover); color: var(--accent-ink); transform: scale(1.02); }
+.cbtn.big:hover { filter: brightness(1.07); color: var(--accent-ink); transform: scale(1.02); }
 .cbtn.big:active { transform: scale(.96); }
 .cbtn.big svg { width: 22px; height: 22px; }
 /* стеклянная кнопка (iOS-материал): светлая полупрозрачная заливка,
@@ -1170,6 +1170,61 @@ h1.h {
   box-shadow: var(--glass-light);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* --- стеклянные 3D-кнопки (jelly glass): хрустящий верхний ободок,
+   донная внутренняя тень, объёмное «желе» и капля-тень снизу.
+   Единый рецепт для круглых контролов плеера, волны и карточек --- */
+.cbtn.big, .cbtn.glass, .pl-play, .mix-play, .wave-shake {
+  position: relative; overflow: hidden;
+  border: 0;
+  box-shadow:
+    inset 0 1.5px 1px rgba(255, 255, 255, .5),
+    inset 0 -7px 12px rgba(9, 11, 17, .34),
+    inset 0 0 0 1px rgba(255, 255, 255, .15),
+    0 10px 22px rgba(0, 0, 0, .40),
+    0 3px 7px rgba(0, 0, 0, .26);
+  transition: transform .2s var(--spring), box-shadow .2s var(--ease), filter .2s var(--ease);
+}
+.cbtn.big:active, .cbtn.glass:active, .pl-play:active, .mix-play:active, .wave-shake:active {
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .38),
+    inset 0 -4px 8px rgba(9, 11, 17, .38),
+    inset 0 0 0 1px rgba(255, 255, 255, .12),
+    0 4px 10px rgba(0, 0, 0, .38);
+}
+/* матовое стекло: слои света + blur (на мобиле --glass-blur уже облегчён) */
+.cbtn.glass, .wave-shake {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, .30), rgba(255, 255, 255, .10) 46%,
+      rgba(255, 255, 255, .04) 64%, rgba(255, 255, 255, .10)),
+    var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+/* лаймовое желе: объёмный градиент (свет сверху → тень снизу) + свечение */
+.cbtn.big, .pl-play, .mix-play {
+  background:
+    radial-gradient(130% 100% at 50% -18%, rgba(255, 255, 255, .55), transparent 56%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 58%, #fff) 0%,
+      var(--accent) 52%,
+      color-mix(in srgb, var(--accent) 72%, #000) 100%);
+  color: var(--accent-ink);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255, 255, 255, .65),
+    inset 0 -7px 12px rgba(64, 74, 6, .42),
+    inset 0 0 0 1px rgba(255, 255, 255, .28),
+    0 10px 22px rgba(0, 0, 0, .40),
+    0 6px 20px rgba(217, 237, 58, .22);
+}
+/* верхний блик-«стекло» — общий для всех */
+.cbtn.big::before, .cbtn.glass::before, .pl-play::before,
+.mix-play::before, .wave-shake::before {
+  content: ""; position: absolute; left: 16%; right: 16%; top: 6%; height: 44%;
+  border-radius: 999px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, 0));
 }
 
 /* морф play/pause */
@@ -1382,11 +1437,6 @@ h1.h {
   width: 36px; height: 36px; flex: 0 0 auto;
   border-radius: 999px;
   color: var(--t2);
-  background: var(--glass-fill);
-  border: 1px solid var(--glass-line);
-  box-shadow: var(--glass-light);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   transition: all .18s var(--ease);
 }
 .wave-shake:hover { color: var(--t1); border-color: var(--border); }
