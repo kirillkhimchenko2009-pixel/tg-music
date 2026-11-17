@@ -39,28 +39,49 @@ export async function toggleLike(id) {
   return !was;
 }
 
-/* «Всё в любимое»: пачка треков одним POST-ом. Оптимистично помечаем,
-   сервер вернёт только реально добавленные (existing = уже были) —
-   снимаем лишь те, что он молча пропустил (нет в каталоге). */
+/* «Всё в любимое»: пачка треков. Сервер режет пачку до
+   WEBAPP_LIKES_BULK_MAX (по умолчанию 500) — «Мне нравится» на 1241
+   переносился только до 500-го, остальное молча отбрасывалось. Теперь
+   шлём чанками по CHUNK последовательно (параллельные INSERT-ы на Neon
+   плодят «database is locked»). Оптимистично помечаем; сервер вернёт
+   только реально добавленные (existing = уже были) — снимаем лишь те,
+   что он молча пропустил (нет в каталоге). */
+const BULK_CHUNK = 500;   // = дефолт WEBAPP_LIKES_BULK_MAX на бэкенде
+
 export async function addLikesBulk(list) {
-  const want = list || [];
+  const want = [...new Set(list || [])];
   if (!loaded) { try { await loadLikes(); } catch { /* живём и так */ } }
   const fresh = want.filter(id => !ids.has(id));
   if (!fresh.length) return { added: 0, ids: [], existing: want };
   fresh.forEach(id => ids.add(id));
   emit();
+  const freshSet = new Set(fresh);
+  const accepted = new Set();                 // подтверждено сервером
+  const total = { added: 0, ids: [], existing: [] };
   try {
-    const j = await api('/api/likes/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ track_ids: want }),
-    });
-    const got = new Set(j.ids || []);
-    const had = new Set(j.existing || []);
-    for (const id of fresh) if (!got.has(id) && !had.has(id)) ids.delete(id);
-    emit();
-    return j;
+    for (let i = 0; i < want.length; i += BULK_CHUNK) {
+      const part = want.slice(i, i + BULK_CHUNK);
+      const j = await api('/api/likes/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ track_ids: part }),
+      });
+      const got = new Set(j.ids || []);
+      const had = new Set(j.existing || []);
+      for (const id of part) {
+        if (!freshSet.has(id)) continue;
+        if (!got.has(id) && !had.has(id)) ids.delete(id);
+        else accepted.add(id);
+      }
+      total.added += j.added || 0;
+      total.ids.push(...(j.ids || []));
+      total.existing.push(...(j.existing || []));
+      emit();
+    }
+    return total;
   } catch {
-    for (const id of fresh) ids.delete(id);   // откат при сбое сети
+    /* откат при сбое: снимаем только неподтверждённое — прошлые чанки
+       сервер уже закоммичил, их пометку оставляем */
+    for (const id of fresh) if (!accepted.has(id)) ids.delete(id);
     emit();
     throw new Error('Не удалось добавить в любимое');
   }
