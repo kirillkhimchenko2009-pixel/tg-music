@@ -25,6 +25,18 @@ export function subscribeDl(fn) {
   return () => listeners.delete(fn);
 }
 
+/* редкие события «джоба дошла до конца» — для счётчиков покрытия (чип плейлиста) */
+const settledListeners = new Set();
+
+export function subscribeSettled(fn) {
+  settledListeners.add(fn);
+  return () => settledListeners.delete(fn);
+}
+
+function settledFire() {
+  for (const fn of settledListeners) fn();
+}
+
 function view(trackId) {
   let v = jobs.get(trackId);
   if (!v) {
@@ -85,6 +97,22 @@ export async function enqueue(track, priority = 1) {
   emit();
   pump();
   return 'queued';
+}
+
+/* Массовое «сохранить плейлист офлайн» (§5): Wi-Fi-гейт один раз на всю
+   пачку, дедуп уже сохранённых; очередь и приоритеты ведёт сам менеджер. */
+export async function bulkEnqueue(list, priority = 1) {
+  if (!booted) await boot();
+  await wifiGate();
+  let queued = 0, already = 0;
+  for (const t of list || []) {
+    if (!t?.id) continue;
+    const res = await enqueue(t, priority);
+    if (res === 'done') already++;
+    else queued++;
+  }
+  emit();
+  return { queued, already, total: (list || []).length };
 }
 
 export async function cancel(trackId) {
@@ -239,6 +267,7 @@ async function run(v) {
     v.received = blob.size;
     v.total = blob.size;
     emit();
+    settledFire();
   } catch (e) {
     const aborted = e && (e.name === 'AbortError' || e.code === 20);
     if (aborted) {
@@ -259,6 +288,7 @@ async function run(v) {
                                    name: v.name, error: v.error });
     }
     emit();
+    settledFire();
   }
 }
 

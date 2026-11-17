@@ -80,10 +80,14 @@ export async function markLocal(trackId, hash, size) {
     await db.storage_manifest.put({ hash, track_id: trackId, size: size || 0,
                                     created: now() });
   });
+  _offlineIds.add(trackId);
+  _notifyOffline();
 }
 
 export async function markMissing(trackId) {
   try { await db.tracks.update(trackId, { dl_state: 'missing' }); } catch { /* ок */ }
+  _offlineIds.delete(trackId);
+  _notifyOffline();
 }
 
 export async function removeLocal(trackId) {
@@ -102,10 +106,47 @@ export async function removeLocal(trackId) {
     }
     await db.download_jobs.delete(trackId);
   });
+  _offlineIds.delete(trackId);
+  _notifyOffline();
 }
 
 export async function offlineTracks() {
   return db.tracks.where('dl_state').equals('local').toArray();
+}
+
+/* ---------- реактивный набор офлайн-треков (бейдж в TrackRow, чип плейлиста) ---------- */
+let _offlineIds = new Set();
+const _offListeners = new Set();
+
+export function subscribeOffline(fn) {
+  _offListeners.add(fn);
+  return () => _offListeners.delete(fn);
+}
+
+export function isOffline(id) {
+  return _offlineIds.has(id);
+}
+
+function _notifyOffline() {
+  for (const fn of _offListeners) fn();
+}
+
+export async function loadOfflineIds() {
+  try {
+    const rows = await db.tracks.where('dl_state').equals('local').toArray();
+    _offlineIds = new Set(rows.map(r => r.id));
+    _notifyOffline();
+  } catch { /* ок */ }
+}
+
+/* Сколько из перечисленных треков уже сохранено офлайн (чип на плейлисте). */
+export async function localCount(ids) {
+  const clean = (ids || []).filter(i => Number.isFinite(i));
+  if (!clean.length) return 0;
+  try {
+    return await db.tracks.where('id').anyOf(clean)
+      .and(t => t.dl_state === 'local').count();
+  } catch { return 0; }
 }
 
 /* ---------- настройки §5/§19 ---------- */
@@ -221,7 +262,8 @@ export async function resolveQueue(ids) {
   }));
 }
 
-/* слушатели: синк при возвращении сети */
+/* слушатели: синк при возвращении сети + первичная загрузка офлайн-набора */
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => scheduleSync());
+  loadOfflineIds();
 }

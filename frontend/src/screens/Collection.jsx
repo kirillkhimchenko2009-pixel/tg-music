@@ -10,11 +10,14 @@ import {
   Rail, PlayCard, ArtistCard, SectionHead, TrackRow, TrackMenu, Skeletons,
   FadeImg, fmtTime, plural, groupAlbums, gradFor, dominantColor, coverOr,
   IcoHeart, IcoPlus, IcoDl, IcoChevR, IcoNote, IcoCheck, IcoX, IcoWave,
+  IcoSave,
 } from '../ui.jsx';
 import { addLikesBulk, loadLikes } from '../likes.js';
 import * as routes from '../routes.js';
 import { Sheet, toast } from '../motion/index.js';
 import Reveal from '../motion/components/Reveal.jsx';
+import * as dl from '../local/downloads.js';
+import { localCount } from '../local/repo.js';
 
 const cimg = u => (!u ? '' : (u.startsWith('http') ? u : API_BASE + u));
 
@@ -267,6 +270,8 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
   const [glow, setGlow] = useState(null);
   const [err, setErr] = useState('');
   const [favBusy, setFavBusy] = useState(false);         // «Всё в любимое»
+  const [offBusy, setOffBusy] = useState(false);         // массовое «сохранить офлайн»
+  const [offStat, setOffStat] = useState(null);          // {saved,total} — покрытие офлайном
   /* Поэтапный маунт: «Любимое» может быть 500+ строк — рендер всех в один
      кадр подвешивал переход на страницу. Первые ~120 сразу, остальные
      добираются чанками в свободных кадрах (визуально незаметно). */
@@ -298,6 +303,27 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
     });
     return () => { dead = true; };
   }, [meta?.cover_url]);
+
+  /* Покрытие офлайном: сколько из плейлиста уже на устройстве. Пересчёт —
+     при загрузке треков и после каждого завершённого локального скачивания;
+     пачку settled-событий схлопываем в один пересчёт (debounce 400 мс). */
+  useEffect(() => {
+    let dead = false;
+    let timer = null;
+    const recount = () => {
+      if (dead) return;
+      localCount((tracks || []).map(t => t.id)).then(n => {
+        if (dead) return;
+        setOffStat(tracks?.length ? { saved: n, total: tracks.length } : null);
+      });
+    };
+    recount();
+    const un = dl.subscribeSettled(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(recount, 400);
+    });
+    return () => { dead = true; un(); if (timer) clearTimeout(timer); };
+  }, [tracks]);
 
   const downloadAll = async () => {
     if (!tracks?.length || prog) return;
@@ -368,6 +394,31 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
     setProg(null);
   };
 
+  /* Массовое «сохранить плейлист офлайн» (§5/§4): всё идёт в локальный
+     менеджер загрузок (см. «Хранилище»), на устройстве, без сети потом. */
+  const saveAllOffline = async () => {
+    if (!tracks?.length || offBusy) return;
+    haptic('medium');
+    const n = tracks.length;
+    const approx = n > 140 ? `≈${(n * 7 / 1000).toFixed(1)} ГБ`
+                           : `≈${Math.round(n * 7)} МБ`;
+    if (n > 15 && !confirm(
+      `Сохранить ${n} треков на этом устройстве (${approx})?\n` +
+      'Будут играть без сети. Хранилище WebView ограничено — система может ' +
+      'освободить место при нехватке.')) return;
+    setOffBusy(true);
+    try {
+      const r = await dl.bulkEnqueue(tracks, 1);
+      toast(r.queued
+        ? `Сохраняю офлайн: ${r.queued} из ${r.total}` +
+          (r.already ? ` · уже на устройстве: ${r.already}` : '')
+        : 'Всё уже сохранено офлайн', { kind: r.queued ? 'success' : 'info' });
+    } catch (e) {
+      toast((e && e.message) || 'Не удалось начать сохранение', { kind: 'error' });
+    }
+    setOffBusy(false);
+  };
+
   const totalDur = (tracks || []).reduce((s, t) => s + (t.duration || 0), 0);
   const isLikesPl = /любимое/i.test(meta?.title || '');
   const likeAll = async () => {
@@ -426,6 +477,10 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
           <button className="iconact" onClick={downloadAll} aria-label="Скачать всё" disabled={!!prog}>
             {prog ? <span className="minispinner" /> : <IcoDl />}
           </button>
+          <button className="iconact" onClick={saveAllOffline} aria-label="Сохранить офлайн"
+                  disabled={offBusy || !tracks?.length}>
+            {offBusy ? <span className="minispinner" /> : <IcoSave />}
+          </button>
           {!isLikesPl && (
             <button className="iconact" onClick={likeAll}
                     aria-label="Всё в любимое" disabled={favBusy || !tracks?.length}>
@@ -434,6 +489,9 @@ export function PlaylistScreen({ plId, pl: plKnown, back }) {
           )}
         </div>
         {prog && <div className="np-chip" style={{ marginTop: 12 }}><span className="np-dot" /> Скачиваю: {prog.done}/{prog.total}</div>}
+        {offStat && offStat.saved > 0 && offStat.saved < offStat.total && (
+          <div className="np-chip" style={{ marginTop: 12 }}><span className="np-dot" /> Офлайн: {offStat.saved}/{offStat.total}</div>
+        )}
         {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
       </motion.div>
 

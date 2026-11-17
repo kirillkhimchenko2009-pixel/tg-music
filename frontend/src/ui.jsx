@@ -1,6 +1,6 @@
 /* Общий UI-слой Vibe v3: иконки (единый штрих), карточки, рельсы,
    ряды треков, контекст-меню, шоты, скелетоны, визуальные утилиты. */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion, useAnimationControls } from 'motion/react';
 import { api, coverUrl } from './api.js';
 import { haptic } from './tg.js';
@@ -11,6 +11,7 @@ import AnimatedIcon from './motion/components/AnimatedIcon.jsx';
 import Sheet from './motion/components/Sheet.jsx';
 import { toast } from './motion/utils/toast.js';
 import * as dl from './local/downloads.js';
+import { subscribeOffline, isOffline } from './local/repo.js';
 
 /* ---------------- иконки (stroke 2, единый оптический ритм) ---------------- */
 const Icon = ({ d, children, ...props }) => (
@@ -240,6 +241,12 @@ export function Rail({ children }) {
 }
 
 /* ---------------- ряд трека ---------------- */
+/* Пометка «сохранено офлайн»: реактивный набор из repo.js — подписка
+   копеечная (проверка в Set), обновления редкие (файл скачан/удалён). */
+function useOffline(id) {
+  return useSyncExternalStore(subscribeOffline, () => isOffline(id));
+}
+
 export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, children, layout = false }) {
   /* Лёгкая подписка вместо полного снапшота: строка перерисовывается
      только при смене трека/play-pause, а не на каждом timeupdate. */
@@ -255,6 +262,7 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
      в чат); после успешной отправки из приложения ставим локально. */
   const [dl, setDl] = useState(null);          // null | { s: 'busy'|'done', txt }
   const inChat = dl?.s === 'done' || t.ready;
+  const off = useOffline(t.id);
   const sendToChat = () => {
     if (dl?.s === 'busy') return;
     setDl({ s: 'busy', txt: '…' });
@@ -301,6 +309,12 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
           <span className="chatok" title="Уже скачан в чат"
                 aria-label="Уже скачан в чат">
             <IcoDl width="10px" height="10px" />
+          </span>
+        )}
+        {off && (
+          <span className="offok" title="Сохранено офлайн"
+                aria-label="Сохранено офлайн">
+            <IcoSave width="10px" height="10px" />
           </span>
         )}
       </span>

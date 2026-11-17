@@ -664,6 +664,17 @@ h1.h {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .4), inset 0 1px 1px rgba(255, 255, 255, .45);
 }
 .trow .chatok svg { width: 10px; height: 10px; }
+/* пометка «сохранено офлайн»: синий, слева-снизу — не путать с лаймовым
+   .chatok (скачан в чат) справа-снизу */
+.trow .offok {
+  position: absolute; left: -4px; bottom: -4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: #fff;
+  background: #4D7CFF;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4), inset 0 1px 1px rgba(255, 255, 255, .45);
+}
+.trow .offok svg { width: 10px; height: 10px; }
 .trow .tdl {
   display: grid; place-items: center;
   width: 24px; height: 24px; flex: 0 0 auto;
