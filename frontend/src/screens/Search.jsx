@@ -11,15 +11,24 @@ import {
 import * as routes from '../routes.js';
 import Reveal from '../motion/components/Reveal.jsx';
 
+import gHiphop from '../assets/genre-hiphop.jpg';
+import gRock from '../assets/genre-rock.jpg';
+import gPop from '../assets/genre-pop.jpg';
+import gElectro from '../assets/genre-electro.jpg';
+import gJazz from '../assets/genre-jazz.jpg';
+import gRus from '../assets/genre-rus.jpg';
+import gClassic from '../assets/genre-classic.jpg';
+import gLofi from '../assets/genre-lofi.jpg';
+
 const GENRES = [
-  { q: 'русские хиты', t: 'Русские хиты', g: 'linear-gradient(140deg,#42506a,#1e2634)', ic: '🇷🇺' },
-  { q: 'hip hop', t: 'Хип-хоп', g: 'linear-gradient(140deg,#4a3f63,#241e33)', ic: '🎤' },
-  { q: 'рок', t: 'Рок', g: 'linear-gradient(140deg,#6b4440,#2e1d1e)', ic: '🎸' },
-  { q: 'поп', t: 'Поп', g: 'linear-gradient(140deg,#3f5d5a,#1c2c2c)', ic: '✦' },
-  { q: 'електроника', t: 'Электроника', g: 'linear-gradient(140deg,#40506e,#1c2637)', ic: '🌀' },
-  { q: 'джаз', t: 'Джаз', g: 'linear-gradient(140deg,#6b5a3a,#2e2618)', ic: '🎷' },
-  { q: 'classical', t: 'Классика', g: 'linear-gradient(140deg,#565c68,#25282e)', ic: '🎻' },
-  { q: 'лоу-фай', t: 'Лоу-фай', g: 'linear-gradient(140deg,#4d5f42,#20291c)', ic: '🌙' },
+  { q: 'русские хиты', t: 'Русские хиты', g: 'linear-gradient(140deg,#42506a,#1e2634)', ic: '🇷🇺', img: gRus },
+  { q: 'hip hop', t: 'Хип-хоп', g: 'linear-gradient(140deg,#4a3f63,#241e33)', ic: '🎤', img: gHiphop },
+  { q: 'рок', t: 'Рок', g: 'linear-gradient(140deg,#6b4440,#2e1d1e)', ic: '🎸', img: gRock },
+  { q: 'поп', t: 'Поп', g: 'linear-gradient(140deg,#3f5d5a,#1c2c2c)', ic: '✦', img: gPop },
+  { q: 'електроника', t: 'Электроника', g: 'linear-gradient(140deg,#40506e,#1c2637)', ic: '🌀', img: gElectro },
+  { q: 'джаз', t: 'Джаз', g: 'linear-gradient(140deg,#6b5a3a,#2e2618)', ic: '🎷', img: gJazz },
+  { q: 'classical', t: 'Классика', g: 'linear-gradient(140deg,#565c68,#25282e)', ic: '🎻', img: gClassic },
+  { q: 'лоу-фай', t: 'Лоу-фай', g: 'linear-gradient(140deg,#4d5f42,#20291c)', ic: '🌙', img: gLofi },
 ];
 
 const POPULAR = ['казалось-бы тренды', 'афиша хиты 2026', 'русский рэп', 'кафе лоу-фай', 'дорожный рок', 'фоновая классика'];
@@ -99,7 +108,7 @@ export default function SearchScreen({ initial = '' }) {
             <div className="cap" style={{ marginTop: 20 }}>Жанры</div>
             <div className="moodgrid">
               {GENRES.map(g => (
-                <button key={g.q} className="mood" style={{ '--g': g.g }}
+                <button key={g.q} className="mood" style={{ '--g': g.g, '--img': `url(${g.img})` }}
                         onClick={() => { haptic('medium'); setQ(g.q); run(g.q); }}>
                   <span className="ic">{g.ic}</span>{g.t}
                 </button>

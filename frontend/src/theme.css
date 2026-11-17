@@ -559,7 +559,12 @@ h1.h {
   text-transform: uppercase;
   color: var(--t1);
   background-color: var(--surface2);
-  background-image: radial-gradient(120% 95% at 88% -12%, var(--glow, transparent), transparent 62%);
+  background-image:
+    radial-gradient(120% 95% at 88% -12%, var(--glow, transparent), transparent 62%),
+    linear-gradient(180deg, rgba(10, 11, 13, .16), rgba(10, 11, 13, .38) 46%, rgba(10, 11, 13, .80)),
+    var(--img, none);
+  background-size: cover, cover, cover;
+  background-position: 0 0, 0 0, center 30%;
   border: 1px solid var(--border-soft);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--shadow-1);
   transition: transform .2s var(--spring), border-color .18s var(--ease), box-shadow .2s var(--ease);

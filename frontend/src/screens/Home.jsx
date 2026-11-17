@@ -25,6 +25,12 @@ import imgJazz from '../assets/mood-jazz.jpg';
 import imgSad from '../assets/mood-sad.jpg';
 import imgRoad from '../assets/mood-road.jpg';
 import imgClassic from '../assets/mood-classic.jpg';
+import gHiphop from '../assets/genre-hiphop.jpg';
+import gRock from '../assets/genre-rock.jpg';
+import gPop from '../assets/genre-pop.jpg';
+import gElectro from '../assets/genre-electro.jpg';
+import gIndie from '../assets/genre-indie.jpg';
+import gJazz from '../assets/genre-jazz.jpg';
 
 const MOODS = [
   { q: 'lofi beats', g: 'linear-gradient(140deg,#4a5468,#232a36)', ic: '🌙', t: 'Тихий вечер', img: imgLofi },
@@ -39,12 +45,12 @@ const MOODS = [
 
 /* Жанры — крупные плитки в поисковый запрос (как на SoundCloud) */
 const GENRES = [
-  { q: 'хип-хоп', t: 'Хип-хоп' },
-  { q: 'рок', t: 'Рок' },
-  { q: 'поп', t: 'Поп' },
-  { q: 'танцевальная электроника', t: 'Электро' },
-  { q: 'инди', t: 'Инди' },
-  { q: 'джаз', t: 'Джаз' },
+  { q: 'хип-хоп', t: 'Хип-хоп', img: gHiphop },
+  { q: 'рок', t: 'Рок', img: gRock },
+  { q: 'поп', t: 'Поп', img: gPop },
+  { q: 'танцевальная электроника', t: 'Электро', img: gElectro },
+  { q: 'инди', t: 'Инди', img: gIndie },
+  { q: 'джаз', t: 'Джаз', img: gJazz },
 ];
 
 function greeting() {
@@ -127,6 +133,7 @@ export default function Home() {
         <Rail>
           {GENRES.map((g, i) => (
             <button key={g.t} className="genretile" data-h={i % 6}
+                    style={{ '--img': `url(${g.img})` }}
                     onClick={() => { haptic('select'); routes.goSearch(g.q); }}>
               {g.t}
             </button>
