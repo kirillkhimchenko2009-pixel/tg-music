@@ -170,6 +170,112 @@ async def history_add(body: HistoryIn, user: CurrentUser = Depends(tg_user)):
         await s.commit()
     return {"ok": True}
 
+
+# ---------------- офлайн-события плеера (local-first §17) ----------------
+
+class OfflineEventIn(BaseModel):
+    event_id: str
+    track_id: int | None = None
+    kind: str = "started"
+    played_seconds: float = 0.0
+    finished: bool = False
+    skipped: bool = False
+    at: int | None = None                      # epoch ms устройства
+
+
+class HistorySyncIn(BaseModel):
+    events: list[OfflineEventIn]
+
+
+def _ev_ts(ms: int | None):
+    """epoch ms → aware datetime; ничего внятного → None (дефолт utcnow)."""
+    if not ms:
+        return None
+    try:
+        v = float(ms)
+        if v > 1e12:                            # миллисекунды → секунды
+            v /= 1000.0
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(v, timezone.utc)
+    except Exception:
+        return None
+
+
+@router.post("/history/sync")
+async def history_sync(body: HistorySyncIn, user: CurrentUser = Depends(tg_user)):
+    """Идемпотентная выгрузка офлайн-событий плеера (§17).
+
+    Дедуп по уникальной паре (user_id, event_id) — двойной POST добавляет
+    одну строку. События с неизвестным track_id, личные действия (лайки,
+    добавления в плейлист — они синхронизируются своими API) и капнутые по
+    длительности (>4 ч) ack-аются без записи, чтобы клиент не гонял их снова.
+    """
+    if len(body.events) > 200:
+        raise HTTPException(400, "слишком много событий за раз")
+    from sqlalchemy.dialects import postgresql, sqlite
+
+    acked: list[str] = []
+    async with runtime.get_session() as s:
+        ids = {int(e.track_id) for e in body.events if e.track_id is not None}
+        known: set[int] = set()
+        if ids:
+            rows = await s.execute(select(Track.id).where(Track.id.in_(ids)))
+            known = {int(r[0]) for r in rows.all()}
+
+        dialect = s.bind.dialect.name
+        maker = {"postgresql": postgresql.insert,
+                 "sqlite": sqlite.insert}.get(dialect)
+
+        for e in body.events:
+            ev_id = (e.event_id or "").strip()[:48]
+            if not ev_id:
+                continue
+            if e.track_id is None or int(e.track_id) not in known \
+                    or e.kind in ("liked", "added_to_playlist") \
+                    or (e.played_seconds and e.played_seconds > 4 * 3600):
+                acked.append(ev_id)             # ack без записи
+                continue
+            values = {
+                "user_id": int(user.id), "track_id": int(e.track_id),
+                "origin": "web", "event_id": ev_id,
+                "played_seconds": max(0.0, float(e.played_seconds or 0)),
+                "finished": bool(e.finished), "skipped": bool(e.skipped),
+            }
+            ts = _ev_ts(e.at)
+            if ts is not None:
+                values["started_at"] = ts
+            if maker is not None:
+                stmt = maker(PlayEvent).values(**values).on_conflict_do_nothing(
+                    index_elements=["user_id", "event_id"])
+                await s.execute(stmt)
+            else:
+                dup = await s.execute(select(PlayEvent.id).where(
+                    PlayEvent.user_id == int(user.id),
+                    PlayEvent.event_id == ev_id))
+                if dup.scalar_one_or_none() is None:
+                    s.add(PlayEvent(**values))
+            acked.append(ev_id)
+        await s.commit()
+    return {"acked": acked}
+
+
+# ---------------- пачка треков по id (восстановление очереди §10) ----------------
+
+class TracksBatchIn(BaseModel):
+    ids: list[int]
+
+
+@router.post("/tracks/batch")
+async def tracks_batch(body: TracksBatchIn, user: CurrentUser = Depends(tg_user)):
+    ids = list(dict.fromkeys(int(i) for i in body.ids if i))[:300]
+    if not ids:
+        return {"tracks": []}
+    async with runtime.get_session() as s:
+        rows = list((await s.execute(select(Track).where(Track.id.in_(ids)))).scalars())
+    by_id = {t.id: t for t in rows}
+    return {"tracks": [track_dict(by_id[i]) for i in ids if i in by_id]}
+
+
 @router.get("/tracks/{track_id}")
 async def get_track(track_id: int, user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:

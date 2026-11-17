@@ -31,6 +31,7 @@ import Podcasts from './screens/Podcasts.jsx';
 import Artist from './screens/Artist.jsx';
 import Album from './screens/Album.jsx';
 import Wave from './screens/Wave.jsx';
+import Storage from './screens/Storage.jsx';
 
 /* компатибл-экспорт: часть экранов импортирует эти символы из App.jsx */
 export { coverOr, HeartBtn, PlayPause };
@@ -53,6 +54,7 @@ const NAV_COLL = [
 const NAV_MISC = [
   { tab: 'import', icon: IcoImport, label: 'Импорт' },
   { tab: 'podcasts', icon: IcoPodcast, label: 'Подкасты', soon: true },
+  { tab: 'storage', icon: IcoDl, label: 'Хранилище' },
 ];
 
 const TABS_M = [
@@ -150,6 +152,7 @@ function Screen({ view }) {
     case 'collection': return <Collection sub={view.sub || null} />;
     case 'import': return <ImportScreen />;
     case 'podcasts': return <Podcasts />;
+    case 'storage': return <Storage />;
     case 'artist': return <Artist name={view.name} cover={view.cover} />;
     case 'album': return <Album album={view.album} />;
     case 'playlist': return <PlaylistScreen plId={view.id} pl={view} />;
@@ -266,6 +269,9 @@ function TopBar({ name }) {
           </button>
           <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'history' }); setPop(null); }}>
             <IcoClock width="1em" height="1em" /> История
+          </button>
+          <button className="pop-item" onClick={() => { navPush({ tab: 'storage', sub: null }); setPop(null); }}>
+            <IcoDl width="1em" height="1em" /> Хранилище · офлайн
           </button>
         </AnimatedDropdown>
       </div>

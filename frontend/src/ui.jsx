@@ -10,6 +10,7 @@ import AnimatedCard from './motion/components/AnimatedCard.jsx';
 import AnimatedIcon from './motion/components/AnimatedIcon.jsx';
 import Sheet from './motion/components/Sheet.jsx';
 import { toast } from './motion/utils/toast.js';
+import * as dl from './local/downloads.js';
 
 /* ---------------- иконки (stroke 2, единый оптический ритм) ---------------- */
 const Icon = ({ d, children, ...props }) => (
@@ -33,6 +34,7 @@ export const IcoBell = p => <Icon {...p}><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 
 export const IcoHeart = ({ filled, ...p }) =>
   <Icon {...p}><path d="M12 21c-4.9-4.2-9-7.4-9-11.4C3 6.5 5.4 4 8.5 4c1.7 0 3.4.8 4.5 2.1C14.1 4.8 15.8 4 17.5 4 20.6 4 23 6.5 23 9.6c0 4-4.1 7.2-9 11.4z" fill={filled ? 'currentColor' : 'none'} /></Icon>;
 export const IcoDl = p => <Icon {...p}><path d="M12 3.5v11" /><path d="m7.5 10 4.5 4.5L16.5 10" /><path d="M4.5 20h15" /></Icon>;
+export const IcoSave = p => <Icon {...p}><path d="M5 4h11l3 3v13H5z" /><path d="M8 4v5h7V4" /><path d="M8 20v-6h8v6" /></Icon>;
 export const IcoDownload = IcoDl;              // совместимость со старыми импортами
 export const IcoMore = p => <Icon {...p}><circle cx="12" cy="5.4" r="1.7" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" /><circle cx="12" cy="18.6" r="1.7" fill="currentColor" stroke="none" /></Icon>;
 export const IcoPlus = p => <Icon {...p}><path d="M12 5v14M5 12h14" /></Icon>;
@@ -412,6 +414,7 @@ export function TrackMenu({
 }) {
   const [pls, setPls] = useState(null);
   const [dpid, setDpid] = useState('');           // статус скачивания
+  const [saving, setSaving] = useState(false);    // сохранение офлайн (§5)
   const [adding, setAdding] = useState(0);        // id плейлиста, куда идёт добавление
   const track = t || null;
   const shown = open ?? !!track;
@@ -482,6 +485,24 @@ export function TrackMenu({
             }
           }}>
             <IcoDl /> {dpid || (track.ready ? 'Отправить в чат снова' : 'Скачать в чат')}
+          </button>
+
+          <button className="shrow" onClick={async () => {
+            haptic('medium');
+            setSaving(true);
+            try {
+              const res = await dl.enqueue(track, 1);
+              if (res === 'done') toast('Уже сохранено офлайн', { kind: 'info' });
+              else {
+                toast('Сохраняю на устройство — прогресс в «Хранилище»', { kind: 'success' });
+                onClose();
+              }
+            } catch (e) {
+              toast((e && e.message) || 'Не удалось сохранить офлайн', { kind: 'error' });
+            }
+            setSaving(false);
+          }}>
+            <IcoSave /> {saving ? 'Сохраняю…' : 'Сохранить офлайн'}
           </button>
 
           {onOpenArtist && track.artist && (

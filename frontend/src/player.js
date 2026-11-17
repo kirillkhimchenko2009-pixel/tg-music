@@ -1,6 +1,15 @@
-/* Плеер: singleton audio + очередь + подписка на состояние. */
+/* Плеер: singleton audio + очередь + подписка на состояние.
+   Слой D (playback engine): единый Audio на всё приложение; источник —
+   локальный файл (если трек сохранён офлайн, §4/§7), иначе серверный
+   стрим. Здесь же MediaSession (§9), восстановление сессии (§10),
+   офлайн-события истории (§17). Любой сбой локального слоя не должен
+   ломать онлайн-плеер: всё в try/catch с фолбэком на стрим. */
 import { useSyncExternalStore } from 'react';
-import { api, playerSrc } from './api.js';
+import { api, playerSrc, coverUrl } from './api.js';
+import { localSrc, addHistory, recordEvent, syncEvents, cacheTracks } from './local/repo.js';
+import { saveSession, saveSessionSoon, getSession } from './local/recover.js';
+import * as ms from './local/mediasession.js';
+import { boot as bootDownloads } from './local/downloads.js';
 
 const audio = new Audio();
 audio.preload = 'metadata';
@@ -21,6 +30,8 @@ let state = {
   shuffle: false,
   loop: false,
   volume: initVolume,
+  local: false,          // играет локальный файл (офлайн)
+  pendingSeek: null,     // позиция для восстановления сессии (§10)
 };
 
 const listeners = new Set();
@@ -62,12 +73,14 @@ export function current() {
   return state.queue[state.index] || null;
 }
 
-export async function play(list, index) {
+export async function play(list, index, resumeSec = null) {
   const track = list[index];
   if (!track) return;
   state.queue = [...list];
   state.index = index;
+  state.pendingSeek = Number.isFinite(resumeSec) ? Math.max(0, resumeSec) : null;
   await loadAndPlay();
+  try { await cacheTracks(list); } catch { /* кеш метаданных — best effort */ }
 }
 
 async function loadAndPlay() {
@@ -78,16 +91,37 @@ async function loadAndPlay() {
   state.attempts = 0;
   beaconUid = null;               // новый трек → свежий старт-беакон
   emit();
+  /* MediaSession §9: обложка/название/исполнитель для системного плеера */
+  ms.setMetadata({
+    title: track.title, artist: track.artist, album: track.album,
+    artwork: coverUrl(track),
+  });
   await startUrl(track.id);
+  saveSessionSoon(sessData());
 }
 
 async function startUrl(trackId) {
   state.loading = true;
   emit();
   try {
-    const r = await playerSrc(trackId);          // { url, kind? }
-    state.kind = r.kind || null;
-    audio.src = r.url || r;
+    let src = null, kind = null, isLocal = false;
+    try {
+      src = await localSrc(trackId);           // OPFS/IDB → blob URL
+      isLocal = !!src;
+    } catch { src = null; }
+    if (!src) {
+      const r = await playerSrc(trackId);      // { url, kind? }
+      src = r.url || r;
+      kind = r.kind || null;
+    } else {
+      kind = 'local';
+    }
+    if (lastUrl && lastLocal) { try { URL.revokeObjectURL(lastUrl); } catch { /* ок */ } }
+    lastUrl = isLocal ? src : null;
+    lastLocal = isLocal;
+    state.kind = kind;
+    state.local = isLocal;
+    audio.src = src;
     await audio.play();
   } catch (e) {
     if (e && e.name === 'AbortError') { state.loading = false; emit(); return; }
@@ -96,6 +130,8 @@ async function startUrl(trackId) {
   state.loading = false;
   emit();
 }
+
+let lastUrl = null, lastLocal = false;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -147,6 +183,17 @@ export function toggle() {
 export async function next(manual = true) {
   if (wave && current()) return waveNext(manual);
   if (!state.queue.length) return;
+  if (manual) {
+    /* ручной скип: локальное событие → идемпотентная синхронизация (§17) */
+    const cur = current();
+    const played = audio.currentTime || 0;
+    if (cur && played > 5) {
+      try { addHistory(cur.id, { skipped: true, played, finished: false }); } catch { /* ок */ }
+      try { recordEvent({ kind: 'skipped', track_id: cur.id,
+                          played_seconds: played, skipped: true }).catch(() => {}); }
+      catch { /* ок */ }
+    }
+  }
   if (state.loop && !manual) { await loadAndPlay(); return; }
   if (state.shuffle && state.queue.length > 1) {
     let r;
@@ -253,15 +300,33 @@ function beacon(finished, played) {
     if (beaconUid === t.id) return;
     beaconUid = t.id;
   }
+  try {
+    addHistory(t.id, { finished, played, local: state.local });   // локальная история
+  } catch { /* не критично */ }
   api('/api/history', { method: 'POST', body: JSON.stringify({
     track_id: t.id, finished: !!finished,
-    played_seconds: Math.max(0, Math.round(played || 0)) }) }).catch(() => {});
+    played_seconds: Math.max(0, Math.round(played || 0)) }) })
+    .catch(() => {
+      /* сеть упала — событие уйдёт позже идемпотентно (§17) */
+      recordEvent({ kind: finished ? 'finished' : 'started', track_id: t.id,
+                    played_seconds: played, finished }).catch(() => {});
+    });
 }
 
 let startedId = null;            // последний трек, для которого ушли «started»
 
+audio.addEventListener('loadedmetadata', () => {
+  /* восстановление позиции §10: применяем один раз после готовности метаданных */
+  if (state.pendingSeek != null && Number.isFinite(audio.duration)) {
+    try { audio.currentTime = Math.min(state.pendingSeek, Math.max(0, audio.duration - 2)); }
+    catch { /* webview strictness */ }
+    state.pendingSeek = null;
+  }
+});
+
 audio.addEventListener('play', () => {
   state.attempts = 0;
+  ms.setPlaybackState(true);
   if (wave && current()) {
     const cur = current();
     const dur = audio.duration || cur.duration || 0;
@@ -278,15 +343,23 @@ audio.addEventListener('play', () => {
       wave.onEvent?.('started', cur, 0);
     }
   } else beacon(false, 0);
+  saveSession(sessData());
   emit();
 });
-audio.addEventListener('pause', emit);
+audio.addEventListener('pause', () => {
+  ms.setPlaybackState(false);
+  saveSession(sessData());
+  emit();
+});
 audio.addEventListener('timeupdate', () => {
   if (wave && current()) waveMark();
+  saveSessionSoon(sessData());
   emit();
 });
 audio.addEventListener('ended', () => {
   if (!wave && current()) beacon(true, audio.duration || audio.currentTime);
+  ms.setPlaybackState(false);
+  saveSession(sessData());
   next(false);
 });
 audio.addEventListener('error', async () => {
@@ -301,9 +374,31 @@ audio.addEventListener('error', async () => {
     return;
   }
   state.loading = false;
-  state.error = 'онлайн-источник недоступен — жми «Скачать»';
+  state.error = state.local
+    ? 'локальный файл не читается — нужен сервер'
+    : 'онлайн-источник недоступен — жми «Скачать»';
   emit();
 });
+
+/* скрытие вкладки/приложения — фиксируем сессию немедленно (§10) */
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveSession(sessData());
+  });
+}
+
+/* данные сессии для сохранения (queue id-ми — компактно) */
+function sessData() {
+  return {
+    t: current()?.id ?? null,
+    p: Math.round(audio.currentTime || 0),
+    q: state.queue.map(t => t.id),
+    i: state.index,
+    sh: state.shuffle,
+    lo: state.loop,
+    v: state.volume,
+  };
+}
 
 /* демо-очистка данных */
 export function fmt(s) {
@@ -312,3 +407,41 @@ export function fmt(s) {
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
 }
+
+/* ---------------- Media Session: экранные кнопки ---------------- */
+ms.bindActions({
+  toggle,
+  next: () => { next(true).catch(() => {}); },
+  prev: () => { prev().catch(() => {}); },
+  seekTo: s => {
+    if (!audio.duration) return;
+    try { audio.currentTime = Math.max(0, Math.min(audio.duration - 1, +s || 0)); } catch { /* ок */ }
+    emit();
+  },
+  skip: d => {
+    if (!audio.duration) return;
+    try {
+      audio.currentTime = Math.max(0, Math.min(audio.duration - 1, audio.currentTime + (+d || 10)));
+    } catch { /* ок */ }
+    emit();
+  },
+});
+
+/* ---------------- восстановление состояния при старте (§10) ----------------
+   shuffle/repeat/громкость применяем сразу; сама позиция/очередь ждут
+   явного тапа «Продолжить» на Главной (autoplay-permission честно). */
+(async () => {
+  try {
+    const s = await getSession();
+    if (s) {
+      if (typeof s.sh === 'boolean') state.shuffle = s.sh;
+      if (typeof s.lo === 'boolean') state.loop = s.lo;
+      if (typeof s.v === 'number' && s.v >= 0 && s.v <= 1) {
+        try { audio.volume = s.v; state.volume = s.v; } catch { /* webview */ }
+      }
+      emit();
+    }
+  } catch { /* состояние — best effort */ }
+  try { bootDownloads(); } catch { /* загрузки не критичны */ }
+  try { syncEvents(); } catch { /* офлайн-события уйдут позже */ }
+})();

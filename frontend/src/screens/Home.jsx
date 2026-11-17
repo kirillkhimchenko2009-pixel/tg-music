@@ -13,6 +13,7 @@ import {
   plural, groupAlbums, gradFor, IcoWave,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
+import { restoreSession } from '../local/recover.js';
 import { useEnterOnce } from '../motion/hooks/useEnterOnce.js';
 import Reveal from '../motion/components/Reveal.jsx';
 
@@ -87,6 +88,15 @@ export default function Home() {
     .concat(pls.filter(p => p.source !== 'import' && !/любимое/i.test(p.title || '') && p.count > 0));
   const recentAlbums = groupAlbums(lib).slice(0, 14);
 
+  /* Восстановление сессии §10: показываем «Продолжить прослушивание»,
+     тап — user gesture, поэтому autoplay разрешён. */
+  const [resume, setResume] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    restoreSession().then(s => { if (!dead && s) setResume(s); }).catch(() => {});
+    return () => { dead = true; };
+  }, []);
+
   if (!loaded) return <div style={{ padding: '22px 2px' }}><Skeletons n={5} grid /></div>;
 
   const allEmpty = !hist?.length && !myPls.length && !artists.length && !lib.length;
@@ -106,6 +116,30 @@ export default function Home() {
                   transition={{ duration: .30, ease: [.16, 1, .3, 1], delay: .045 }}>
         Волна уже пульсирует — включай и слушай.
       </motion.div>
+
+      {/* продолжить сессию §10: очередь+позиция восстановлены локально */}
+      {resume && (
+        <motion.button className="resume-chip"
+                       initial={intro ? { opacity: 0, y: 8 } : false}
+                       animate={{ opacity: 1, y: 0 }}
+                       whileTap={{ scale: .97 }}
+                       transition={{ duration: .28, ease: [.16, 1, .3, 1], delay: .06 }}
+                       onClick={() => {
+                         haptic('medium');
+                         const s = resume;
+                         setResume(null);
+                         P.play(s.tracks, s.index, s.pos);
+                       }}>
+          <span className="resume-ico">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
+          </span>
+          <span className="resume-txt">
+            <b>Продолжить прослушивание</b>
+            <i>{[resume.tracks[resume.index]?.artist, resume.tracks[resume.index]?.title]
+                  .filter(Boolean).join(' — ') || 'вчерашний плейлист'}</i>
+          </span>
+        </motion.button>
+      )}
 
       {/* большой персональный микс (Моя волна) */}
       <motion.div className="mixcard"

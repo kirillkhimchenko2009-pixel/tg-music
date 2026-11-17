@@ -134,3 +134,19 @@ async def init_db() -> None:
                     col_ddl.format(ifnot="IF NOT EXISTS " if is_pg else "")))
         except Exception:
             pass
+    # Local-first (§17): идемпотентные офлайн-события истории — event_id
+    # + уникальная пара (user_id, event_id) для дедупликации на сервере.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE play_events ADD COLUMN {ifnot}event_id VARCHAR(48)".format(
+                    ifnot="IF NOT EXISTS " if is_pg else "")))
+    except Exception:
+        pass
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_play_events_user_event "
+                "ON play_events (user_id, event_id)"))
+    except Exception:
+        pass

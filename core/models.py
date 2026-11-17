@@ -156,12 +156,15 @@ class PlayEvent(Base):
     track_id: Mapped[int | None] = mapped_column(ForeignKey("tracks.id"), index=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("wave_sessions.id"))
     origin: Mapped[str] = mapped_column(String(16), default="wave")     # wave | search | playlist | library
+    event_id: Mapped[str | None] = mapped_column(String(48))           # идемпотентность офлайн-событий (§17)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     played_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     finished: Mapped[bool] = mapped_column(Boolean, default=False)
     skipped: Mapped[bool] = mapped_column(Boolean, default=False)       # next до конца (<25 c = жёсткий скип)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (Index("ix_play_events_user_time", "user_id", "started_at"),)
+    __table_args__ = (Index("ix_play_events_user_time", "user_id", "started_at"),
+                      Index("ix_play_events_user_event", "user_id", "event_id",
+                            unique=True),)
 
 
 class WaveEvent(Base):
