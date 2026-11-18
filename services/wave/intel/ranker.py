@@ -76,7 +76,9 @@ def _taste_fit(t: Track, sc: SourceContext) -> float:
              snap.genre_fit(detect_genres(t)) * 0.25,
              snap.mood_fit(detect_moods(t)) * 0.20]
     if t.id in sc.liked:
-        parts.append(1.0)
+        # v3: лайк — сильный сигнал (0.88), но не автоматическая победа:
+        # при 1000+ лайков иначе вся волна вырождается в «Любимое»
+        parts.append(0.88)
     return clamp01(max(parts) if parts else 0.0)
 
 
@@ -84,6 +86,7 @@ def _context_fit(t: Track, sc: SourceContext, scen: Scenario | None) -> float:
     if scen is None:
         return 0.35                     # без сценария — нейтрально, не наказываем
     from services.wave.own_engine import GENRE_WORDS, MOOD_WORDS, ACTIVITY_WORDS
+    from .taste import detect_genres as _dg, detect_moods as _dm
     text = " ".join((t.title or "", t.artist or "", t.album or "")).lower()
     w = 0.30                            # база «волне есть куда ставить трек»
     hits_m = any(any(x in text for x in MOOD_WORDS.get(m, (m,)))
@@ -92,19 +95,30 @@ def _context_fit(t: Track, sc: SourceContext, scen: Scenario | None) -> float:
                  for g in (scen.genres or frozenset()))
     hits_a = any(any(x in text for x in ACTIVITY_WORDS.get(a, (a,)))
                  for a in (scen.activities or frozenset()))
+    # v3: хиты формулы весомее, детектируемый промах штрафуется — смена
+    # настроения/жанра в формуле заметно перетасовывает партию
     if scen.moods:
-        w += 0.45 if hits_m else 0.0
+        w += 0.55 if hits_m else 0.0
+        if not hits_m and _dm(t) and not (_dm(t) & set(scen.moods)):
+            w -= 0.15                   # настроение трека известно и противоречит
     if scen.genres:
-        w += 0.25 if hits_g else 0.0
+        w += 0.40 if hits_g else 0.0
+        if not hits_g and _dg(t) and not (_dg(t) & set(scen.genres)):
+            w -= 0.15                   # жанр трека определён — мимо формулы
     if scen.activities:
-        w += 0.20 if hits_a else 0.0
-    # язык формулы — часть контекстного соответствия
-    lang = getattr(sc.ws, "language", "any") or "any"
-    if lang == "ru":
-        w += 0.05 if is_ru(t) else -0.15
-    elif lang == "non-ru":
-        w += 0.05 if not is_ru(t) else -0.15
+        w += 0.25 if hits_a else 0.0
+    # язык формулы учён отдельным фактором language (см. rank)
     return clamp01(w)
+
+
+def _language_fit(t: Track, ws) -> float:
+    """Формула задаёт язык (ru / non-ru): 1.0 совпал, 0.0 противоречит,
+    0.5 нейтрально (any / не задан) — одинаковый вклад всем трекам."""
+    lang = (getattr(ws, "language", "any") or "any")
+    if lang in (None, "", "any"):
+        return 0.5
+    ru = is_ru(t)
+    return 1.0 if ((lang == "ru") == ru) else 0.0
 
 
 def _session_fit(t: Track, st: SessionTaste) -> float:
@@ -210,6 +224,7 @@ def rank(sc: SourceContext, candidates: list[Candidate], cfg: WaveConfig) -> lis
             "discovery": _discovery_fit(t, best, sc),
             "audio_quality": audio_quality(t),
             "freshness": _freshness(t, sc, days_no_repeat),
+            "language": _language_fit(t, sc.ws),
         }
         penalties: dict[str, float] = {}
         # повтор: скипы (freeze) и недавние прослушивания
@@ -227,6 +242,20 @@ def rank(sc: SourceContext, candidates: list[Candidate], cfg: WaveConfig) -> lis
         score = sum(w.get(k, 0.0) * v for k, v in factors.items())
         score -= sum(penalties.values())
         score += min(0.10, 0.03 * max(0, extra_src))    # широта свидетельств
+
+        # v3: «Разнообразие» из формулы реально меняет порядок
+        div = (getattr(sc.ws, "diversity", None) or "").strip()
+        if div == "popular":
+            max_dl = max((c.track.downloads or 0) for c in candidates) or 1
+            score += 0.18 * min(1.0, (t.downloads or 0) / max_dl)
+        elif div == "discover":
+            if t.id in sc.liked:
+                score -= 0.20               # лайки в «Открытиях» осаживаем
+            elif ak not in sc.snap.artist_scores:
+                score += 0.10               # незнакомые артисты — наверх
+        elif div == "favorite":
+            if t.id in sc.liked:
+                score += 0.12
 
         why = best.reason or "подобрано по твоей формуле"
         scored.append(ScoredCandidate(best, score, factors, penalties, why))

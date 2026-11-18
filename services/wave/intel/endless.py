@@ -21,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.models import (Playlist, PlaylistTrack, Track, WaveSession, utcnow)
 from . import taste as taste_mod
 from .config import WaveConfig, load_config
-from .context import (Context, Scenario, FAMILIARITY_EXPLORE, pick_scenario,
-                      scenario_from_formula, scenario_list, mood_of_texts)
-from .events import note_discovered
+from .context import (Context, Scenario, DIVERSITY_EXPLORE, FAMILIARITY_EXPLORE,
+                      pick_scenario, scenario_from_formula, scenario_list,
+                      mood_of_texts)
+from .events import artist_key, note_discovered
 from . import feedback as feedback_mod
 from .ranker import rank
 from .sequence import optimize_sequence
@@ -118,7 +119,14 @@ def _scenario_for(ctx: Context, ws, requested: str | None) -> Scenario:
     form = scenario_from_formula(ws)
     if form is not None:
         return form
-    return pick_scenario(ctx, ctx.snapshot)
+    # v3: формула пуста, но «Разнообразие» выставлено — политика юзера важнее
+    # контекстной карточки (эксплор/квоты переопределяем, название карточки честно)
+    base = pick_scenario(ctx, ctx.snapshot)
+    div = (getattr(ws, "diversity", None) or "").strip()
+    if div in DIVERSITY_EXPLORE and div != "default":
+        base.diversity = div
+        base.explore = DIVERSITY_EXPLORE[div]
+    return base
 
 
 async def build_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession, *,
@@ -141,7 +149,8 @@ async def build_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession, *,
     ctx.scenario = scen
 
     liked = await taste_mod.liked_tracks(s, user_id)
-    pool = await _load_pool(s, user_id, liked)
+    snap.liked_track_ids |= liked          # квоты партии отличают лайки
+    pool = await _load_pool(s, user_id, liked, ws=ws, scen=scen)
     played = {int(x) for x in (sess.played_track_ids or [])}
 
     sc = SourceContext(s=s, user_id=user_id, ws=ws, sess=sess, ctx=ctx,
@@ -155,7 +164,7 @@ async def build_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession, *,
 
     ranked = rank(sc, candidates, cfg)
 
-    picks = _balance_explore(ranked, snap, scen, n, cfg)
+    picks = _balance_explore(ranked, snap, scen, n, cfg, ws=ws)
 
     tail = list(ctx.recent_tracks or [])
     seq = optimize_sequence(picks, n, tail, cfg)
@@ -178,8 +187,16 @@ async def build_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession, *,
 
 
 def _balance_explore(ranked, snap: TasteSnapshot, scen: Scenario,
-                     n: int, cfg: WaveConfig):
-    """Баланс знакомого/нового (§5.4): 75–85% привычного, 15–25% открытий."""
+                     n: int, cfg: WaveConfig, ws=None):
+    """Баланс знакомого/нового (§5.4) + квоты партии (v3).
+
+    Квоты решают жалобу «в основном любимое»: доля лайков в партии
+    ограничена разнообразием (favorite → можно всё, default → 1 из 3,
+    discover → 0), а режимы «new/unknown» требуют минимум незнакомых
+    артистов. Открытия (discovery-источник) идут первыми, дальше лайки
+    в пределах квоты, остальное — основным потоком. Язык формулы при
+    явном выборе (ru / non-ru) не расходует квоту на противоречащие
+    треки — иначе «Разнообразие» съедало языковую настройку."""
     if not ranked:
         return []
     target = 0.20
@@ -191,24 +208,96 @@ def _balance_explore(ranked, snap: TasteSnapshot, scen: Scenario,
                  max(float(cfg.explore.get("min", 0.10)), target))
     n_disc = round(n * target)
 
+    liked_set = set(snap.liked_track_ids or set())
     disc = [c for c in ranked if c.candidate.source == "discovery"]
     main = [c for c in ranked if c.candidate.source != "discovery"]
+
+    # язык формулы: противоречащие треки откладываем до добора
+    lang = (getattr(ws, "language", "any") or "any") if ws is not None else "any"
+    if lang in ("ru", "non-ru"):
+        from .taste import is_ru
+        want_ru = lang == "ru"
+
+        def _lang_bad(c) -> bool:
+            return is_ru(c.track) != want_ru
+        lang_defer = [c for c in main if _lang_bad(c)]
+        main = [c for c in main if not _lang_bad(c)]
+    else:
+        lang_defer = []
+
+    liked_main = [c for c in main if c.track.id in liked_set]
+    rest_main = [c for c in main if c.track.id not in liked_set]
+
+    fam = (getattr(scen, "familiarity", None) or "") if scen is not None else ""
+    liked_cap = {"favorite": n, "familiar": 2}.get(fam, 1)
+    if fam in ("new", "unknown", "experimental"):
+        liked_cap = 0
+    if scen is not None and getattr(scen, "diversity", None):
+        liked_cap = {"favorite": n, "popular": 1, "discover": 0}.get(
+            scen.diversity, liked_cap)
 
     picks: list = []
     if disc and n_disc > 0:
         picks.extend(disc[:n_disc])
-        main = [c for c in main if c.track.id not in {p.track.id for p in picks}]
-    picks.extend(main[:n])
-    # если открытий не хватило — добираем основным потоком
+        drop = {p.track.id for p in picks}
+        liked_main = [c for c in liked_main if c.track.id not in drop]
+        rest_main = [c for c in rest_main if c.track.id not in drop]
+
+    # незнакомые артисты добирают «новизну», если discovery-источник был худ
+    new_min = 2 if (fam in ("new", "unknown", "experimental")
+                    or (scen is not None and scen.diversity == "discover")) else 0
+    if new_min and len(picks) < new_min:
+        fresh = [c for c in rest_main
+                 if (artist_key(c.track.artist or "")
+                     not in (snap.artist_scores or {}))]
+        picks.extend(fresh[: new_min - len(picks)])
+        drop = {p.track.id for p in picks}
+        rest_main = [c for c in rest_main if c.track.id not in drop]
+
+    picks.extend(liked_main[: max(0, min(liked_cap, n - len(picks)))])
+    picks.extend(rest_main[: n - len(picks)])
+
+    # если открытий/квот не хватило — добираем основным потоком, затем
+    # отложенными по языку (пустая партия хуже несовпадения языка)
     if len(picks) < n:
         rest = [c for c in ranked if c.track.id not in {p.track.id for p in picks}]
         picks.extend(rest[: n - len(picks)])
+    if len(picks) < n and lang_defer:
+        drop = {p.track.id for p in picks}
+        picks.extend([c for c in lang_defer if c.track.id not in drop]
+                     [: n - len(picks)])
     return picks[:n]
 
 
+def _formula_words(scen: Scenario | None) -> list[str]:
+    """Слова жанров/настроений/занятий формулы — для вытягивания тематических
+    треков в пул (иначе формула действует только на треки, уже попавшие
+    в топ-420). Слова ≥3 символов, не более 24 условий (размер SQL)."""
+    if scen is None:
+        return []
+    from services.wave.own_engine import ACTIVITY_WORDS, GENRE_WORDS, MOOD_WORDS
+    out: list[str] = []
+    for g in (scen.genres or frozenset()):
+        out.extend(GENRE_WORDS.get(str(g), (str(g),)))
+    for m in (scen.moods or frozenset()):
+        out.extend(MOOD_WORDS.get(str(m), (str(m),)))
+    for a in (scen.activities or frozenset()):
+        out.extend(ACTIVITY_WORDS.get(str(a), (str(a),)))
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for w in out:
+        w = (w or "").strip().lower()
+        if len(w) >= 3 and w not in seen:
+            seen.add(w)
+            uniq.append(w)
+    return uniq[:24]
+
+
 async def _load_pool(s: AsyncSession, user_id: int, liked: set[int],
-                     limit: int = 420) -> dict[int, Track]:
-    """Общий пул кандидатов: популярное каталога + плейлисты юзера + лайки."""
+                     limit: int = 420, ws=None, scen=None) -> dict[int, Track]:
+    """Общий пул кандидатов: популярное каталога + плейлисты юзера + лайки.
+    v3: жанры/настроения/занятия формулы дотащат тематические треки
+    вне топа — смена настроек реально меняет материал волны."""
     out: dict[int, Track] = {}
     q = select(Track).order_by(Track.downloads.desc(), Track.id.desc()).limit(limit)
     for t in (await s.execute(q)).scalars():
@@ -221,6 +310,15 @@ async def _load_pool(s: AsyncSession, user_id: int, liked: set[int],
         out.setdefault(t.id, t)
     if liked:
         q = select(Track).where(Track.id.in_(list(liked)[:400]))
+        for t in (await s.execute(q)).scalars():
+            out.setdefault(t.id, t)
+    words = _formula_words(scen)
+    if words:
+        from sqlalchemy import or_
+        conds = [Track.title.ilike(f"%{w}%") | Track.artist.ilike(f"%{w}%")
+                 | Track.album.ilike(f"%{w}%") for w in words]
+        q = (select(Track).where(or_(*conds))
+             .order_by(Track.downloads.desc(), Track.id.desc()).limit(250))
         for t in (await s.execute(q)).scalars():
             out.setdefault(t.id, t)
     return out

@@ -27,19 +27,22 @@ LOG = logging.getLogger("wave.own")
 
 BATCH = 3
 
-# --- веса скоринга (v2, объяснимая формула) ---
-W_ARTIST = 0.34        # аффинити к артисту (лайки + дослушивания)
-W_LIKED = 0.30         # трек прямо из «Любимого»
-W_FIT = 0.18           # попадание в формулу (жанры/настроение/занятие словам)
+# --- веса скоринга (v3, объяснимая формула; лайки не должны глушить всё) ---
+W_ARTIST = 0.30        # аффинити к артисту (лайки + дослушивания)
+W_LIKED = 0.22         # трек прямо из «Любимого»
+W_FIT = 0.22           # попадание в формулу (жанры/настроение/занятие словам)
 W_POPULAR = 0.10       # глобальная популярность (downloads)
-W_FORMULA_ARTIST = 0.22  # артист, вписанный в формулу волны
+W_FORMULA_ARTIST = 0.26  # артист, вписанный в формулу волны
 EXPLORE_SHARE = 0.25   # дефолт-шанс «нового» трека в партии (или по разнообразию)
+
+# v3: сколько лайков допустимо в одной партии по разнообразию
+_LIKED_CAP_BY_DIV = {"favorite": BATCH, "default": 1, "popular": 1, "discover": 0}
 
 PENALTY_REPLAY = 0.45  # артист уже играл в последних треках партии/сессии
 SKIP_SCORE = -10.0     # недавний быстрый скип — трек заморожен на дне списка
 
-LANG_BONUS = 0.05      # язык трека совпал с языком формулы
-LANG_PENALTY = 0.18    # язык трека противоречит формуле
+LANG_BONUS = 0.12      # язык трека совпал с языком формулы
+LANG_PENALTY = 0.35    # язык трека противоречит формуле
 
 HARD_SKIP_SECONDS = 25          # скип быстрее N с = «не хочу»
 ARTIST_COOLDOWN_TRACKS = 4      # не подсовывать артиста сразу после него
@@ -319,8 +322,31 @@ async def next_batch(s: AsyncSession, user_id: int, ws, sess: WaveSession,
             score += SKIP_SCORE
         cands.append((score, t.id, t, why))
 
+    cands: list[tuple[float, int, Track, str]] = []
+    for t in pool.values():
+        if not usable(t, True):
+            continue
+        score, why = _score(t, kb, ws, popul_mult)
+        if artist_key(t.artist) in tails:
+            score -= PENALTY_REPLAY
+        if t.id in kb.skip_ids:
+            score += SKIP_SCORE
+        cands.append((score, t.id, t, why))
+
     cands.sort(key=lambda r: (r[0], r[1]), reverse=True)
-    picked: list[tuple[Track, str]] = [(t, why) for _, _, t, why in cands[:n]]
+    # v3: квота лайков в партии по «Разнообразию» — иначе движок выдаёт
+    # в основном «Любимое» (лайки + их артисты всегда сверху скоринга)
+    liked_cap = _LIKED_CAP_BY_DIV.get(div, 1)
+    picked: list[tuple[Track, str]] = []
+    likes_taken = 0
+    for _, _, t, why in cands:
+        if len(picked) >= n:
+            break
+        if t.id in kb.likes:
+            if likes_taken >= liked_cap:
+                continue
+            likes_taken += 1
+        picked.append((t, why))
 
     # эксплор-слот: в середину партии кладём «новое», если ядро вкуса достаточно живо
     if len(cands) > n * 4 and random.random() < explore_share:

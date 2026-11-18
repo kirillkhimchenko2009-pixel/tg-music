@@ -10,7 +10,10 @@ SOURCE D session    — продолжение текущего прослуши
 SOURCE E context    — под активный сценарий/время;
 SOURCE F discovery  — неизвестные юзеру артисты (не случайно: рядом с вкусом);
 SOURCE G editorial  — пул редакции из WaveKV (если заведён), иначе молчит;
-SOURCE H library    — коллекция юзера, если вписывается в сценарий.
+SOURCE H library    — коллекция юзера, если вписывается в сценарий;
+SOURCE I popular    — популярное каталога (v3): треки без текстовых сигналов
+                      (жанр/артист не распознаны) больше не выпадают из
+                      ranked — иначе волна вырождается в лайки.
 
 Каждый источник изолирован: ошибка одного не валит выдачу (endless ловит).
 """
@@ -300,24 +303,45 @@ def src_library(sc: SourceContext) -> list[Candidate]:
     scen = getattr(sc.ctx, "scenario", None)
     keys_g = set(scen.genres) if scen else set()
     keys_m = set(scen.moods) if scen else set()
+    # v3: сила любимого зависит от «Разнообразия» — иначе лайки всегда наверху
+    div = (getattr(sc.ws, "diversity", None) or "").strip()
+    base_strength = {"favorite": 0.9, "popular": 0.55, "discover": 0.35}.get(div, 0.65)
     from services.wave.own_engine import GENRE_WORDS, MOOD_WORDS
     out: list[Candidate] = []
     for t in sc.pool.values():
         if t.id not in sc.liked or t.id in sc.played:
             continue
-        strength = 0.8
+        strength = base_strength
         why = "твоё любимое"
         if keys_g or keys_m:
             text = " ".join((t.title or "", t.artist or "", t.album or "")).lower()
             fit = (_word_hit(text, keys_g, GENRE_WORDS) if keys_g else False) or \
                   (_word_hit(text, keys_m, MOOD_WORDS) if keys_m else False)
             if fit:
-                strength = 1.0
+                strength = min(1.0, base_strength + 0.2)
                 why = "твоё любимое — в точку сценария"
             else:
-                strength = 0.5
+                strength = max(0.25, base_strength - 0.15)
                 why = "из коллекции"
         out.append(Candidate(t, "library", strength, why))
+    return out
+
+
+# ------------------------------ I: popular ------------------------------
+
+def src_popular(sc: SourceContext) -> list[Candidate]:
+    """Популярное каталога: страховочный источник (v3). Каждый трек пула
+    с downloads > 0 получает слабое свидетельство — иначе треки без
+    распознанных жанров/артистов не попадают в ranked вовсе и волна
+    вырождается в одни лайки."""
+    max_dl = max((t.downloads or 0) for t in sc.pool.values()) or 1
+    out: list[Candidate] = []
+    for t in sc.pool.values():
+        dl = t.downloads or 0
+        if dl <= 0 or t.id in sc.played:
+            continue
+        base = 0.35 + 0.35 * min(1.0, dl / max_dl)
+        out.append(Candidate(t, "popular", base, "популярное в каталоге"))
     return out
 
 
@@ -332,6 +356,7 @@ SOURCES = {
     "discovery": src_discovery,
     "editorial": src_editorial,
     "library": src_library,
+    "popular": src_popular,
 }
 
 

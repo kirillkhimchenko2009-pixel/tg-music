@@ -142,6 +142,7 @@ class Scenario:
     activities: frozenset = frozenset()
     explore: float | None = None            # переопределение доли открытий
     familiarity: str | None = None
+    diversity: str | None = None            # v3: «Разнообразие» из формулы (favorite/popular/discover)
     needs_mood_check: frozenset = frozenset()  # для честности названия
 
     def to_json(self) -> dict:
@@ -154,12 +155,19 @@ class Scenario:
         }
 
 
+# «Разнообразие» из формулы волны: доля открытий (те же числа, что у движка B)
+DIVERSITY_EXPLORE = {"favorite": 0.06, "popular": 0.15, "discover": 0.55}
+
+
 def scenario_from_formula(ws) -> Scenario | None:
-    """Явная формула юзера (настроение/занятие/жанры) — честное название."""
+    """Явная формула юзера (настроение/занятие/жанры) — честное название.
+    v3: «Разнообразие» из формулы больше не теряется — идёт в сценарий
+    (explore + diversity), на него опираются квоты партии и ранжирование."""
     moods = {m for m in ((getattr(ws, "mood", None),) if getattr(ws, "mood", None) else ())}
     genres = {str(g) for g in (getattr(ws, "genres", None) or [])[:4]}
     activities = {str(a) for a in (getattr(ws, "activities", None) or [])[:3]}
-    if not (moods or genres or activities):
+    div = (getattr(ws, "diversity", None) or "").strip()
+    if not (moods or genres or activities or div in DIVERSITY_EXPLORE):
         return None
     parts = []
     for m in moods:
@@ -173,10 +181,16 @@ def scenario_from_formula(ws) -> Scenario | None:
     palette = "energy" if moods & {"active", "fun", "edge"} else \
         "focus" if activities & {"work", "study", "reading"} else \
         "evening" if activities & {"evening"} or (moods & {"calm", "sad"}) else "foryou"
+    if not title or title == "Формула":
+        # формула = только разнообразие: честное название по нему
+        title = {"favorite": "Любимое звучание", "popular": "Популярное",
+                 "discover": "Открытия"}.get(div, "Формула")
     return Scenario(id="formula", title=title,
                     description="собрано по твоей формуле",
                     palette=palette, moods=frozenset(moods), genres=frozenset(genres),
                     activities=frozenset(activities),
+                    explore=DIVERSITY_EXPLORE.get(div),
+                    diversity=div or None,
                     needs_mood_check=frozenset(moods))
 
 
@@ -191,8 +205,8 @@ _BASE_SCENARIOS = (
 )
 
 _SCENARIO_BIAS = {
-    "favorites": {"moods": frozenset(), "explore": 0.06},
-    "discovery": {"explore": 0.55},
+    "favorites": {"moods": frozenset(), "explore": 0.06, "familiarity": "favorite"},
+    "discovery": {"explore": 0.55, "familiarity": "new"},
     "focus": {"moods": frozenset({"calm"}), "activities": frozenset({"work", "study", "reading"})},
     "energy": {"moods": frozenset({"active", "fun"}), "activities": frozenset({"sport", "party", "road"})},
     "evening": {"moods": frozenset({"calm", "sad"}), "explore": 0.15},
@@ -245,6 +259,7 @@ def scenario_list(ctx: Context, snap: TasteSnapshot | None) -> list[Scenario]:
             moods=bias.get("moods", frozenset()),
             activities=bias.get("activities", frozenset()),
             explore=bias.get("explore"),
+            familiarity=bias.get("familiarity"),
             needs_mood_check=bias.get("moods", frozenset()),
         ))
     return out[:6]

@@ -16,12 +16,15 @@ from core.models import (ArtistStats, Base, PlayEvent, Playlist,
                          PlaylistTrack, TasteProfile, Track, TrackFeedback,
                          User, WaveEvent, WaveKV, WaveSession, WaveSettings,
                          utcnow)
+from services.wave.intel.config import DEFAULT_WEIGHTS
 
 # ------------------------------------------------------------------ fixtures
 
 
 @pytest.fixture
 async def db():
+    from services.wave.intel import config as _cfg
+    _cfg.invalidate()            # кеш конфига не должен течь между тестами
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         poolclass=StaticPool,
@@ -115,7 +118,7 @@ class TestConfig:
         from services.wave.intel.config import load_config
         cfg = await load_config(s)
         assert cfg.weights["context_fit"] == 0.9
-        assert cfg.weights["taste_fit"] == 0.30          # остальные — дефолт
+        assert cfg.weights["taste_fit"] == 0.26          # остальные — дефолт
         assert "bogus" not in cfg.weights
 
 
@@ -638,7 +641,7 @@ class TestAdaptive:
             assert rep["changes"]["discovery"] > 0    # открытия дослушивают
             w = (await s.execute(select(WaveKV).where(
                 WaveKV.key == "weights:u111"))).scalar_one().value
-            assert w["discovery"] > 0.12
+            assert w["discovery"] > DEFAULT_WEIGHTS["discovery"]
 
     async def test_adapt_cooldown_blocks_immediate_second_run(self, db):
         from services.wave.intel.adaptive import maybe_adapt
@@ -657,7 +660,8 @@ class TestAdaptive:
         personal = await load_config(s, 111)
         assert personal.weights["context_fit"] == 0.4
         global_cfg = await load_config(s)
-        assert global_cfg.weights["context_fit"] == 0.25   # глобальные целы
+        assert global_cfg.weights["context_fit"] == \
+            DEFAULT_WEIGHTS["context_fit"]     # глобальные целы
 
     async def test_reset_clears_personal_ml(self, db):
         from services.wave.intel.adaptive import maybe_adapt, reset

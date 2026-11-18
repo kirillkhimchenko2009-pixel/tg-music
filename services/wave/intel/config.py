@@ -11,14 +11,15 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field, fields, replace
 
-# --- веса скоринга (стартовая модель §5.3, нормализованы) ---
+# --- веса скоринга (v3, нормализованы; язык и формула реально влияют) ---
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "taste_fit": 0.30,
-    "context_fit": 0.25,
-    "session_fit": 0.15,
-    "discovery": 0.12,
-    "audio_quality": 0.08,
-    "freshness": 0.10,
+    "taste_fit": 0.26,
+    "context_fit": 0.22,
+    "session_fit": 0.12,
+    "discovery": 0.10,
+    "audio_quality": 0.06,
+    "freshness": 0.09,
+    "language": 0.15,     # язык формулы (ru / non-ru): match vs mismatch
 }
 
 # --- штрафы (множители вычитаемой части) ---
