@@ -699,11 +699,20 @@ async def _resolve_online_audio(track_id: int, t: Track,
                 try:
                     m = await _ya.track_by_id(tok, t.external_id)
                     if m:
+                        # ЯМ подтвердил 18+ у строки без флага — пометим БД:
+                        # и скачивание, и будущие проигрыши пойдут мимо ЯМ
+                        expl_id = bool(getattr(m, "explicit", False))
+                        if expl_id and not bool(getattr(t, "explicit", False)):
+                            try:
+                                t.explicit = True
+                                await session.commit()
+                            except Exception:
+                                pass
                         url = await _ya.YandexProvider(tok).track_url(m, "")
                         if url:
-                            log.info("онлайн-звук «%s» → yandex-ID %s (точный)",
-                                     query, t.external_id)
-                            return url, "yandex", bool(getattr(t, "explicit", False))
+                            log.info("онлайн-звук «%s» → yandex-ID %s (точный, 18+: %s)",
+                                     query, t.external_id, expl_id)
+                            return url, "yandex", expl_id
                 except Exception as e:
                     log.info("онлайн-звук yandex-ID %s не удался: %s",
                              t.external_id, type(e).__name__)
@@ -789,21 +798,15 @@ async def _resolve_online_audio(track_id: int, t: Track,
         t_ym = asyncio.create_task(ym_source(q))
         t_dir = asyncio.create_task(direct_sources(q))
         if explicit:
-            # 18+: у ЯМ фонограммы бывают «чистые» (замазанные слова) —
-            # у прямых сайтов обычно оригиналы, они первые; ЯМ-задача бежит
-            # параллельно и её результат забирается как запасной
+            # 18+: у ЯМ фонограммы бывают «чистые» (замазанные/запиканные
+            # слова) — по решению юзера такое НЕ играем вовсе. Только
+            # оригиналы с прямых сайтов; дальше цепочку продолжают
+            # YouTube → 30-сек превью (те обычно без цензуры).
             try:
                 full = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
             except Exception:
                 full = None
-            if full:
-                if not t_ym.done():
-                    t_ym.cancel()
-            else:
-                try:
-                    full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=10)
-                except Exception:
-                    full = None
+            t_ym.cancel()
         else:
             try:
                 full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=13)
@@ -816,10 +819,10 @@ async def _resolve_online_audio(track_id: int, t: Track,
                          q[:46])
                 try:
                     full2 = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
-                    if full2:
-                        full = full2
+                    # запиканное не играем: без оригинала — YouTube → превью
+                    full = full2 or None
                 except Exception:
-                    pass
+                    full = None
             if full:
                 if not t_dir.done():
                     t_dir.cancel()

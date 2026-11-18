@@ -38,6 +38,7 @@ class Track(Base):
     isrc: Mapped[str | None] = mapped_column(String(16), index=True)
     duration: Mapped[int] = mapped_column(Integer, default=0)  # сек
     explicit: Mapped[bool] = mapped_column(Boolean, default=False)  # 18+: у ЯМ бывают «чистые» фонограммы
+    censored: Mapped[bool] = mapped_column(Boolean, default=False)  # детектор: заливка с мутами/бипами — не отдаём
     cover_url: Mapped[str | None] = mapped_column(Text)
     page_url: Mapped[str | None] = mapped_column(Text)         # официальная страница композиции/источника
     license: Mapped[str | None] = mapped_column(String(64))    # тип лицензии (CC-BY и т.п.), если известен

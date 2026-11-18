@@ -43,7 +43,9 @@ async def db_search(session, query: str) -> list[Track]:
     rows = (await session.execute(
         select(Track)
         .where(or_(func.lower(Track.title).like(func.lower(like)),
-                   func.lower(Track.artist).like(func.lower(like))))
+                   func.lower(Track.artist).like(func.lower(like))),
+               # «блюр»-заливки (18+/censored) в инлайн-поиске не показываем
+               Track.explicit.is_(False), Track.censored.is_(False))
         .order_by(Track.file_id.is_(None), Track.id.desc())
         .limit(_INLINE_LIMIT))).scalars().all()
     return list(rows)

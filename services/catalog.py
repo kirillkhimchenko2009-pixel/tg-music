@@ -63,10 +63,13 @@ async def upsert_by_playlist_item(session: AsyncSession, meta: TrackMeta,
     return await upsert_track(session, meta if not fallback else meta)
 
 async def local_search(session: AsyncSession, query: str, limit: int = 20) -> list[Track]:
-    """Простой текстовый поиск по каталогу (title/artist LIKE)."""
+    """Простой текстовый поиск по каталогу (title/artist LIKE).
+    «Блюр»-заливки исключены: explicit (18+ у ЯМ — бывают «чистые»
+    фонограммы со замазанными словами) и censored (детектор мутов/бипов)."""
     pat = f"%{query.strip()}%"
     q = (select(Track)
-         .where((Track.title.ilike(pat)) | (Track.artist.ilike(pat)))
+         .where((Track.title.ilike(pat)) | (Track.artist.ilike(pat)),
+                Track.explicit.is_(False), Track.censored.is_(False))
          .order_by(Track.downloads.desc(), Track.id.desc())
          .limit(limit))
     return list((await session.execute(q)).scalars())

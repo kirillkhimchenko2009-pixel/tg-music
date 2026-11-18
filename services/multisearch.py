@@ -136,6 +136,10 @@ async def web_search(q: str, limit: int = 24, scope: str = "all",
     merged: list[TrackMeta] = []
     seen: set[tuple[str, str]] = set()
     for m in _interleave(by_src):
+        # «блюр»-заливки (18+ у ЯМ — слова замазаны/запиканы) в поиск не
+        # показываем: по решению юзера такое не играет и не скачивается
+        if getattr(m, "explicit", False):
+            continue
         k = m.key()
         if k in seen:
             continue

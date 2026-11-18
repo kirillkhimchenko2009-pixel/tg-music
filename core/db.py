@@ -143,6 +143,17 @@ async def init_db() -> None:
                     ifnot="IF NOT EXISTS " if is_pg else "")))
     except Exception:
         pass
+    # Цензурный детектор: заливка с мутами/бипами («замученная») не отдаётся
+    # ни плеером, ни в чат — флаг ставится после анализа файла.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                ("ALTER TABLE tracks ADD COLUMN {ifnot}censored "
+                 "BOOLEAN NOT NULL DEFAULT {dflt}").format(
+                    ifnot="IF NOT EXISTS " if is_pg else "",
+                    dflt="FALSE" if is_pg else "0")))
+    except Exception:
+        pass
     try:
         async with engine.begin() as conn:
             await conn.execute(text(

@@ -52,14 +52,18 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     if meta.source == "yandex":
         tok = await get_token(session, user_id, "ym")
         if tok:
-            # 18+: сначала zaycev-оригинал (у ЯМ бывают «чистые» заливки)
-            if getattr(meta, "explicit", False):
+            # 18+: у ЯМ бывают «чистые» заливки (слова замазаны/запиканы) —
+            # по решению юзера такое не отдаём вовсе: ЯМ-вариант исключён,
+            # только оригинал с zaycev; дальше цепочку продолжат
+            # zvuk/прямые сайты/YouTube.
+            if not getattr(meta, "explicit", False):
+                out.append((meta, tok))
+            else:
                 zc = await _zaycev_original(query, meta)
                 if zc:
-                    log.info("18+: скачиваю оригинал с zaycev (%s); ЯМ (%s) — запасной",
-                             zc.display(), meta.display())
+                    log.info("18+: скачиваю оригинал с zaycev (%s); ЯМ исключён",
+                             zc.display())
                     out.append((zc, ""))
-            out.append((meta, tok))
     if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party",
                        "promodj", "audius", "ccmixter"):
         # собственный вариант — тоже кандидат: permalink/страница скачивается
@@ -121,14 +125,16 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                              meta.display(), m.display())
             if m:
                 # 18+: у ЯМ фонограмма может быть «чистой» (слова замазаны) —
-                # сначала пробуем оригинал с zaycev, ЯМ оставляем запасным
+                # по решению юзера ЯМ-вариант исключаем: только оригинал
+                # с zaycev, иначе цепочку продолжат другие источники
                 if getattr(m, "explicit", False):
                     zc = await _zaycev_original(query, meta)
                     if zc:
                         log.info("18+: ставлю первичным оригинал zaycev "
-                                 "(%s); ЯМ (%s) — запасной", zc.display(), m.display())
+                                 "(%s); ЯМ исключён", zc.display())
                         out.append((zc, ""))
-                out.append((m, ym_tok))
+                else:
+                    out.append((m, ym_tok))
         except Exception:
             log.exception("поиск на яндексе не удался")
 
@@ -253,11 +259,14 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                   allow_cached: bool = True) -> Resolved:
     # 1) Трек уже в каталоге с кешем file_id?
     track = await _upsert(session, meta)
-    if allow_cached and track.file_id:
+    # «замученную» заливку (детектор пометил censored) из кеша не отдаём —
+    # честно пересобираем из других источников
+    if allow_cached and track.file_id and not getattr(track, "censored", False):
         return Resolved(track=track, file_path=None, quality=track.quality, status="cached")
 
     # Уже скачан локально, но файл ещё не залит в ТГ
-    if track.local_path and Path(track.local_path).exists():
+    if (track.local_path and not getattr(track, "censored", False)
+            and Path(track.local_path).exists()):
         return Resolved(track=track, file_path=Path(track.local_path),
                         quality=track.quality, status="downloaded")
 
@@ -277,10 +286,11 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
         # весь конвейер пару минут, а юзер видит «вечную загрузку»)
         prev = await _upsert(session, dl_meta)
         if prev.id != track.id:
-            if prev.file_id:
+            if prev.file_id and not getattr(prev, "censored", False):
                 return Resolved(track=prev, file_path=None,
                                 quality=prev.quality, status="cached")
-            local_p = Path(prev.local_path) if prev.local_path else None
+            local_p = (Path(prev.local_path) if prev.local_path and
+                       not getattr(prev, "censored", False) else None)
             if local_p and local_p.exists():
                 return Resolved(track=prev, file_path=local_p,
                                 quality=prev.quality, status="downloaded")
@@ -301,13 +311,14 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                         chk["beeps"], chk["mutes"])
             if bad is None or offenders < bad["offenders"]:
                 bad = {"res": res, "meta": dl_meta, "offenders": offenders}
-            # файл уже на диске — запоминаем его на строке источника,
-            # чтобы повторное нажатие «скачать» не перекачивало заливку
+            # файл уже на диске — запоминаем его на строке источника и
+            # помечаем censored: повторное «скачать» не отдаст заливку из кеша
             try:
                 ctrack = await _upsert(session, dl_meta)
                 ctrack.quality = res.quality
                 ctrack.size_bytes = res.size_bytes
                 ctrack.local_path = res.path.as_posix()
+                ctrack.censored = True
                 await session.commit()
             except Exception:  # noqa: BLE001
                 pass
@@ -331,27 +342,18 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                         quality=res.quality, status="downloaded")
 
     if bad is not None:
-        # все источники отдали цензурные заливки — отдаём наименее замученную
-        res, dl_meta = bad["res"], bad["meta"]
+        # все источники отдали цензурные заливки — по решению юзера замученную
+        # фонограмму НЕ отдаём вовсе (ни в чат, ни в приложение): честный
+        # not_found; воркер положит 30-сек фрагмент/ошибку с объяснением.
+        # Скачанные заливки остаются на диске с флагом censored (кеш их
+        # не отдаёт), чтобы не перекачивать при будущих попытках.
         log.warning("ingest: все источники отдали цензурные заливки — "
-                    "отдаю наименее замученную (%s бипов/мутов, %s)",
-                    bad["offenders"], dl_meta.display())
-        dl_track = await _upsert(session, dl_meta)
-        dl_track.quality = res.quality
-        dl_track.size_bytes = res.size_bytes
-        dl_track.local_path = res.path.as_posix()
-        await session.commit()
-        if dl_track.id != track.id and not (track.local_path or track.file_id):
-            # заглушку удаляем в SAVEPOINT: FK без CASCADE (playlist_tracks,
-            # play_events…) гонит IntegrityError на flush — откатываем только
-            # точку, иначе сессия остаётся отравленной (PendingRollbackError)
-            try:
-                async with session.begin_nested():
-                    await session.delete(track)
-            except Exception:
-                pass
-        return Resolved(track=dl_track, file_path=res.path,
-                        quality=res.quality, status="downloaded")
+                    "не отдаю ничего (%s, %s бипов/мутов)",
+                    bad["meta"].display(), bad["offenders"])
+        return Resolved(track=None, file_path=None, quality=None,
+                        status="not_found",
+                        error="доступна только цензурированная версия "
+                              "(слова замазаны/запиканы) — оригинал не найден")
 
     tried = ", ".join(dict.fromkeys(m.source for m, _ in chain))
     err = f"все источники не ответили (пробовали: {tried})"
