@@ -46,6 +46,13 @@ class Track(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     file_id: Mapped[str | None] = mapped_column(String(256))   # кеш Telegram file_id
     local_path: Mapped[str | None] = mapped_column(Text)       # путь файла в data/audio
+    # Аудио-анализ (services/audio_features.py): реальные признаки звука для
+    # настроений волны. analyzed_at NULL — трек ещё не слышали.
+    bpm: Mapped[float] = mapped_column(Float, default=0.0)
+    energy: Mapped[float] = mapped_column(Float, default=0.0)       # 0..1 громкость/плотность
+    valence: Mapped[float] = mapped_column(Float, default=0.0)      # 0..1 грусть↔веселье
+    danceability: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1 бит/танцевальность
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime)
     downloads: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

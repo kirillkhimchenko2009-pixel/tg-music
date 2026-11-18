@@ -118,7 +118,7 @@ class TestConfig:
         from services.wave.intel.config import load_config
         cfg = await load_config(s)
         assert cfg.weights["context_fit"] == 0.9
-        assert cfg.weights["taste_fit"] == 0.26          # остальные — дефолт
+        assert cfg.weights["taste_fit"] == 0.24          # остальные — дефолт
         assert "bogus" not in cfg.weights
 
 

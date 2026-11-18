@@ -11,15 +11,16 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field, fields, replace
 
-# --- веса скоринга (v3, нормализованы; язык и формула реально влияют) ---
+# --- веса скоринга (v4, нормализованы; настроение — по звуку файла) ---
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "taste_fit": 0.26,
-    "context_fit": 0.22,
-    "session_fit": 0.12,
-    "discovery": 0.10,
-    "audio_quality": 0.06,
-    "freshness": 0.09,
-    "language": 0.15,     # язык формулы (ru / non-ru): match vs mismatch
+    "taste_fit": 0.24,
+    "context_fit": 0.18,
+    "session_fit": 0.10,
+    "discovery": 0.09,
+    "audio_quality": 0.05,
+    "freshness": 0.08,
+    "language": 0.13,     # язык формулы (ru / non-ru): match vs mismatch
+    "mood_audio": 0.13,   # настроение по BPM/энергии/валентности (audio_features)
 }
 
 # --- штрафы (множители вычитаемой части) ---

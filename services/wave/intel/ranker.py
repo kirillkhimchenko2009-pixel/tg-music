@@ -1,11 +1,13 @@
 """Ranking Engine (MODULE 3, §5.3): единый Recommendation Score.
 
-Score = 0.30·TasteFit + 0.25·ContextFit + 0.15·SessionFit + 0.12·Discovery
-      + 0.08·AudioQuality + 0.10·Freshness − penalties
+Score = TasteFit + ContextFit + SessionFit + Discovery + AudioQuality
+      + Freshness + Language + MoodAudio (веса из intel/config, сумма 1.00)
 
 Все факторы нормализованы в 0..1. Веса — из intel/config (WaveKV), не из кода.
 Аудио-параметры не выдумываются: AudioQuality — реальный битрейт/формат из
-каталога; сходство — по словам жанров/настроений и артистам.
+каталога; MoodAudio — BPM/энергия/валентность/танцевальность из
+services/audio_features (анализ файла ffmpeg+numpy); сходство — по словам
+жанров/настроений и артистам.
 """
 from __future__ import annotations
 
@@ -121,6 +123,38 @@ def _language_fit(t: Track, ws) -> float:
     return 1.0 if ((lang == "ru") == ru) else 0.0
 
 
+def _mood_audio_fit(t: Track, scen: Scenario | None) -> float:
+    """Настроение по реальному звуку (BPM/энергия/валентность/танец).
+
+    Раньше настроение ловилось только по словам в названии («грустная песня»
+    в заголовке — редкость). Теперь services/audio_features считает признаки
+    файла, и «бодрое / энергичное / грустное» работает по музыке, а не тексту.
+    Треки без анализа — нейтральные 0.5: фактор никого не выделяет.
+    """
+    if scen is None or not scen.moods or t.analyzed_at is None:
+        return 0.5
+    bpm = float(t.bpm or 0.0)
+    energy = clamp01(float(t.energy or 0.0))
+    valence = clamp01(float(t.valence or 0.0))
+    dance = clamp01(float(t.danceability or 0.0))
+    tempo = clamp01((bpm - 60.0) / 120.0)       # 60 BPM → 0, 180 BPM → 1
+    by_mood: dict[str, float] = {}
+    if "fun" in scen.moods:
+        by_mood["fun"] = 0.45 * energy + 0.30 * valence + 0.25 * dance
+    if "active" in scen.moods:
+        by_mood["active"] = 0.50 * tempo + 0.35 * energy + 0.15 * dance
+    if "calm" in scen.moods:
+        by_mood["calm"] = 1.0 - (0.55 * tempo + 0.45 * energy)
+    if "sad" in scen.moods:
+        by_mood["sad"] = (0.50 * (1.0 - valence) + 0.30 * (1.0 - tempo)
+                          + 0.20 * (1.0 - energy))
+    if "edge" in scen.moods:
+        by_mood["edge"] = 0.45 * energy + 0.30 * (1.0 - valence) + 0.25 * tempo
+    if not by_mood:
+        return 0.5
+    return clamp01(max(by_mood.values()))
+
+
 def _session_fit(t: Track, st: SessionTaste) -> float:
     ak = artist_key(t.artist or "")
     w = 0.0
@@ -225,6 +259,7 @@ def rank(sc: SourceContext, candidates: list[Candidate], cfg: WaveConfig) -> lis
             "audio_quality": audio_quality(t),
             "freshness": _freshness(t, sc, days_no_repeat),
             "language": _language_fit(t, sc.ws),
+            "mood_audio": _mood_audio_fit(t, scen),
         }
         penalties: dict[str, float] = {}
         # повтор: скипы (freeze) и недавние прослушивания

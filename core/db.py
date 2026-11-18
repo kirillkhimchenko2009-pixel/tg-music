@@ -154,6 +154,19 @@ async def init_db() -> None:
                     dflt="FALSE" if is_pg else "0")))
     except Exception:
         pass
+    # Аудио-анализ: BPM/энергия/валентность/танцевальность + отметка времени.
+    # analyzed_at NULL означает «ещё не анализировали» (бэкфилл scan_features).
+    for col_ddl in ("ALTER TABLE tracks ADD COLUMN {ifnot}bpm FLOAT NOT NULL DEFAULT 0",
+                    "ALTER TABLE tracks ADD COLUMN {ifnot}energy FLOAT NOT NULL DEFAULT 0",
+                    "ALTER TABLE tracks ADD COLUMN {ifnot}valence FLOAT NOT NULL DEFAULT 0",
+                    "ALTER TABLE tracks ADD COLUMN {ifnot}danceability FLOAT NOT NULL DEFAULT 0",
+                    "ALTER TABLE tracks ADD COLUMN {ifnot}analyzed_at TIMESTAMP"):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    col_ddl.format(ifnot="IF NOT EXISTS " if is_pg else "")))
+        except Exception:
+            pass
     try:
         async with engine.begin() as conn:
             await conn.execute(text(

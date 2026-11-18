@@ -385,6 +385,15 @@ async def execute(job: MediaDownloadJob) -> str:
                 await save_file_id_retry(target_track.id, fid, q,
                                          size=path.stat().st_size,
                                          local_path=None)
+                # Аудио-анализ под настроения волны (BPM/энергия/валентность/
+                # танцевальность) — пока файл ещё на диске. Доставку не ломает:
+                # ошибки глушим, трек уходит в чат в любом случае.
+                try:
+                    from services import audio_features
+                    await audio_features.analyze_and_save(s, target_track, path)
+                except Exception as e:       # noqa: BLE001
+                    log.warning("audio_features: трек %s не проанализирован: %s: %s",
+                                target_track.id, type(e).__name__, e)
                 await _unlink(path)
                 return True
 
