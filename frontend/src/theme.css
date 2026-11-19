@@ -1184,6 +1184,33 @@ h1.h {
 
 .np-btns { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; }
 .minirow { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
+
+/* громкость в «Сейчас играет»: на телефоне десктопная панель .pl-right
+   скрыта, поэтому регулятор живёт здесь; ползунок всегда с видимой точкой */
+.np-vol {
+  display: flex; align-items: center; gap: 10px;
+  width: min(100%, 320px);
+  margin: 12px auto 0;
+  padding: 6px 14px 6px 8px;
+  border-radius: 999px;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-light);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.np-vol .cbtn { width: 34px; height: 34px; color: var(--t2); }
+.np-vol .cbtn svg { width: 18px; height: 18px; }
+.np-vol-range { flex: 1; height: 5px; }
+.np-vol-range::-webkit-slider-thumb {
+  opacity: 1; transform: scale(1);
+  width: 14px; height: 14px;
+}
+.np-vol-range::-moz-range-thumb { opacity: 1; width: 14px; height: 14px; }
+.np-vol-pct {
+  min-width: 34px; text-align: right;
+  color: var(--t3); font-size: 11px; font-variant-numeric: tabular-nums;
+}
 .cbtn { 
   width: 40px; height: 40px; border-radius: 50%;
   display: grid; place-items: center; color: var(--t2);

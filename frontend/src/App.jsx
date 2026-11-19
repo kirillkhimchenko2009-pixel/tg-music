@@ -409,7 +409,7 @@ function PlayerBar({ onExpand }) {
       <div className="pl-right" onClick={e => e.stopPropagation()}>
         <div className="vol">
           <button className="pl-ctl" aria-label="Звук вкл/выкл"
-                  onClick={() => P.setVolume(P.getState().volume > 0 ? 0 : 1)}>
+                  onClick={() => P.toggleMute()}>
             {P.getState().volume > 0 ? <IcoVol /> : <IcoVolOff />}
           </button>
           <input className="seek" type="range" min="0" max="100"
@@ -468,7 +468,7 @@ function NowPlaying({ onClose }) {
     if (!el || el.scrollTop > 0) return;
     /* скролл внутри блока лирики не должен тащить весь плеер вниз */
     const t0 = e.target;
-    if (t0 && t0.closest && t0.closest('.lyr-box, .lyr-edit textarea')) {
+    if (t0 && t0.closest && t0.closest('.lyr-box, .lyr-edit textarea, input[type="range"]')) {
       touch.current = { active: false, locked: false, startX: 0, startY: 0 };
       return;
     }
@@ -624,6 +624,21 @@ function NowPlaying({ onClose }) {
                   onClick={() => { haptic('light'); P.setShuffle(!st.shuffle); }}><IcoShuffle /></button>
           <button className={'cbtn' + (st.loop ? ' on' : '')} aria-label="Повтор"
                   onClick={() => { haptic('light'); P.setLoop(!st.loop); }}><IcoRepeat /></button>
+        </div>
+
+        {/* громкость: на телефоне десктопная панель скрыта, поэтому
+            регулятор живёт прямо в «Сейчас играет» */}
+        <div className="np-vol">
+          <button className="cbtn" aria-label="Звук вкл/выкл"
+                  onClick={() => { haptic('light'); P.toggleMute(); }}>
+            {st.volume > 0 ? <IcoVol /> : <IcoVolOff />}
+          </button>
+          <input className="seek np-vol-range" type="range" min="0" max="100"
+                 value={Math.round(st.volume * 100)}
+                 style={{ '--fill': Math.round(st.volume * 100) + '%' }}
+                 aria-label="Громкость"
+                 onChange={e => P.setVolume(+e.target.value / 100)} />
+          <span className="np-vol-pct">{Math.round(st.volume * 100)}%</span>
         </div>
 
         <LyricsView track={cur} st={st} />

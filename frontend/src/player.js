@@ -281,11 +281,19 @@ export function seek(p) {
 export function setShuffle(v) { state.shuffle = v; emit(); }
 export function setLoop(v) { state.loop = v; emit(); }
 
+let lastVolume = state.volume > 0 ? state.volume : 1;
+
 export function setVolume(v) {
   state.volume = Math.min(1, Math.max(0, +v || 0));
+  if (state.volume > 0) lastVolume = state.volume;
   try { audio.volume = state.volume; } catch { /* webview */ }
   localStorage.setItem('vol', String(state.volume));
   emit();
+}
+
+/* Тап по динамику: 0 ↔ прежняя громкость (а не «сразу на максимум»). */
+export function toggleMute() {
+  setVolume(state.volume > 0 ? 0 : (lastVolume || 1));
 }
 
 /* ---------------- история: беакон веб-плеера (вне волны) ----------------
@@ -438,6 +446,7 @@ ms.bindActions({
       if (typeof s.lo === 'boolean') state.loop = s.lo;
       if (typeof s.v === 'number' && s.v >= 0 && s.v <= 1) {
         try { audio.volume = s.v; state.volume = s.v; } catch { /* webview */ }
+        if (s.v > 0) lastVolume = s.v;
       }
       emit();
     }
