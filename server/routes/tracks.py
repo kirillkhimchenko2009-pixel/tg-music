@@ -55,7 +55,7 @@ def make_stream_token(uid: int, track_id: int, ttl: int = 6 * 3600) -> str:
     return payload + "." + sig
 
 
-def check_stream_token(t: str):
+def check_stream_token(t: str, expected_track_id: int | None = None):
     try:
         payload, sig = t.split(".", 1)
         ok = hmac.compare_digest(sig, _b64u(hmac.new(_KEY, payload.encode(), hashlib.sha256).digest()))
@@ -63,6 +63,9 @@ def check_stream_token(t: str):
             return None
         d = _json.loads(_b64u_dec(payload))
         if int(d.get("e", 0)) < _time.time():
+            return None
+        track_id = int(d["tr"])
+        if expected_track_id is not None and track_id != int(expected_track_id):
             return None
         return int(d.get("u", 0))
     except Exception:
@@ -620,12 +623,13 @@ _AUDIO_URL_CACHE: dict[tuple[int, int], tuple[tuple[str, str, bool], float]] = {
 
 async def stream_user(
         request: Request,
+        track_id: int,
         t: str = "",
         x_init_data: str = Header(default=""),
         authorization: str = Header(default="")):
-    """Для <audio>: либо подписанный токен в query, либо обычные заголовки."""
+    """Для <audio>: либо токен именно для этого трека, либо обычные заголовки."""
     if t:
-        uid = check_stream_token(t)
+        uid = check_stream_token(t, expected_track_id=track_id)
         if uid is not None:
             return CurrentUser(id=uid, username=None, first_name="player")
     # tg_user синхронный (def, не async) — вызов без await; await здесь ломал

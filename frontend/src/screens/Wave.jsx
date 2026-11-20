@@ -88,12 +88,16 @@ export default function Wave() {
   const [sheet, setSheet] = useState(false);
   const [dirty, setDirty] = useState(false);    // формула изменилась — жмёт перезапуск
   const [scens, setScens] = useState([]);       // карточки сценариев
+  const [scensErr, setScensErr] = useState('');
+  const [scensBusy, setScensBusy] = useState(false);
+  const scenarioRequest = useRef(0);
   const [scen, setScen] = useState(null);       // активный сценарий (DTO)
   const [disc, setDisc] = useState([]);         // карточки открытий
   const [fam, setFam] = useState(null);         // явная степень знакомства
   const [shakeBusy, setShakeBusy] = useState(false);
   const [autoPend, setAutoPend] = useState(false); // настройка меняется — волна сейчас перезапустится сама
   const booted = useRef(false);
+  const startAttempt = useRef(0);
   const scenRef = useRef(null);                 // для fetchMore без устаревания
   const famRef = useRef(null);
   const restartTimer = useRef(null);            // дебаунс автообновления формулы
@@ -104,17 +108,23 @@ export default function Wave() {
   const setFamBoth = (v) => { famRef.current = v; setFam(v); };
 
   const startWave = async (engine, scenArg) => {
+    const attempt = ++startAttempt.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
     const s = scenArg ?? scenRef.current;
     setPhase('boot'); setErr('');
     try {
       const j = await waveStart(engine || ws?.engine || 'auto', waveCtx({
         scenario: s?.id || null,
         familiarity: famRef.current || undefined,
-      }));
+      }), { signal: controller.signal });
+      if (attempt !== startAttempt.current) return;
       setSess({ session_id: j.session_id, engine: j.engine });
       if (j.scenario && (j.scenario.id || j.scenario.title)) setScenBoth(j.scenario);
-      // порядок важен: play() сбрасывает wave-источник — волну включаем ПОСЛЕ
-      await P.play(j.tracks || [], 0);
+      // Сначала публикуем очередь и источник волны, затем ждём сетевой запуск
+      // аудио в фоне: экран станции не должен висеть на загрузке потока.
+      const tracks = j.tracks || [];
+      if (!tracks.length) throw new Error('Пока нет подходящих треков. Попробуй ещё раз.');
       P.setWaveSource({
         sessionId: j.session_id,
         fetchMore: async (last) => {
@@ -127,14 +137,53 @@ export default function Wave() {
         onEvent: onWaveEvent(j.session_id),
       });
       setPhase('ready');
+      P.play(tracks, 0, null, true).then(() => {
+        const playbackError = P.getState().error;
+        if (playbackError) throw new Error(playbackError);
+      }).catch((error) => {
+        setErr((error && error.message) || 'не удалось запустить воспроизведение');
+        setPhase('err');
+      });
     } catch (e) {
-      setErr((e && e.message) || 'волна не подала признаков жизни');
+      if (attempt !== startAttempt.current) return;
+      const message = e?.name === 'AbortError'
+        ? 'Сервер долго не отвечает. Проверь соединение и попробуй ещё раз.'
+        : (e && e.message) || 'волна не подала признаков жизни';
+      setErr(message);
       setPhase('err'); haptic('heavy');
+    } finally {
+      clearTimeout(timeout);
     }
   };
 
   /* события плеера → API. started/skip/finished идут в /feedback
      (сервер сам пишет WaveEvents, дублей нет); метки и seek — в /event. */
+  const retryWave = () => {
+    P.setWaveSource(null);
+    startWave(ws?.engine || 'auto');
+  };
+
+  const loadScenarios = async () => {
+    const requestId = ++scenarioRequest.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    setScensBusy(true);
+    setScensErr('');
+    try {
+      const result = await waveScenarios(waveCtx(), { signal: controller.signal });
+      if (requestId === scenarioRequest.current) setScens(result.scenarios || []);
+    } catch (error) {
+      if (requestId === scenarioRequest.current) {
+        setScensErr(error?.name === 'AbortError'
+          ? 'Сервер долго не отвечает.'
+          : (error && error.message) || 'не удалось загрузить сценарии');
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (requestId === scenarioRequest.current) setScensBusy(false);
+    }
+  };
+
   const onWaveEvent = (sid) => (kind, track, played) => {
     if (!track) return;
     if (kind === 'started') {
@@ -154,13 +203,19 @@ export default function Wave() {
     (async () => {
       let formula = null;
       try { formula = await waveSettings(); setWs(formula); } catch { /* формула по умолчанию */ }
-      waveScenarios(waveCtx()).then(j => setScens(j.scenarios || [])).catch(() => {});
+      loadScenarios();
       waveDiscovery(10).then(j => setDisc(j.artists || [])).catch(() => {});
       const snap = P.getState();
       if (P.inWave() && snap.queue.length) { setPhase('ready'); return; }
       if (!snap.playing) { await startWave(formula?.engine || 'auto'); }
       else setPhase('ready');   // играет обычная очередь — не перехватываем
     })();
+  }, []);
+
+  useEffect(() => () => {
+    startAttempt.current++;
+    scenarioRequest.current++;
+    clearTimeout(restartTimer.current);
   }, []);
 
   /* встряска: кнопка и физическая — одно действие, сервер кулдаунит */
@@ -324,6 +379,13 @@ export default function Wave() {
         </div>
       </div>
 
+      {scensErr && (
+        <div className="err wave-scens-error" role="alert">
+          Не удалось загрузить сценарии. <button onClick={loadScenarios} disabled={scensBusy}>
+            {scensBusy ? 'Загружаю…' : 'Повторить'}
+          </button>
+        </div>
+      )}
       {scens.length > 0 && (
         <div className="wave-scens" role="tablist" aria-label="Сценарии волны">
           {scens.map((s, i) => (
@@ -486,7 +548,7 @@ export default function Wave() {
               <div className="login">
                 <h2>Волна тихая…</h2>
                 <p className="muted">{err}</p>
-                <button className="bigbtn primary" onClick={() => startWave(ws?.engine)}>Ещё раз</button>
+                <button className="bigbtn primary" onClick={retryWave}>Ещё раз</button>
               </div>
             </div>
           </motion.div>

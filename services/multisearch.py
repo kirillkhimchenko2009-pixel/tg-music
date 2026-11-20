@@ -10,6 +10,7 @@
 """
 import asyncio
 import logging
+import re
 
 from services import registry
 from services.providers.base import TrackMeta
@@ -66,6 +67,25 @@ _ADAPTERS = {
     "zvuk": _zvuk,
     "ytmusic": _ytmusic,
 }
+
+
+_BROAD_QUERIES = {"рок", "поп", "рэп", "джаз", "rnb"}
+
+
+def _is_relevant(query: str, meta: TrackMeta) -> bool:
+    """Drop weak provider matches for specific single-word queries.
+
+    Genre presets and multi-word searches keep their broad recall. For a
+    distinctive three-character term, require an exact title/artist token so
+    a short acronym such as ДДТ doesn't return unrelated tracks by token noise.
+    """
+    needle = re.sub(r"[^\w]+", " ", query.casefold().replace("ё", "е")).strip()
+    if not needle or " " in needle or len(needle) != 3 or needle in _BROAD_QUERIES:
+        return True
+    fields = re.sub(r"[^\w]+", " ",
+                    f"{meta.artist or ''} {meta.title or ''}"
+                    .casefold().replace("ё", "е")).split()
+    return needle in fields
 
 
 def _interleave(by_src: dict[str, list[TrackMeta]]) -> list[TrackMeta]:
@@ -147,6 +167,8 @@ async def web_search(q: str, limit: int = 24, scope: str = "all",
         # «блюр»-заливки (18+ у ЯМ — слова замазаны/запиканы) в поиск не
         # показываем: по решению юзера такое не играет и не скачивается
         if getattr(m, "explicit", False):
+            continue
+        if not _is_relevant(q, m):
             continue
         k = m.key()
         if k in seen:

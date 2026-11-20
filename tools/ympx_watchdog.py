@@ -30,7 +30,7 @@ PORT = "8811"
 LOOP_SEC = 30
 
 SRV = "srv-dbgsojl9el5s73dfdotg"
-CLOUD = "https://vibe-music-dk6c.onrender.com"
+CLOUD = "https://tg-music-0en5.onrender.com"
 PROXY = "http://127.0.0.1:10809"
 def _key_path() -> Path:
     """env RENDER_KEY_FILE → E:\\Temp\\opencode → %LOCALAPPDATA%\\Temp."""

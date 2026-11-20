@@ -13,7 +13,9 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: WEBAPP_URL          # публичный адрес мини-аппа для меню-кнопки
-        value: https://vibe-music.onrender.com/v2/
+        value: https://tg-music-0en5.onrender.com/v2/
+      - key: MEDIA_ROLE          # APP-роль: API кладёт загрузки в общую очередь Botkeep/serv00
+        value: app
       - key: PROXY_URL           # из облака прокси не нужен
         value: ""
       - key: PYTHONUNBUFFERED

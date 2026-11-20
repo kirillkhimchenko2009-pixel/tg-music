@@ -98,6 +98,23 @@ class TestParallelAndIsolation:
 
 
 class TestMerge:
+    async def test_short_artist_query_filters_unrelated_provider_noise(self, adapters):
+        make, _ = adapters
+        ms._ADAPTERS["zaycev"] = make("zaycev", [
+            _meta("zaycev", "ddt", "В последнюю осень", "ДДТ"),
+            _meta("zaycev", "noise1", "Медуза", "MATRANG"),
+            _meta("zaycev", "noise2", "МЫ", "IOWA"),
+        ])
+        results = await ms.web_search("ДДТ", limit=10)
+        assert [(m.title, m.artist) for m in results] == [
+            ("В последнюю осень", "ДДТ")]
+
+    async def test_short_genre_query_keeps_broad_provider_results(self, adapters):
+        make, _ = adapters
+        ms._ADAPTERS["zaycev"] = make("zaycev", [_meta("zaycev", "r1", "Рок баллады", "Артист")])
+        results = await ms.web_search("рок", limit=10)
+        assert [m.external_id for m in results] == ["r1"]
+
     async def test_round_robin_interleave(self, adapters):
         """Первые результаты всех источников впереди (справедливая выдача)."""
         make, _ = adapters

@@ -685,6 +685,21 @@ h1.h {
 .trow .tdl:active { transform: scale(.9); }
 .trow .tdl svg { width: 16px; height: 16px; }
 .trow .tdl-p { font-size: 9px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  .trow { gap: 7px; padding-inline: 6px; }
+  .trow .num { width: 18px; }
+  .trow .covwrap,
+  .trow .covwrap .cov { width: 40px; height: 40px; }
+  .trow.has-menu .tdl,
+  .trow:has(.tmark) .tdl { display: none; }
+  .trow.has-menu .ttime,
+  .trow:has(.tmark) .ttime { display: none; }
+  .trow .tdl { width: 22px; }
+  .trow .heart { width: 26px; height: 28px; }
+  .trow .heart svg { width: 16px; height: 16px; }
+  .trow .tmark { width: 20px; height: 28px; }
+  .trow .ttime { font-size: 10px; }
+}
 
 /* эквалайзер-индикатор играющего трека */
 .eq { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 14px; }
@@ -952,8 +967,17 @@ h1.h {
     cursor: default;
     border-top: 1px solid var(--border-soft);
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) minmax(320px, 46%) minmax(220px, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 42%) minmax(0, 1fr);
+    grid-template-rows: 1fr;
   }
+}
+
+.pl-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.pl-mctl { flex: 0 0 auto; }
+@media (min-width: 1024px) {
+  .pl-left { grid-column: 1; grid-row: 1; gap: 10px; }
+  .pl-omni { grid-column: 2; grid-row: 1; min-width: 0; }
+  .pl-right { grid-column: 3; grid-row: 1; min-width: 0; }
 }
 
 /* нитка прогресса: красит верхнюю кромку бара по мере проигрывания.
@@ -978,7 +1002,6 @@ h1.h {
 .pcovwrap .eq i { background: #fff; box-shadow: 0 0 8px rgba(0,0,0,.6); }
 
 .pl-meta { min-width: 0; flex: 1; cursor: pointer; }
-@media (min-width: 1024px) { .pl-meta { flex: none; } }
 .pl-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-artist { font-size: 11.5px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -1426,6 +1449,10 @@ h1.h {
   font-size: 13px;
 }
 .muted { color: var(--t3); }
+.search-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.search-error .bigbtn { flex: 0 0 auto; }
+.wave-scens-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.wave-scens-error button { color: var(--t1); text-decoration: underline; }
 
 .minispinner {
   width: 16px; height: 16px; border-radius: 50%;
@@ -1834,6 +1861,37 @@ h1.h {
      их содержимого при скролле контента под стеклом */
   .pbar,
   .tabbar { will-change: transform; }
+}
+
+/* Compact desktop dock on short laptop/browser viewports. */
+@media (min-width: 1024px) and (max-height: 860px) {
+  :root { --pb-h: 72px; }
+  .np-in { padding-top: 8px; padding-bottom: 20px; }
+  .np-covwrap { margin-top: 12px; margin-bottom: 14px; width: min(56vw, 260px); }
+  .np-chip { margin-top: 8px; }
+  .np-btns { margin-top: 12px; }
+  .np-vol { margin-top: 6px; }
+  .np-queue { margin-top: 14px; }
+  .pbar { gap: 12px; padding-inline: 14px; }
+  .pl-omni { gap: 2px; }
+  .pl-center { gap: 2px; }
+  .pl-ctl { width: 34px; height: 34px; }
+  .pl-play { width: 38px; height: 38px; }
+}
+
+@media (min-width: 1024px) and (max-height: 740px) {
+  :root { --pb-h: 64px; }
+  .np-in { padding-top: 4px; padding-bottom: 12px; }
+  .np-covwrap { margin-top: 6px; margin-bottom: 8px; width: min(44vw, 210px); }
+  .np-btns { margin-top: 8px; }
+  .np-vol { margin-top: 2px; }
+  .np-queue { margin-top: 10px; }
+  .pbar { gap: 9px; padding-inline: 10px; }
+  .pl-lines { font-size: 9px; }
+  .pcovwrap { width: 44px; height: 44px; }
+  .pl-title { font-size: 12px; }
+  .pl-artist { font-size: 10px; }
+  .pl-right .vol .seek { width: 64px; }
 }
 
 /* ---------------- хранилище (local-first) ----------------

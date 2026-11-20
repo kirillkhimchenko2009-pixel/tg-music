@@ -357,37 +357,39 @@ function PlayerBar({ onExpand }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 190, damping: 34, mass: 1 }}
     >
-      <motion.div
-        className="pcovwrap"
-        layoutId="np-cover"
-        transition={sharedCover}
-        onClick={onExpand}
-        role="button"
-        tabIndex={0}
-        aria-label="Открыть плеер"
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onExpand(); }}
-      >
-        <FadeImg src={coverOr(cur)} alt="" />
-        <Eq playing={st.playing} />
-      </motion.div>
+      <div className="pl-left">
+        <motion.div
+          className="pcovwrap"
+          layoutId="np-cover"
+          transition={sharedCover}
+          onClick={onExpand}
+          role="button"
+          tabIndex={0}
+          aria-label="Открыть плеер"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onExpand(); }}
+        >
+          <FadeImg src={coverOr(cur)} alt="" />
+          <Eq playing={st.playing} />
+        </motion.div>
 
-      <div className="pl-meta" onClick={onExpand}>
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={cur.id}
-            className="plmeta-in"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: .26, ease: [.16, 1, .3, 1] }}
-          >
-            <div className="pl-title">{cur.title}</div>
-            <div className="pl-artist">{cur.artist}</div>
-          </motion.div>
-        </AnimatePresence>
+        <div className="pl-meta" onClick={onExpand}>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={cur.id}
+              className="plmeta-in"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: .26, ease: [.16, 1, .3, 1] }}
+            >
+              <div className="pl-title">{cur.title}</div>
+              <div className="pl-artist">{cur.artist}</div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="pl-heart" onClick={e => e.stopPropagation()}><HeartBtn id={cur.id} /></div>
       </div>
-
-      <div className="pl-heart" onClick={e => e.stopPropagation()}><HeartBtn id={cur.id} /></div>
 
       {/* десктоп: центр — прогресс + контролы */}
       <div className="pl-omni" onClick={e => e.stopPropagation()}>

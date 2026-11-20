@@ -28,6 +28,16 @@ import sys
 WORKER_BUILD = "r30-20261118"
 
 
+def _health_url(webapp_url: str) -> str:
+    """Keepalive targets the service root even if WEBAPP_URL includes /v2/."""
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(webapp_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("WEBAPP_URL must be an absolute HTTP(S) URL")
+    return f"{parsed.scheme}://{parsed.netloc}/health"
+
+
 async def _keepalive() -> None:
     """Free-инстанс Render засыпает после ~15 мин без входящих HTTP:
     холодный старт ~1 мин, бот молчит, мини-апп «не открывается».
@@ -36,19 +46,27 @@ async def _keepalive() -> None:
     Telegram сон НЕ предотвращает — поэтому именно HTTP-пинг.
     Ошибки глушим: это страховка, а не критичный путь."""
     import httpx
+
     base = (os.getenv("WEBAPP_URL")
-            or "https://vibe-music-dk6c.onrender.com").rstrip("/")
+            or "https://tg-music-0en5.onrender.com/v2/").rstrip("/")
+    health_url = _health_url(base)
     log = logging.getLogger("keepalive")
     logged = False
-    while True:
-        try:
-            r = await httpx.get(base + "/health", timeout=30)
-            if not logged:
-                log.info("keepalive: %s %s/health", r.status_code, base)
-                logged = True
-        except Exception:
-            logged = False              # восстановление залогируем снова
-        await asyncio.sleep(720)
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            try:
+                response = await client.get(health_url)
+                response.raise_for_status()
+                if not logged:
+                    log.info("keepalive: %s %s", response.status_code, health_url)
+                    logged = True
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if logged:
+                    log.warning("keepalive failed: %s", exc)
+                logged = False              # восстановление залогируем снова
+            await asyncio.sleep(720)
 
 
 async def main() -> None:

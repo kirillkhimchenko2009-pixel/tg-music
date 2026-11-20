@@ -12,6 +12,7 @@ import Sheet from './motion/components/Sheet.jsx';
 import { toast } from './motion/utils/toast.js';
 import * as dl from './local/downloads.js';
 import { subscribeOffline, isOffline } from './local/repo.js';
+import { dedupeAlbumTracks } from './albumUtils.js';
 
 /* ---------------- иконки (stroke 2, единый оптический ритм) ---------------- */
 const Icon = ({ d, children, ...props }) => (
@@ -282,7 +283,7 @@ export function TrackRow({ t, i, onPlay, num, time, heart = true, onMenu, childr
   return (
     <motion.div
       layout={layout}
-      className={'trow' + (playing ? ' playing' : '')}
+      className={'trow' + (playing ? ' playing' : '') + (onMenu ? ' has-menu' : '')}
       initial={wake ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: .16, ease: [.4, 0, 1, 1] } }}
@@ -556,6 +557,7 @@ export function groupAlbums(tracks) {
     if (!a.cover && t.cover_url) a.cover = t.cover_url;
     if (!a.year && t.year) a.year = t.year;
   }
+  for (const album of map.values()) album.tracks = dedupeAlbumTracks(album.tracks);
   return [...map.values()];
 }
 

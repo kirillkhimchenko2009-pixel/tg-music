@@ -84,8 +84,9 @@ def _pending() -> dict[int, Any]:
     return pending_new_playlist
 
 def _web_url(playlist_id: int) -> str | None:
-    if settings.WEBAPP_URL:
-        return f"{settings.WEBAPP_URL}/#/playlist/{playlist_id}"
+    base = (settings.WEBAPP_URL or "").rstrip("/")
+    if base:
+        return f"{base}/#/playlist/{playlist_id}"
     return None
 
 @router.message(Command("playlists"))

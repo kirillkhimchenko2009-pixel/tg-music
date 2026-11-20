@@ -141,8 +141,8 @@ export function waveCtx(extra = {}) {
   };
 }
 
-export function waveStart(engine, ctx) {
-  return api('/api/wave/start', { method: 'POST',
+export function waveStart(engine, ctx, opts = {}) {
+  return api('/api/wave/start', { method: 'POST', signal: opts.signal,
     body: JSON.stringify({ engine: engine || null, ...(ctx || {}) }) });
 }
 
@@ -181,13 +181,13 @@ export function waveEvent(sessionId, kind, opts = {}) {
 }
 
 /* Карточки сценариев (динамические по профилю и контексту). */
-export function waveScenarios(ctx) {
+export function waveScenarios(ctx, opts = {}) {
   const q = new URLSearchParams();
   if (ctx?.local_hour != null) q.set('local_hour', String(ctx.local_hour));
   if (ctx?.local_weekday != null) q.set('local_weekday', String(ctx.local_weekday));
   if (ctx?.device) q.set('device', ctx.device);
   const qs = q.toString();
-  return api('/api/wave/scenarios' + (qs ? '?' + qs : ''));
+  return api('/api/wave/scenarios' + (qs ? '?' + qs : ''), { signal: opts.signal });
 }
 
 /* «Встряхнуть волну»: альтернативный сценарий, вкус не обнуляется. */

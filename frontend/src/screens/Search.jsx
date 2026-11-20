@@ -62,16 +62,21 @@ export default function SearchScreen({ initial = '' }) {
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 30000);
     setBusy(true);
-    api('/api/search?q=' + encodeURIComponent(qq) + '&limit=40',
+    api('/api/search?q=' + encodeURIComponent(qq) + '&limit=20',
         { signal: controller.signal })
       .then(data => { if (id === requestId.current) setRes(data); })
       .catch(e => {
-        if (id === requestId.current && e.name !== 'AbortError') {
-          setRes({ local: [], web: [], err: e.message });
+        if (id === requestId.current) {
+          const timedOut = e.name === 'AbortError' && controller.signal.aborted;
+          setRes({ local: [], web: [], err: timedOut
+            ? 'Поиск не ответил за 30 секунд. Попробуй ещё раз.'
+            : e.message });
         }
       })
       .finally(() => {
+        clearTimeout(timeout);
         if (id === requestId.current) setBusy(false);
       });
   };
@@ -221,7 +226,12 @@ export default function SearchScreen({ initial = '' }) {
                 </div>
               </Reveal>
             )}
-            {res.err && <div className="err" style={{ marginTop: 12 }}>{res.err}</div>}
+            {res.err && (
+              <div className="err search-error" role="alert">
+                <span>{res.err}</span>
+                <button className="bigbtn" onClick={() => run(q)}>Повторить поиск</button>
+              </div>
+            )}
             {!all.length && !albums.length && !res.err && (
               <div className="empty">
                 <div className="big float">🔎</div>

@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from starlette.requests import Request
 
 from server.auth import CurrentUser, tg_user
 from server.routes import tracks
@@ -32,6 +33,21 @@ def _job(track_id=5, user_id=1, quality="aac320", job_id="job-1"):
         "created_at": now, "updated_at": now}
     tracks._INFLIGHT[(int(user_id), int(track_id), quality)] = job_id
     return job_id
+
+
+class TestStreamTokens:
+    async def test_token_only_authorizes_its_track(self):
+        request = Request({"type": "http", "method": "GET", "path": "/",
+                           "headers": [], "query_string": b""})
+        token = tracks.make_stream_token(42, 17)
+
+        user = await tracks.stream_user(request, track_id=17, t=token,
+                                        x_init_data="", authorization="")
+        assert user.id == 42
+        with pytest.raises(HTTPException) as exc:
+            await tracks.stream_user(request, track_id=18, t=token,
+                                     x_init_data="", authorization="")
+        assert exc.value.status_code == 401
 
 
 @pytest.fixture
@@ -567,6 +583,24 @@ class TestBulkDownload:
                                  json={"track_ids": [987654]})
         assert resp.status_code == 200
         assert resp.json() == {"jobs": [], "total": 0, "skipped": []}
+
+    async def test_app_role_enqueues_single_download_for_status_polling(
+            self, client, bulk_db, monkeypatch):
+        ids = await self._seed_tracks(bulk_db)
+        monkeypatch.setattr(tracks.music_settings, "media_role", "app")
+
+        response = await client.post(f"/api/download?track_id={ids[0]}")
+        assert response.status_code == 200
+        job_id = response.json()["job"]
+        status = await client.get(f"/api/jobs/{job_id}")
+        assert status.status_code == 200
+        assert status.json()["status"] == "queued"
+
+        from music import mediajobs
+        async with bulk_db() as session:
+            assert await mediajobs.count_active(session, 1) == 1
+            job = await mediajobs.get_job(session, job_id)
+            assert job is not None and job.status == "new"
 
     async def test_bulk_deduplicates_active_single_download(self, client,
                                                             bulk_db,

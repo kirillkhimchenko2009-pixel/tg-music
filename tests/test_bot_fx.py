@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot import fx, inline, runtime
 from bot.batch import start_batch
-from bot.handlers import start as start_handler
+from bot.handlers import playlists, start as start_handler
 
 
 @pytest.fixture
@@ -120,6 +120,12 @@ async def _seed_inline_tracks(maker):
         s.add_all([cached, plain, nocov])
         await s.commit()
         return [cached.id, plain.id, nocov.id]
+
+
+def test_playlist_web_url_strips_trailing_slash(monkeypatch):
+    monkeypatch.setattr(playlists.settings, "WEBAPP_URL",
+                        "https://music.example/v2///", raising=False)
+    assert playlists._web_url(12) == "https://music.example/v2/#/playlist/12"
 
 
 class TestInline:
