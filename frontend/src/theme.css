@@ -487,6 +487,7 @@ h1.h {
 .mixcard {
   position: relative;
   display: flex; align-items: center; gap: 20px;
+  color: #F7F8FA; /* the hero overlay stays dark in both color schemes */
   border-radius: var(--r-xl);
   padding: 22px;
   min-height: 148px;
@@ -557,7 +558,8 @@ h1.h {
   font-size: 19px; font-weight: 800;
   letter-spacing: -.5px; line-height: 1.05;
   text-transform: uppercase;
-  color: var(--t1);
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .7);
   background-color: var(--surface2);
   background-image:
     radial-gradient(120% 95% at 88% -12%, var(--glow, transparent), transparent 62%),
@@ -686,6 +688,12 @@ h1.h {
 .trow .tdl svg { width: 16px; height: 16px; }
 .trow .tdl-p { font-size: 9px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 @media (max-width: 520px) {
+  /* Keep the home-wave copy readable instead of squeezing it between
+     desktop-sized art and controls on a narrow phone. */
+  .mixcard { gap: 14px; padding: 18px; }
+  .mix-ava { width: 60px; height: 60px; }
+  .mix-play { width: 44px; height: 44px; }
+
   .trow { gap: 7px; padding-inline: 6px; }
   .trow .num { width: 18px; }
   .trow .covwrap,
@@ -1793,10 +1801,15 @@ h1.h {
     linear-gradient(140deg, #1D2A20, #0F1319);
   border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border-soft));
   border-radius: var(--r-lg);
+  color: #F7F8FA; /* fixed dark surface; don't inherit the light-theme text token */
   padding: 12px 14px; margin: 18px 0 6px;
   transition: background .18s var(--ease), transform .2s var(--spring);
 }
-.likesrow:hover { background: var(--card-hover); }
+.likesrow:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(140deg, #26372b, #151a21);
+}
 .likesrow:active { transform: scale(.99); }
 .likescov {
   width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center;

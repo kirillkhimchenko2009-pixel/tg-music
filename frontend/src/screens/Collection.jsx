@@ -50,14 +50,15 @@ export default function Collection({ sub }) {
   if (!items) return <div style={{ padding: '18px 2px' }}><Skeletons n={6} grid /></div>;
 
   const list = mine;
+  const pageTitle = sub === 'history' ? 'История' : sub === null ? 'Моя коллекция' : null;
 
   return (
     <div>
-      <h1 className="h">Моя коллекция</h1>
-      <div className="sub">Плейлисты, альбомы, исполнители — всё, что собрал.</div>
+      {pageTitle && <h1 className="h">{pageTitle}</h1>}
+      {sub === null && <div className="sub">Плейлисты, альбомы, исполнители — всё, что собрал.</div>}
 
-      {/* ❤ Любимое — главный ряд */}
-      {likes && (
+      {/* ❤ Любимое — главный ряд на обзоре коллекции */}
+      {sub === null && likes && (
         <button className="likesrow rise" onClick={() => { haptic('light'); setOpen(likes.id); }}>
           <span className="likescov" style={{ '--g': 'linear-gradient(140deg,#42504a,#20282a)' }}>
             <svg viewBox="0 0 24 24" width="30" height="30" fill="#D9ED3A">
