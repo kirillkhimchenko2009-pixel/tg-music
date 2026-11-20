@@ -52,6 +52,15 @@ async def startup():
     if music_settings.media_role == "app":
         from music import mediajobs
         mediajobs.start_local_reserve()
+    elif music_settings.media_role == "worker":
+        # Встроенный poller для роли worker не допускаем: на хосте отдельно
+        # работает run_worker.py и только он определяет реальные capabilities.
+        pass
+    elif music_settings.media_role == "local":
+        # /download-bulk пишет media_download_jobs и должен иметь executor;
+        # одиночные загрузки по-прежнему идут своим лёгким локальным путём.
+        from music import mediajobs
+        mediajobs.start_local_worker()
     # RSS baseline вместо SSH (на free-плане Render SSH закрыт платформой):
     # раз в 5 минут одна строка в логи — снимается render_logs.py по маркеру
     # server.mem. На Windows/локале /proc нет — цикл молчит.
@@ -83,7 +92,9 @@ async def _mem_log_loop():
 
 @app.on_event("shutdown")
 async def shutdown():
-    pass
+    if music_settings.media_role in ("app", "local"):
+        from music import mediajobs
+        await mediajobs.stop_local_worker()
 
 app.include_router(tracks_route.router)
 app.include_router(music_api_router)

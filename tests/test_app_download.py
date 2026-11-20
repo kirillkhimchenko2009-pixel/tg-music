@@ -568,6 +568,24 @@ class TestBulkDownload:
         assert resp.status_code == 200
         assert resp.json() == {"jobs": [], "total": 0, "skipped": []}
 
+    async def test_bulk_deduplicates_active_single_download(self, client,
+                                                            bulk_db,
+                                                            monkeypatch):
+        ids = await self._seed_tracks(bulk_db)
+        from music import mediajobs
+        monkeypatch.setattr(mediajobs, "AsyncSessionLocal", bulk_db)
+        monkeypatch.setattr(tracks.music_settings, "media_role", "app")
+        first = await client.post("/api/download?track_id=" + str(ids[0]))
+        assert first.status_code == 200
+
+        bulk = await client.post("/api/download-bulk",
+                                 json={"track_ids": [ids[0]]})
+        assert bulk.status_code == 200
+        assert bulk.json()["jobs"][0]["job"] == first.json()["job"]
+
+        async with bulk_db() as session:
+            assert await mediajobs.count_active(session, 1) == 1
+
     async def test_cached_tracks_not_requeued(self, client, bulk_db):
         """Уже скачанные (file_id в кеше) не ставятся в очередь повторно."""
         from core.models import Track

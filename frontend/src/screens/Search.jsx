@@ -40,16 +40,40 @@ export default function SearchScreen({ initial = '' }) {
   const [menu, setMenu] = useState(null);
   const inputRef = useRef(null);
   const timer = useRef(null);
+  const requestId = useRef(0);
+  const abortRef = useRef(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    inputRef.current?.focus();
+    return () => {
+      clearTimeout(timer.current);
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const run = qq => {
-    if (!qq.trim()) { setRes({ local: [], web: [] }); return; }
+    clearTimeout(timer.current);
+    abortRef.current?.abort();
+    const id = ++requestId.current;
+    if (!qq.trim()) {
+      setRes({ local: [], web: [] });
+      setBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusy(true);
-    api('/api/search?q=' + encodeURIComponent(qq) + '&limit=40')
-      .then(setRes)
-      .catch(e => setRes({ local: [], web: [], err: e.message }))
-      .finally(() => setBusy(false));
+    api('/api/search?q=' + encodeURIComponent(qq) + '&limit=40',
+        { signal: controller.signal })
+      .then(data => { if (id === requestId.current) setRes(data); })
+      .catch(e => {
+        if (id === requestId.current && e.name !== 'AbortError') {
+          setRes({ local: [], web: [], err: e.message });
+        }
+      })
+      .finally(() => {
+        if (id === requestId.current) setBusy(false);
+      });
   };
 
   const onChange = v => {
@@ -71,6 +95,10 @@ export default function SearchScreen({ initial = '' }) {
   }
 
   const clear = () => {
+    clearTimeout(timer.current);
+    abortRef.current?.abort();
+    requestId.current += 1;
+    setBusy(false);
     setQ('');
     setRes({ local: [], web: [] });
     inputRef.current?.focus();

@@ -10,10 +10,9 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import parse_qsl, unquote, unquote_plus
+from urllib.parse import unquote, unquote_plus
 
 from fastapi import Header, HTTPException
 
@@ -23,7 +22,11 @@ log = logging.getLogger("server.auth")
 SECRET = b"WebAppData"
 _BEARER_KEY = hashlib.sha256((settings.BOT_TOKEN + "|vibe-bearer-v1").encode()).digest()
 _BEARER_DAYS = 30
-_DIAG = Path(__file__).resolve().parent.parent / "data" / "diag_initdata.txt"
+try:
+    _INIT_DATA_MAX_AGE_SEC = max(60, int(os.getenv("INIT_DATA_MAX_AGE_SEC", "86400")))
+except ValueError:
+    _INIT_DATA_MAX_AGE_SEC = 86400
+_INIT_DATA_FUTURE_SKEW_SEC = 300
 
 # Гостевые id (браузер без Telegram) лежат далеко за пределами реальных
 # Telegram id (~10^10). В такой чат через Bot API отправить ничего нельзя.
@@ -124,6 +127,15 @@ def validate_init_data(init_data: str) -> dict:
     ]
     for tag, values in variants:
         if check(values, tag) is not None:
+            try:
+                auth_date = int(raw_map.get("auth_date", ""))
+            except ValueError as exc:
+                raise HTTPException(401, "неверный auth_date") from exc
+            now = time.time()
+            if auth_date > now + _INIT_DATA_FUTURE_SKEW_SEC:
+                raise HTTPException(401, "initData из будущего")
+            if now - auth_date > _INIT_DATA_MAX_AGE_SEC:
+                raise HTTPException(401, "initData устарел")
             u = raw_map.get("user", "")
             try:
                 user = json.loads(unquote(u))
@@ -137,15 +149,10 @@ def validate_init_data(init_data: str) -> dict:
             if not user.get("id"):
                 raise HTTPException(401, "нет user в initData")
             return user
-    # диагностика: срез реального initData (свои данные) для анализа
-    try:
-        stamp = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S")
-        with open(_DIAG, "a", encoding="utf-8") as f:
-            f.write(f"--- {stamp} FAIL keys={sorted(keep)}\n")
-            f.write(init_data + "\n")
-    except Exception:
-        pass
-    log.warning("initData signature mismatch; fields=%s", ",".join(sorted(keep)))
+    # Никогда не сохраняем initData целиком: это подписанный payload с данными
+    # пользователя. Для диагностики достаточно имён полей и длины запроса.
+    log.warning("initData signature mismatch; fields=%s payload_len=%d",
+                ",".join(sorted(keep)), len(init_data))
     raise HTTPException(401, "неверная подпись initData")
 
 

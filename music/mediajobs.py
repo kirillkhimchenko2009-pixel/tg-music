@@ -12,7 +12,7 @@
   поэтому приоритет = интервал опроса: Botkeep 3–5 с забирает джобы
   первым, serv00 20–30 с подбирает только при загруженности/смерти
   основного. Никакой маршрутизации — спилловер получается сам.
-- без env (`local`): прежнее поведение, модуль не задействован.
+- без env (`local`): локальный API обрабатывает bulk-очередь встроенным poller.
 
 Атомарность claim — SELECT ... FOR UPDATE SKIP LOCKED + UPDATE в одной
 транзакции: два воркера физически не могут взять одну джобу. SQLite
@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
 
@@ -88,14 +90,46 @@ def _bg(coro) -> None:
 
 async def create_job(session, *, track_id: int, uid: int, quality: str,
                      source: str) -> MediaDownloadJob:
-    """Новая джоба очереди. Дедуп (уже активная джоба) — вызывающий код
-    через :func:`find_active`, как и в локальном пути /download."""
+    """Создаёт задачу, атомарно ограничивая активные дубли на пользователя/трек.
+
+    Частичный уникальный индекс закрывает гонку между find_active() и INSERT.
+    При конфликте возвращает уже созданную задачу (или честную ошибку, если
+    транзакция БД не может быть восстановлена).
+    """
     job = MediaDownloadJob(id=new_job_id(), track_id=track_id, uid=uid,
                            quality=quality or "",
                            needs_ffmpeg=needs_ffmpeg_for(source))
     session.add(job)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        # Ограничение частичное и известно: активный дубликат на том же uid/track.
+        # Не скрываем FK/другие целостностные ошибки как «дедуп».
+        duplicate = _is_active_duplicate_error(session, exc)
+        await session.rollback()
+        if not duplicate:
+            raise
+        existing = await find_active(session, track_id, uid)
+        if existing is None:
+            raise
+        return existing
     return job
+
+
+def _is_active_duplicate_error(session, exc: IntegrityError) -> bool:
+    """Распознаёт только конфликт partial unique index на uid/track."""
+    dialect = session.get_bind().dialect.name
+    original = getattr(exc, "orig", None)
+    if dialect == "postgresql":
+        diag = getattr(original, "diag", None)
+        return (getattr(diag, "constraint_name", None)
+                == "uq_media_jobs_active_user_track")
+    if dialect == "sqlite":
+        # SQLite names columns in UNIQUE errors, not the partial index itself.
+        message = str(original or "")
+        return ("media_download_jobs.uid" in message
+                and "media_download_jobs.track_id" in message)
+    return False
 
 
 async def find_active(session, track_id: int, uid: int) -> MediaDownloadJob | None:
@@ -582,3 +616,25 @@ def start_local_reserve() -> None:
         min_age_sec=music_settings.local_fallback_sec,
     )
     _reserve.start()
+
+
+def start_local_worker() -> None:
+    """Локальная роль: исполняет bulk-джобы, поставленные мини-приложением."""
+    global _reserve
+    if _reserve is not None:
+        return
+    _reserve = MediaJobPoller(
+        name=music_settings.worker_name or "local",
+        poll_sec=music_settings.worker_poll_sec,
+        caps_ffmpeg=True,
+        min_age_sec=0,
+    )
+    _reserve.start()
+
+
+async def stop_local_worker() -> None:
+    """Останавливает встроенный poller при штатном завершении API-сервера."""
+    global _reserve
+    if _reserve is not None:
+        poller, _reserve = _reserve, None
+        await poller.stop()

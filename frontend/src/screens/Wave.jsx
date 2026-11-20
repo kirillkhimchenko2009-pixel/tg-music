@@ -565,7 +565,7 @@ function WaveHistory({ queue, index }) {
             onClick={() => {
               haptic('soft');
               const qi = queue.findIndex(x => x.id === t.id);
-              if (qi >= 0) P.play([...queue], qi);
+              if (qi >= 0) P.play([...queue], qi, null, true);
             }}
           >
             {t.cover_url

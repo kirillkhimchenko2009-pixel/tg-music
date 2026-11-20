@@ -406,14 +406,14 @@ _BULK_MAX = max(1, int(os.getenv("WEBAPP_BULK_MAX", "200")))
 @router.post("/download-bulk")
 async def download_bulk(body: BulkDownloadBody,
                         user: CurrentUser = Depends(tg_user)):
-    """Пачка треков («Скачать всё») — одним запросом в очередь Neon.
+    """Пачка треков («Скачать всё») — одним запросом в очередь заданной роли.
 
-    APP-роль: каждый трек → джоба (дедуп по активной джобе юзера/трека).
+    Каждый трек → джоба (дедуп по активной джобе юзера/трека).
     Уже скачанные (кеш file_id) в очередь НЕ ставятся — повторно не качаем:
     их id уходят в ответ как skipped. Лимит одиночных загрузок сюда не
-    применяется: работу сериализует сама очередь (воркер качает по одной
-    джобе), а не счётчик процесса.
-    Файлы в чат шлют воркеры; прогресс — GET /api/jobs-bulk?ids=..."""
+    применяется: работу сериализует сама очередь, а не счётчик процесса.
+    В APP- и local-ролях задачу исполняет mediajobs poller;
+    прогресс — GET /api/jobs-bulk?ids=..."""
     uid = int(user.id)
     if is_guest_id(uid):
         # Гостевой id — не Telegram chat_id: файлы уйдут в никуда.
@@ -615,7 +615,7 @@ async def job_status(job_id: str, user: CurrentUser = Depends(tg_user)):
 
 # ---------------- потоковый плеер ----------------
 _FILE_PATH_CACHE: dict[int, tuple[str, float]] = {}    # track_id -> (tg file_path, expire)
-_AUDIO_URL_CACHE: dict[int, tuple[tuple[str, str, bool], float]] = {}  # id -> ((url, kind, 18+), expire)
+_AUDIO_URL_CACHE: dict[tuple[int, int], tuple[tuple[str, str, bool], float]] = {}  # (uid, track_id) -> (audio, expire)
 
 
 async def stream_user(
@@ -678,7 +678,10 @@ async def _resolve_online_audio(track_id: int, t: Track,
     → zaycev.net (mp3-320, Range) → mp3party → hitmoz → hotplayer
     → YouTube (InnerTube → yt-dlp). Ничего не нашлось — быстрый фолбэк
     на 30-сек превью (Deezer → iTunes, ~1 с). Возвращает (url, kind)."""
-    hit = _AUDIO_URL_CACHE.get(track_id)
+    # Яндекс-ссылки могут зависеть от личного токена; кеш разделён по
+    # пользователю, чтобы один аккаунт не получил URL, найденный для другого.
+    cache_key = (int(user_id or 0), int(track_id))
+    hit = _AUDIO_URL_CACHE.get(cache_key)
     if hit and hit[1] > _time.time():
         return hit[0]
 
@@ -850,8 +853,8 @@ async def _resolve_online_audio(track_id: int, t: Track,
         url = (dz if isinstance(dz, str) else None) or (it if isinstance(it, str) else None)
         if url:
             full = (url, "preview", False)
-    if full:
-        _AUDIO_URL_CACHE[track_id] = (full, _time.time() + 35 * 60)
+    if full and full[1] != "yandex":
+        _AUDIO_URL_CACHE[cache_key] = (full, _time.time() + 35 * 60)
     return full
 
 

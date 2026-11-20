@@ -117,10 +117,10 @@ class TestExchange:
             assert rows.used is True
 
 
-def _signed_init_data(uid: int) -> str:
+def _signed_init_data(uid: int, auth_date: int | None = None) -> str:
     """Валидный initData: hash считается тем же способом, что и Telegram."""
     fields = {
-        "auth_date": str(int(time.time())),
+        "auth_date": str(auth_date if auth_date is not None else int(time.time())),
         "query_id": "AAE2e2e",
         "user": json.dumps({"id": uid, "first_name": "TG"},
                            separators=(",", ":")),
@@ -130,6 +130,35 @@ def _signed_init_data(uid: int) -> str:
                       hashlib.sha256).digest()
     digest = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
     return "&".join(f"{k}={v}" for k, v in fields.items()) + "&hash=" + digest
+
+
+class TestInitDataFreshness:
+    def test_stale_init_data_is_rejected(self, monkeypatch):
+        from fastapi import HTTPException
+        from server import auth
+
+        monkeypatch.setattr(auth, "_INIT_DATA_MAX_AGE_SEC", 60)
+        stale = _signed_init_data(5339474152, int(time.time()) - 61)
+        with pytest.raises(HTTPException, match="устарел"):
+            auth.validate_init_data(stale)
+
+    def test_future_init_data_is_rejected(self):
+        from fastapi import HTTPException
+        from server import auth
+
+        future = _signed_init_data(5339474152, int(time.time()) + 301)
+        with pytest.raises(HTTPException, match="будущего"):
+            auth.validate_init_data(future)
+
+    def test_invalid_init_data_is_not_logged_verbatim(self, caplog):
+        from fastapi import HTTPException
+        from server import auth
+
+        payload = _signed_init_data(5339474152) + "&private_marker=do-not-log"
+        with pytest.raises(HTTPException):
+            auth.validate_init_data(payload)
+        assert "private_marker=do-not-log" not in caplog.text
+        assert "payload_len=" in caplog.text
 
 
 class TestAuthPriority:

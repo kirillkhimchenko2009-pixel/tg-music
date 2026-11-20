@@ -132,6 +132,20 @@ class TestDedup:
             assert await mediajobs.find_active(s2, 7, 10) is None
             assert await mediajobs.count_active(s2, 10) == 0
 
+    async def test_concurrent_duplicate_creation_returns_one_active_job(self, jobs_db):
+        async def create():
+            async with jobs_db() as session:
+                job = await mediajobs.create_job(
+                    session, **_mk_job_kwargs(track_id=8, uid=20))
+                job_id = job.id
+                await session.commit()
+                return job_id
+
+        ids = await asyncio.gather(create(), create())
+        assert ids[0] == ids[1]
+        async with jobs_db() as session:
+            assert await mediajobs.count_active(session, 20) == 1
+
 
 # ------------------------------ lease TTL ------------------------------
 
@@ -325,6 +339,27 @@ class TestExecute:
 # ----------------------------- poller -----------------------------
 
 class TestPoller:
+    async def test_local_worker_starts_without_reserve_delay(self, monkeypatch):
+        started = []
+
+        class FakePoller:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def start(self):
+                started.append(self.kwargs)
+
+            async def stop(self):
+                pass
+
+        monkeypatch.setattr(mediajobs, "MediaJobPoller", FakePoller)
+        monkeypatch.setattr(mediajobs, "_reserve", None)
+        mediajobs.start_local_worker()
+
+        assert started and started[0]["min_age_sec"] == 0
+        await mediajobs.stop_local_worker()
+        assert mediajobs._reserve is None
+
     async def test_tick_empty_and_job(self, jobs_db, monkeypatch):
         poller = mediajobs.MediaJobPoller(name="t", poll_sec=0.01)
         monkeypatch.setattr(mediajobs, "AsyncSessionLocal", jobs_db)

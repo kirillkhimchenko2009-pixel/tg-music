@@ -73,6 +73,8 @@ export default function App() {
   const [name, setName] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [login, setLogin] = useState(false);
+  const [bootRetry, setBootRetry] = useState(0);
+  const [bootError, setBootError] = useState('');
 
   useEffect(() => {
     const open = () => setLogin(true);
@@ -83,29 +85,38 @@ export default function App() {
   useEffect(() => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     let dead = false;
+    let lastError = '';
     const boot = async () => {
+      setOk('boot');
       for (let i = 0; i < 12 && !hasAuth() && !dead; i++) await sleep(100);
       for (let t = 0; t < 6 && !hasAuth() && !dead; t++) {
         if (t) await sleep(2500);
-        try { await ensureGuestToken(); } catch { /* сеть ещё не готова */ }
+        try { await ensureGuestToken(); }
+        catch (e) { lastError = e?.message || 'нет связи с сервером'; }
       }
       if (dead) return;
       if (hasAuth()) {
         setOk(true);
         setName(firstUserName() || localStorage.getItem('display_name') || 'Гость');
-      } else setOk('boot');
+      } else {
+        setBootError(lastError || 'Сервер не ответил. Проверь подключение и попробуй ещё раз.');
+        setOk('error');
+      }
       loadLikes();
     };
     navInit(startView());
     setUnauthorizedHandler(() => {
       setAuthToken('');
-      boot();
+      setBootRetry(v => v + 1);
     });
     boot();
     return () => { dead = true; };
-  }, []);
+  }, [bootRetry]);
 
-  if (ok !== true) return <BootSplash />;
+  if (ok !== true) return <BootSplash
+    error={ok === 'error' ? bootError : ''}
+    onRetry={() => { setBootError(''); setBootRetry(v => v + 1); }}
+  />;
 
   return (
     <MotionConfig {...motionConfig}>
@@ -282,7 +293,7 @@ function TopBar({ name }) {
 }
 
 /* ---------------- boot ---------------- */
-function BootSplash() {
+function BootSplash({ error, onRetry }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -293,8 +304,14 @@ function BootSplash() {
       <div className="cardbox" style={{ width: 'min(88vw, 340px)' }}>
         <div className="login">
           <div className="boot-eq"><i /><i /><i /></div>
-          <h2>Vibe запускается…</h2>
-          <p className="muted">Подключаюсь к музыкальному серверу</p>
+          {error ? <>
+            <h2>Не удалось подключиться</h2>
+            <p className="muted" role="alert">{error}</p>
+            <button className="bigbtn primary" onClick={onRetry}>Повторить</button>
+          </> : <>
+            <h2>Vibe запускается…</h2>
+            <p className="muted">Подключаюсь к музыкальному серверу</p>
+          </>}
         </div>
       </div>
     </motion.div>
@@ -655,7 +672,7 @@ function NowPlaying({ onClose }) {
                 initial={i < 14 ? 'hidden' : false}
                 animate="visible"
                 exit="exit"
-                onClick={() => { haptic('select'); P.play(st.queue, i); }}
+                onClick={() => { haptic('select'); P.play(st.queue, i, null, P.inWave()); }}
               >
                 {i === st.index && (
                   <motion.span layoutId="npq-active" className="npq-bg" transition={player.queue} />

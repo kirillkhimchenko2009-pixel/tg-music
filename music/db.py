@@ -45,6 +45,17 @@ async def init_music_db(seed_sources: bool = True) -> None:
         except Exception:
             pass
 
+    # create_all не добавляет новые индексы существующим таблицам. Частичный
+    # индекс позволяет хранить историю, одновременно запрещая активные дубли.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_media_jobs_active_user_track "
+                "ON media_download_jobs (uid, track_id) "
+                "WHERE status IN ('new', 'leased')"))
+    except Exception as exc:  # возможны старые уже-дублирующие данные
+        log.warning("music: не удалось создать active-job unique index: %s", exc)
+
 
 async def _seed_sources(session: AsyncSession, specs: list[dict]) -> None:
     for spec in specs:

@@ -7,6 +7,7 @@ const MAX = 40;
 let stack = [];
 let ptr = -1;
 const listeners = new Set();
+const DEFAULT_VIEW = { tab: 'home', sub: null };
 
 const emit = () => {
   meta = { canBack: ptr > 0, canFwd: ptr < stack.length - 1 };
@@ -24,7 +25,7 @@ export function navInit(v) {
   emit();
 }
 
-export function navGet() { return stack[ptr] || { tab: 'home', sub: null }; }
+export function navGet() { return stack[ptr] || DEFAULT_VIEW; }
 export function navBack() {
   if (ptr > 0) { ptr -= 1; emit(); return true; }
   return false;

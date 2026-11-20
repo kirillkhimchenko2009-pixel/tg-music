@@ -73,9 +73,10 @@ export function current() {
   return state.queue[state.index] || null;
 }
 
-export async function play(list, index, resumeSec = null) {
+export async function play(list, index, resumeSec = null, keepWave = false) {
   const track = list[index];
   if (!track) return;
+  if (!keepWave) setWaveSource(null);
   state.queue = [...list];
   state.index = index;
   state.pendingSeek = Number.isFinite(resumeSec) ? Math.max(0, resumeSec) : null;

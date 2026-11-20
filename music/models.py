@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (BigInteger, Boolean, DateTime, Float, ForeignKey, Index,
-                        Integer, JSON, String, Text, UniqueConstraint)
+                        Integer, JSON, String, Text, UniqueConstraint, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -150,7 +150,12 @@ class MediaDownloadJob(MusicBase):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
-    __table_args__ = (Index("ix_media_jobs_pick", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_media_jobs_pick", "status", "created_at"),
+        Index("uq_media_jobs_active_user_track", "uid", "track_id", unique=True,
+              postgresql_where=text("status IN ('new', 'leased')"),
+              sqlite_where=text("status IN ('new', 'leased')")),
+    )
 
 
 class MusicDownloadHistory(MusicBase):

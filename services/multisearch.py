@@ -107,6 +107,7 @@ async def web_search(q: str, limit: int = 24, scope: str = "all",
         waits.update(per_wait)
 
     by_src: dict[str, list[TrackMeta]] = {}
+    pending: list[tuple[str, asyncio.Task[list[TrackMeta]]]] = []
     for spec in registry.specs(scope):
         adapter = _ADAPTERS.get(spec.provider_id)
         if adapter is None:
@@ -125,13 +126,20 @@ async def web_search(q: str, limit: int = 24, scope: str = "all",
                 log.info("%s: поиск не удался (%s)", aid, type(e).__name__)
                 return []
 
-        try:
-            res = await _one()
-        except Exception as e:            # двойная изоляция (мастер-промпт §4)
-            log.info("%s: изоляция ошибки (%s)", spec.provider_id, type(e).__name__)
-            res = []
-        if res:
-            by_src[spec.provider_id] = res
+        pending.append((spec.provider_id, asyncio.create_task(_one())))
+
+    # Все независимые источники запускаются вместе: время ответа ограничено
+    # самым медленным таймаутом, а не суммой таймаутов провайдеров.
+    if pending:
+        results = await asyncio.gather(*(task for _, task in pending),
+                                       return_exceptions=True)
+        for (provider_id, _), result in zip(pending, results):
+            if isinstance(result, Exception):  # дополнительная изоляция адаптера
+                log.info("%s: изоляция ошибки (%s)", provider_id,
+                         type(result).__name__)
+                continue
+            if result:
+                by_src[provider_id] = result
 
     merged: list[TrackMeta] = []
     seen: set[tuple[str, str]] = set()

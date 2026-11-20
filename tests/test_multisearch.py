@@ -39,6 +39,30 @@ def adapters(monkeypatch):
 
 
 class TestParallelAndIsolation:
+    async def test_sources_start_concurrently(self, adapters):
+        """Медленный адаптер не должен блокировать старт остальных."""
+        make, _ = adapters
+        active = set()
+        both_active = asyncio.Event()
+
+        def waiting(pid):
+            async def fn(q, limit, token=None):
+                active.add(pid)
+                if len(active) == 2:
+                    both_active.set()
+                try:
+                    await asyncio.wait_for(both_active.wait(), timeout=0.2)
+                    return [_meta(pid, pid)]
+                finally:
+                    active.discard(pid)
+            return fn
+
+        ms._ADAPTERS["zaycev"] = waiting("zaycev")
+        ms._ADAPTERS["audius"] = waiting("audius")
+        res = await ms.web_search("кино", limit=10)
+        assert both_active.is_set()
+        assert {m.source for m in res} == {"zaycev", "audius"}
+
     async def test_all_sources_queried(self, adapters):
         make, calls = adapters
         monkey = make("vk", [_meta("vk", "s:кино")])

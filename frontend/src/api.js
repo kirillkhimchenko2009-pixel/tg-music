@@ -59,6 +59,7 @@ export async function api(path, opts = {}) {
     try {
       res = await fetch(API_BASE + path, { headers: headers(), ...opts });
     } catch (e) {
+      if (e?.name === 'AbortError') throw e;
       lastErr = new Error('Нет связи с сервером: туннель перезапустился. Нажми 📱 «Открыть приложение» заново');
       continue;
     }
