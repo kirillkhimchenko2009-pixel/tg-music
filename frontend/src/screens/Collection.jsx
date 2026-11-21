@@ -51,11 +51,14 @@ export default function Collection({ sub }) {
 
   const list = mine;
   const pageTitle = sub === 'history' ? 'История' : sub === null ? 'Моя коллекция' : null;
+  const pageDescription = sub === 'history'
+    ? 'Недавно прослушанное — вернись к любимым трекам.'
+    : sub === null ? 'Плейлисты, альбомы, исполнители — всё, что собрал.' : null;
 
   return (
     <div>
       {pageTitle && <h1 className="h">{pageTitle}</h1>}
-      {sub === null && <div className="sub">Плейлисты, альбомы, исполнители — всё, что собрал.</div>}
+      {pageDescription && <div className="sub">{pageDescription}</div>}
 
       {/* ❤ Любимое — главный ряд на обзоре коллекции */}
       {sub === null && likes && (

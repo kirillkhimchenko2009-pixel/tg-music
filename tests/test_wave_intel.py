@@ -230,6 +230,31 @@ class TestContext:
 # ------------------------------------------------------------------ партия (endless)
 
 
+class TestWaveScenariosRoute:
+    async def test_scenarios_endpoint_with_guest_user(self, db, monkeypatch):
+        import httpx
+        from fastapi import FastAPI
+        from server.auth import CurrentUser, tg_user
+        from server.routes import wave
+
+        monkeypatch.setattr(wave.runtime, "get_session", db)
+        app = FastAPI()
+        app.include_router(wave.router)
+        app.dependency_overrides[tg_user] = lambda: CurrentUser(id=111)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/wave/scenarios",
+                params={"local_hour": 14, "local_weekday": 5, "device": "phone"},
+            )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["scenarios"]
+        assert data["scenarios"][0]["id"] == "foryou"
+        assert data["context"] == "день"
+
+
 class TestEndlessBatch:
     async def test_service_start_own_engine_returns_tracks_and_scenario(self, db, likes):
         from services.wave import service

@@ -690,8 +690,10 @@ h1.h {
 @media (max-width: 520px) {
   /* Keep the home-wave copy readable instead of squeezing it between
      desktop-sized art and controls on a narrow phone. */
-  .mixcard { gap: 14px; padding: 18px; }
+  .mixcard { gap: 14px; padding: 18px; min-height: 132px; }
   .mix-ava { width: 60px; height: 60px; }
+  .mix-m { flex: 1; }
+  .mix-sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.4; }
   .mix-play { width: 44px; height: 44px; }
 
   .trow { gap: 7px; padding-inline: 6px; }
@@ -1459,6 +1461,10 @@ h1.h {
 .muted { color: var(--t3); }
 .search-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .search-error .bigbtn { flex: 0 0 auto; }
+@media (max-width: 520px) {
+  .search-error { align-items: stretch; flex-direction: column; }
+  .search-error .bigbtn { width: 100%; }
+}
 .wave-scens-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .wave-scens-error button { color: var(--t1); text-decoration: underline; }
 

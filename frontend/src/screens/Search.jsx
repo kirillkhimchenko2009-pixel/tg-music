@@ -87,7 +87,20 @@ export default function SearchScreen({ initial = '' }) {
     timer.current = setTimeout(() => run(v), 420);
   };
 
-  const all = [...(res.local || []), ...(res.web || [])];
+  const localResults = res.local || [];
+  const webResults = res.web || [];
+  let visibleLocal = localResults.slice(0, 10);
+  let visibleWeb = webResults.slice(0, 10);
+  let remaining = 20 - visibleLocal.length - visibleWeb.length;
+  if (remaining > 0) {
+    const localMore = localResults.slice(visibleLocal.length, visibleLocal.length + remaining);
+    visibleLocal = [...visibleLocal, ...localMore];
+    remaining -= localMore.length;
+  }
+  if (remaining > 0) {
+    visibleWeb = [...visibleWeb, ...webResults.slice(visibleWeb.length, visibleWeb.length + remaining)];
+  }
+  const all = [...visibleLocal, ...visibleWeb];
   const albums = groupAlbums(all).slice(0, 12);
   const seen = new Set();
   const artistNames = [];
@@ -203,7 +216,7 @@ export default function SearchScreen({ initial = '' }) {
                 <div className="cap">Из скачанного</div>
                 <div className="tracks">
                   <AnimatePresence initial={false}>
-                    {res.local.map((t, i) => (
+                    {visibleLocal.map((t, i) => (
                       <TrackRow key={'l' + t.id} t={t} i={i} time={t.duration}
                                 onPlay={() => P.play(res.local, i)}
                                 onMenu={() => setMenu(t)} />
@@ -217,7 +230,7 @@ export default function SearchScreen({ initial = '' }) {
                 <div className="cap">Из сети</div>
                 <div className="tracks">
                   <AnimatePresence initial={false}>
-                    {res.web.map((t, i) => (
+                    {visibleWeb.map((t, i) => (
                       <TrackRow key={'w' + t.id} t={t} i={i} time={t.duration}
                                 onPlay={() => P.play(res.web, i)}
                                 onMenu={() => setMenu(t)} />
