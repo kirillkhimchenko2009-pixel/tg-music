@@ -18,12 +18,16 @@ async def client(monkeypatch):
          "creator": "Jane Austen", "language": "eng"},
     ]
 
-    async def archive_search(query, offset, limit):
+    async def archive_search(query, offset, limit, lang=""):
         if "Pushkin" in query:
             matching = [rows[0]]
+        elif lang:
+            matching = [row for row in rows if row.get("language") == lang]
         else:
-            matching = rows[:2]
-        total = 76 if "Pushkin" not in query else len(matching)
+            matching = rows
+        total = len(matching)
+        if lang in ("", "rus") and "Pushkin" not in query:
+            total = 76
         return matching[offset:offset + limit], total
 
     monkeypatch.setattr(audiobooks, "_archive_search", archive_search)
@@ -52,10 +56,35 @@ async def test_catalog_is_paginated_and_contains_only_russian_recordings(client)
     assert [book["id"] for book in payload["books"]] == [
         "eugene_onegin_1801_librivox", "aesops_fables_russian_0905_librivox"
     ]
-    assert all(book["language"] == "Russian" for book in payload["books"])
+    assert all(book["language"] == "Русский" for book in payload["books"])
     assert payload["books"][0]["title"] == "Евгений Онегин"
     assert payload["books"][0]["source"].startswith("LibriVox")
     assert payload["has_more"] is True
+    assert payload["language"] == "rus"
+    assert payload["total"] == 76
+
+
+async def test_catalog_switches_to_english_recordings(client):
+    response = await client.get("/api/audiobooks/catalog?lang=eng")
+    assert response.status_code == 200
+    payload = response.json()
+    assert [book["id"] for book in payload["books"]] == ["an-english-item"]
+    assert payload["books"][0]["language"] == "Английский"
+    assert payload["language"] == "eng"
+    assert payload["total"] == 1
+
+
+async def test_catalog_all_languages_keeps_every_recording(client):
+    response = await client.get("/api/audiobooks/catalog?lang=all")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["books"]) == 3
+    assert payload["language"] == "all"
+
+
+async def test_catalog_rejects_unknown_language(client):
+    response = await client.get("/api/audiobooks/catalog?lang=xx")
+    assert response.status_code == 400
 
 
 async def test_search_uses_archive_query_for_russian_title_or_author(client):

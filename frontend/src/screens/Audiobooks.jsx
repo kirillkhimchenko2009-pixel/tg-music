@@ -14,6 +14,11 @@ const MODERN_SOURCES = [
   { id: 'litres', name: 'ЛитРес', note: 'Новинки и бестселлеры', url: 'https://www.litres.ru/audiobooks/', mark: 'ЛР' },
   { id: 'mybook', name: 'MyBook', note: 'Современная литература и классика', url: 'https://mybook.ru/catalog/audiobooks/', mark: 'М' },
 ];
+const LANGUAGES = [
+  { id: 'rus', label: 'Русский' },
+  { id: 'eng', label: 'English' },
+  { id: 'all', label: 'Все языки' },
+];
 const PAGE_SIZE = 30;
 
 function bookCover(book) {
@@ -51,7 +56,8 @@ export default function Audiobooks() {
   const [error, setError] = useState('');
   const [bookBusy, setBookBusy] = useState(false);
   const [savingId, setSavingId] = useState('');
-  const [totalHint, setTotalHint] = useState('Русская классика');
+  const [language, setLanguage] = useState('rus');
+  const [totalCount, setTotalCount] = useState(0);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
   const busyMoreRef = useRef(false);
@@ -70,13 +76,13 @@ export default function Audiobooks() {
     const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const offset = append ? offsetRef.current : 0;
-      const data = await api(`/api/audiobooks/catalog?limit=${PAGE_SIZE}&offset=${offset}${search ? `&q=${encodeURIComponent(search)}` : ''}`, { signal: controller.signal });
+      const data = await api(`/api/audiobooks/catalog?limit=${PAGE_SIZE}&offset=${offset}&lang=${language}${search ? `&q=${encodeURIComponent(search)}` : ''}`, { signal: controller.signal });
       if (generation !== generationRef.current) return;
       const rows = Array.isArray(data.books) ? data.books : [];
       setBooks(current => append ? [...current, ...rows.filter(book => !current.some(item => item.id === book.id))] : rows);
       offsetRef.current = offset + rows.length;
       hasMoreRef.current = !!data.has_more;
-      if (!search && data.total_hint) setTotalHint(data.total_hint);
+      if (!search && Number.isFinite(Number(data.total))) setTotalCount(Number(data.total));
       setError('');
     } catch (cause) {
       if (generation === generationRef.current && cause?.name !== 'AbortError') setError(cause?.message || 'Каталог книг временно недоступен');
@@ -88,10 +94,15 @@ export default function Audiobooks() {
         busyMoreRef.current = false;
       }
     }
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
+    offsetRef.current = 0;
+    hasMoreRef.current = false;
+    setBooks([]);
+    setTotalCount(0);
+    setError('');
     fetchCatalog({ generation });
     return () => {
       requestRef.current?.abort();
@@ -99,6 +110,14 @@ export default function Audiobooks() {
       clearTimeout(searchTimer.current);
     };
   }, [fetchCatalog]);
+
+  const onLanguage = value => {
+    if (value === language) return;
+    clearTimeout(searchTimer.current);
+    requestRef.current?.abort();
+    setQuery('');
+    setLanguage(value);
+  };
 
   const onSearch = value => {
     setQuery(value);
@@ -175,7 +194,7 @@ export default function Audiobooks() {
     <header className="books-header">
       <div><span className="books-overline"><IcoBook /> VIBE · БИБЛИОТЕКА</span><h1>Аудиокниги</h1>
         <p>Классика в голосах LibriVox — слушай свободно, по главам и без подписки.</p></div>
-      <span className="books-library-count"><strong>{totalHint}</strong><small>русских аудиокниг</small></span>
+      <span className="books-library-count"><strong>{totalCount || '…'}</strong><small>публичных записей</small></span>
     </header>
 
     <section className="books-hero">
@@ -193,11 +212,16 @@ export default function Audiobooks() {
         <input value={query} onChange={event => onSearch(event.target.value)} placeholder="Название книги или автор" type="search" />
         {query && <button type="button" aria-label="Очистить поиск" onClick={() => onSearch('')}><IcoX /></button>}
       </label>
-      <span className="books-language-badge">Русский</span>
+      <label className="books-language-badge">
+        <span className="sr-only">Язык книг</span>
+        <select value={language} onChange={event => onLanguage(event.target.value)} aria-label="Язык книг">
+          {LANGUAGES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select>
+      </label>
     </div>
 
-    <div className="books-section-heading"><div><span>ЛЕНТА LIBRIVOX</span><h2>{query ? 'Результаты поиска' : 'Выбери следующую историю'}</h2></div>
-      <span>{query ? `${visibleBooks.length} найдено` : 'Общественное достояние'}</span></div>
+    <div className="books-section-heading"><div><span>ЛЕНТА LIBRIVOX</span><h2>{query ? 'Результаты поиска' : 'Популярные книги'}</h2></div>
+      <span>{query ? `${visibleBooks.length} найдено` : 'По популярности'}</span></div>
 
     {error && <div className="books-error" role="alert"><span>{error}</span><button onClick={() => fetchCatalog({ search: query.trim() })}>Повторить</button></div>}
     {loading && !books.length ? <div className="books-loading"><span className="books-loading-icon"><IcoBook /></span><strong>Открываем библиотеку</strong><small>Ищем книги и записи в каталоге LibriVox…</small><div><i /><i /><i /><i /></div></div> : null}
@@ -216,7 +240,7 @@ export default function Audiobooks() {
     </section>
     {loadingMore && <div className="books-more">Загружаем следующую страницу…</div>}
     {!query && hasMoreRef.current && !loadingMore && books.length > 0 && <button className="books-load-more" onClick={() => fetchCatalog({ append: true, generation: generationRef.current })}>Показать ещё книги <span>↓</span></button>}
-    <p className="books-source-note">Каталог и аудиозаписи предоставляет <a href="https://librivox.org" target="_blank" rel="noreferrer">LibriVox</a>; аудиофайлы хранятся на Internet Archive. Обложки предоставляет <a href="https://openlibrary.org" target="_blank" rel="noreferrer">Open Library</a>. Состав и доступность зависят от источника.</p>
+    <p className="books-source-note">Каталог и аудиозаписи предоставляет <a href="https://librivox.org" target="_blank" rel="noreferrer">LibriVox</a>; аудиофайлы хранятся на Internet Archive. Обложки предоставляет <a href="https://openlibrary.org" target="_blank" rel="noreferrer">Open Library</a>. Книги отсортированы по числу скачиваний; язык можно переключить — русские записи, английские или все. Состав и доступность зависят от источника.</p>
 
     <section className="books-modern">
       <div className="books-modern-title"><span>НОВИНКИ И СОВРЕМЕННЫЕ АВТОРЫ</span><h2>Новые истории — в книжных каталогах</h2>

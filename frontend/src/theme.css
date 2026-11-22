@@ -2311,6 +2311,8 @@ h1.h {
 .books-search button { display: grid; flex: 0 0 auto; width: 27px; height: 27px; place-items: center; border: 0; border-radius: 50%; background: var(--card-hover); color: var(--t2); cursor: pointer; }
 .books-search button svg { width: 14px; height: 14px; }
 .books-language-badge { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--card); color: var(--t2); font-size: 11px; }
+.books-language-badge select { max-width: 118px; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.books-language-badge select option { background: var(--card); color: var(--t1); }
 .books-section-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 0 0 14px; }
 .books-section-heading > div > span { color: #c99a55; font-size: 8px; font-weight: 850; letter-spacing: .16em; }
 .books-section-heading h2 { margin: 4px 0 0; font: 750 clamp(19px, 2.7vw, 26px)/1.2 var(--font-display); letter-spacing: -.4px; }
@@ -2407,6 +2409,7 @@ h1.h {
   .books-hero-caption { right: 12px; bottom: 10px; font-size: 6px; }
   .books-search-row { gap: 7px; }
   .books-language-badge { min-height: 44px; padding-inline: 9px; font-size: 9px; }
+  .books-language-badge select { max-width: 88px; }
   .books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
   .book-card { padding: 6px; border-radius: 11px; }
   .book-card-meta { flex-wrap: wrap; margin: 7px 0 4px; font-size: 6px; }

@@ -1,4 +1,4 @@
-"""Search and range-stream public-domain audiobooks from the official LibriVox API."""
+"""Search and range-stream public-domain audiobooks from LibriVox / Internet Archive."""
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +17,22 @@ ARCHIVE_SEARCH_API = "https://archive.org/advancedsearch.php"
 ARCHIVE_METADATA_URL = "https://archive.org/metadata/"
 _FIELDS = "id,title,description,language,authors,url_librivox,totaltime,totaltimesecs,coverart_jpg,coverart_thumbnail"
 _ARCHIVE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
+_LANG_RE = re.compile(r"^[a-z]{3}$")
+# LibriVox/Internet Archive используют трёхбуквенные коды MARC21.
+_LANG_NAMES = {
+    "rus": "Русский", "eng": "Английский", "deu": "Немецкий", "fra": "Французский",
+    "spa": "Испанский", "ita": "Итальянский", "por": "Португальский", "nld": "Нидерландский",
+    "pol": "Польский", "ukr": "Украинский", "ces": "Чешский", "slk": "Словацкий",
+    "srp": "Сербский", "hrv": "Хорватский", "bul": "Болгарский", "ron": "Румынский",
+    "hun": "Венгерский", "swe": "Шведский", "dan": "Датский", "nor": "Норвежский",
+    "fin": "Финский", "est": "Эстонский", "lav": "Латышский", "lit": "Литовский",
+    "ell": "Греческий", "lat": "Латинский", "heb": "Иврит", "jpn": "Японский",
+    "chi": "Китайский", "hin": "Хинди", "ara": "Арабский", "tur": "Турецкий",
+    "kat": "Грузинский", "hye": "Армянский", "aze": "Азербайджанский", "kaz": "Казахский",
+    "uzb": "Узбекский", "sqi": "Албанский", "mkd": "Македонский", "slv": "Словенский",
+}
+_LANG_GENITIVE = {"rus": "русских", "eng": "английских", "deu": "немецких",
+                  "fra": "французских", "spa": "испанских", "ita": "итальянских"}
 _TTL = 900
 _CACHE_LIMIT = 120
 _cache: dict[str, tuple[float, dict]] = {}
@@ -58,6 +74,26 @@ def _duration(value: str) -> int:
         return total
     except (TypeError, ValueError):
         return 0
+
+
+def _language_code(value: object) -> str:
+    """Нормализует код языка из Internet Archive; списки берёт первым кодом."""
+    if isinstance(value, list):
+        for item in value:
+            code = _language_code(item)
+            if code:
+                return code
+        return ""
+    code = str(value or "").strip().lower()
+    return code if _LANG_RE.fullmatch(code) else ""
+
+
+def _language_label(code: str) -> str:
+    return _LANG_NAMES.get(code, code.upper() if code else "Язык не указан")
+
+
+def _row_language(row: dict) -> str:
+    return _language_code(row.get("language"))
 
 
 def _trusted_archive_url(url: str) -> bool:
@@ -146,11 +182,13 @@ async def _fetch_page(params: dict) -> list[dict]:
     return payload.get("books", []) if isinstance(payload, dict) else []
 
 
-async def _archive_search(query: str, offset: int, limit: int) -> tuple[list[dict], int]:
+async def _archive_search(query: str, offset: int, limit: int, lang: str = "") -> tuple[list[dict], int]:
     params = [
         ("q", query), ("fl[]", "identifier"), ("fl[]", "title"),
         ("fl[]", "creator"), ("fl[]", "language"), ("fl[]", "description"),
-        ("fl[]", "date"), ("fl[]", "runtime"),
+        ("fl[]", "date"), ("fl[]", "runtime"), ("fl[]", "downloads"),
+        # сначала самые скачиваемые: в начале библиотеки — известные книги
+        ("sort[]", "downloads desc"),
         ("rows", str(limit)), ("start", str(offset)), ("output", "json"),
     ]
     async with httpx.AsyncClient(timeout=httpx.Timeout(22, connect=8),
@@ -161,9 +199,15 @@ async def _archive_search(query: str, offset: int, limit: int) -> tuple[list[dic
     payload = response.json()
     result = payload.get("response", {}) if isinstance(payload, dict) else {}
     docs = result.get("docs", []) if isinstance(result, dict) else []
-    return ([row for row in docs if isinstance(row, dict)
-             and row.get("language") == "rus" and _ARCHIVE_ID_RE.fullmatch(str(row.get("identifier", "")))],
-            int(result.get("numFound", 0) or 0))
+    rows = []
+    for row in docs:
+        if not isinstance(row, dict) or not _ARCHIVE_ID_RE.fullmatch(str(row.get("identifier", ""))):
+            continue
+        row_lang = _row_language(row)
+        if not row_lang or (lang and row_lang != lang):
+            continue
+        rows.append(row)
+    return rows, int(result.get("numFound", 0) or 0)
 
 
 def _archive_summary(row: dict) -> dict:
@@ -171,15 +215,17 @@ def _archive_summary(row: dict) -> dict:
     creator = row.get("creator", "")
     if isinstance(creator, list):
         creator = ", ".join(str(value) for value in creator if value)
+    lang = _row_language(row)
     return {
         "id": identifier,
         "title": _text(row.get("title"), 500),
         "author": _text(creator, 300) or "Неизвестный автор",
-        "language": "Russian",
+        "language": _language_label(lang),
+        "language_code": lang,
         "duration": _duration(str(row.get("runtime") or "")),
         "cover_url": f"https://archive.org/services/img/{quote(identifier, safe='')}",
         "catalog_url": f"https://archive.org/details/{quote(identifier, safe='')}",
-        "source": "LibriVox · русская запись · Internet Archive",
+        "source": "LibriVox · запись · Internet Archive",
     }
 
 
@@ -188,7 +234,7 @@ def _archive_file_rank(name: str) -> int:
     return int(match.group(1)) if match else 1000
 
 
-def _archive_chapters(identifier: str, files: object) -> list[dict]:
+def _archive_chapters(identifier: str, files: object, language: str = "") -> list[dict]:
     candidates = []
     for file in files if isinstance(files, list) else []:
         if not isinstance(file, dict):
@@ -232,7 +278,7 @@ def _archive_chapters(identifier: str, files: object) -> list[dict]:
         url = f"https://archive.org/download/{quote(identifier, safe='')}/{quote(name, safe='')}"
         chapters.append({
             "id": str(index), "number": str(file.get("track", index)).split("/")[0],
-            "title": title, "language": "Russian", "duration": duration,
+            "title": title, "language": _language_label(language), "duration": duration,
             "narrator": _text(file.get("artist") or file.get("creator"), 240),
             "size": size, "audio_url": f"/api/audiobooks/audio/{quote(identifier, safe='')}/{index}",
             "_source_url": url,
@@ -255,19 +301,21 @@ async def _archive_book(book_id: str) -> dict:
     response.raise_for_status()
     payload = response.json()
     metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
-    collections = metadata.get("collection", []) if isinstance(metadata, dict) else []
+    if not isinstance(metadata, dict):
+        raise HTTPException(404, "Запись LibriVox не найдена")
+    collections = metadata.get("collection", [])
     if isinstance(collections, str):
         collections = [collections]
-    if (not isinstance(metadata, dict) or not isinstance(collections, list)
-            or "librivoxaudio" not in collections
-            or metadata.get("language") != "rus"):
-        raise HTTPException(404, "Русская запись LibriVox не найдена")
+    lang = _row_language(metadata)
+    if not isinstance(collections, list) or "librivoxaudio" not in collections or not lang:
+        raise HTTPException(404, "Запись LibriVox не найдена")
     summary = _archive_summary({
         "identifier": book_id, "title": metadata.get("title"),
         "creator": metadata.get("creator"), "runtime": metadata.get("runtime"),
+        "language": metadata.get("language"),
     })
     description = _text(metadata.get("description"), 1800)
-    chapters = _archive_chapters(book_id, payload.get("files", []))
+    chapters = _archive_chapters(book_id, payload.get("files", []), lang)
     if not chapters:
         raise HTTPException(404, "У этой записи нет доступных глав в MP3")
     normalized = {**summary, "description": description, "cover_large": summary["cover_url"],
@@ -295,30 +343,54 @@ def _summary(row: dict) -> dict | None:
     }
 
 
+def _catalog_hint(total: int, lang: str) -> str:
+    if lang == "all":
+        return f"{total} записей"
+    adjective = _LANG_GENITIVE.get(lang)
+    if adjective:
+        return f"{total} {adjective} записей"
+    return f"{total} записей · {_language_label(lang)}"
+
+
 @router.get("/catalog")
 async def catalog(q: str = Query("", max_length=120), offset: int = Query(0, ge=0, le=100000),
-                  limit: int = Query(30, ge=1, le=60)):
-    """Paginated Russian-language LibriVox recordings from Internet Archive."""
+                  limit: int = Query(30, ge=1, le=60), lang: str = Query("rus", max_length=8)):
+    """Paginated LibriVox recordings from Internet Archive, popular first.
+
+    lang — трёхбуквенный код MARC21 (rus, eng, deu…) или all. По умолчанию
+    русский каталог; другие языки расширяют библиотеку публичных записей.
+    """
     query = q.strip()
+    lang_code = (lang or "rus").strip().lower()
+    if lang_code != "all" and not _LANG_RE.fullmatch(lang_code):
+        raise HTTPException(400, "Неизвестный язык каталога")
+    empty_hint = "Русская классика" if lang_code == "rus" else _language_label(lang_code)
     if query and len(query) < 2:
         return {"books": [], "offset": 0, "limit": limit, "has_more": False,
-                "total_hint": "Русская классика", "source": "LibriVox"}
-    archive_query = "collection:librivoxaudio AND language:rus"
+                "total": 0, "language": lang_code,
+                "total_hint": empty_hint, "source": "LibriVox"}
+    archive_query = "collection:librivoxaudio"
+    if lang_code != "all":
+        archive_query += f" AND language:{lang_code}"
     if query:
         safe_query = re.sub(r"[^\w -]", " ", query, flags=re.UNICODE).strip()
         if not safe_query:
             return {"books": [], "offset": offset, "limit": limit,
-                    "has_more": False, "total_hint": "Русская классика",
-                    "source": "LibriVox · Russian"}
+                    "has_more": False, "total": 0, "language": lang_code,
+                    "total_hint": empty_hint, "source": "LibriVox"}
         archive_query += f" AND (title:{safe_query} OR creator:{safe_query})"
     try:
-        rows, total = await _archive_search(archive_query, offset, limit)
+        rows, total = await _archive_search(
+            archive_query, offset, limit, "" if lang_code == "all" else lang_code)
     except (httpx.HTTPError, ValueError, TypeError) as exc:
-        raise HTTPException(502, "Каталог русских аудиокниг временно недоступен") from exc
+        raise HTTPException(502, "Каталог аудиокниг временно недоступен") from exc
     books = [_archive_summary(row) for row in rows]
+    source = ("LibriVox" if lang_code == "all"
+              else f"LibriVox · {_language_label(lang_code)}")
     return {"books": books, "offset": offset, "limit": limit,
             "has_more": offset + len(rows) < total,
-            "total_hint": f"{total} русских записей", "source": "LibriVox · Russian"}
+            "total": total, "language": lang_code,
+            "total_hint": _catalog_hint(total, lang_code), "source": source}
 
 
 @router.get("/book/{book_id}")
