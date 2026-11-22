@@ -6,7 +6,7 @@ import { api } from '../api.js';
 import * as P from '../player.js';
 import { haptic } from '../tg.js';
 import {
-  PlayCard, ArtistCard, TrackRow, TrackMenu, Skeletons, groupAlbums, gradFor, IcoX, IcoSearch,
+  PlayCard, ArtistCard, TrackRow, TrackMenu, Skeletons, Rail, groupAlbums, IcoX, IcoSearch,
 } from '../ui.jsx';
 import * as routes from '../routes.js';
 import Reveal from '../motion/components/Reveal.jsx';
@@ -84,6 +84,16 @@ export default function SearchScreen({ initial = '' }) {
   const onChange = v => {
     setQ(v);
     clearTimeout(timer.current);
+    if (!v.trim()) {
+      abortRef.current?.abort();
+      requestId.current += 1;
+      setRes({ local: [], web: [] });
+      setBusy(false);
+      return;
+    }
+    /* busy ставим сразу, не ждём дебаунс: старые результаты гаснут и
+       перестают нажиматься, как только человек изменил запрос */
+    setBusy(true);
     timer.current = setTimeout(() => run(v), 420);
   };
 
@@ -100,11 +110,19 @@ export default function SearchScreen({ initial = '' }) {
   if (remaining > 0) {
     visibleWeb = [...visibleWeb, ...webResults.slice(visibleWeb.length, visibleWeb.length + remaining)];
   }
-  const all = [...visibleLocal, ...visibleWeb];
-  const albums = groupAlbums(all).slice(0, 12);
+  /* один список треков: скачанные идут первыми, дубли по id убираем */
+  const allTracks = [];
+  const seenTrackIds = new Set();
+  for (const t of [...visibleLocal, ...visibleWeb]) {
+    const k = String(t.id);
+    if (seenTrackIds.has(k)) continue;
+    seenTrackIds.add(k);
+    allTracks.push(t);
+  }
+  const albums = groupAlbums(allTracks).slice(0, 12);
   const seen = new Set();
   const artistNames = [];
-  for (const t of all) {
+  for (const t of allTracks) {
     const a = (t.artist || '').trim();
     if (a) {
       const k = a.toLowerCase();
@@ -130,6 +148,7 @@ export default function SearchScreen({ initial = '' }) {
                value={q} autoFocus autoComplete="off" spellCheck="false"
                onChange={e => onChange(e.target.value)}
                onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timer.current); run(q); inputRef.current?.blur(); } }} />
+        {busy && <span className="minispinner search-spin" role="status" aria-label="Идёт поиск" />}
         <AnimatePresence initial={false}>
           {q && (
             <motion.button
@@ -172,31 +191,51 @@ export default function SearchScreen({ initial = '' }) {
         </>
       )}
 
-      {/* результаты */}
+      {/* результаты: треки первыми — до них не нужно прокручивать альбомы */}
       <AnimatePresence mode="wait" initial={false}>
-        {q && busy && !all.length && (
+        {q && busy && !allTracks.length && !albums.length && (
           <motion.div key="search-busy" style={{ marginTop: 20 }}
                       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <Skeletons n={5} />
           </motion.div>
         )}
 
-        {q && !busy && (
+        {q && (
           <motion.div
             key={'search-results'}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: .22, ease: [.16, 1, .3, 1] }}
+            className={busy ? 'search-stale' : undefined}
+            aria-busy={busy || undefined}
           >
+            {allTracks.length > 0 && (
+              <Reveal>
+                <div className="cap">Треки</div>
+                <div className="tracks">
+                  <AnimatePresence initial={false}>
+                    {allTracks.map((t, i) => (
+                      <TrackRow key={'t' + t.id} t={t} i={i} time={t.duration}
+                                onPlay={() => P.play(allTracks, i)}
+                                onMenu={() => setMenu(t)} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </Reveal>
+            )}
             {albums.length > 0 && (
               <Reveal>
                 <div className="cap">Альбомы</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <Rail>
                   {albums.map((a, i) => (
-                    <AlbumMini key={a.key} a={a} i={i} />
+                    <PlayCard key={a.key} title={a.title}
+                              sub={`${a.artist}${a.year ? ' · ' + a.year : ''}`}
+                              onOpen={() => routes.goAlbum(a)}
+                              onPlay={() => P.play(a.tracks, 0)}
+                              cellDelay={Math.min(i, 6) * 40} />
                   ))}
-                </div>
+                </Rail>
               </Reveal>
             )}
             {artistNames.slice(0, 8).length > 0 && (
@@ -211,41 +250,13 @@ export default function SearchScreen({ initial = '' }) {
                 </div>
               </Reveal>
             )}
-            {(res.local || []).length > 0 && (
-              <Reveal>
-                <div className="cap">Из скачанного</div>
-                <div className="tracks">
-                  <AnimatePresence initial={false}>
-                    {visibleLocal.map((t, i) => (
-                      <TrackRow key={'l' + t.id} t={t} i={i} time={t.duration}
-                                onPlay={() => P.play(res.local, i)}
-                                onMenu={() => setMenu(t)} />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </Reveal>
-            )}
-            {(res.web || []).length > 0 && (
-              <Reveal>
-                <div className="cap">Из сети</div>
-                <div className="tracks">
-                  <AnimatePresence initial={false}>
-                    {visibleWeb.map((t, i) => (
-                      <TrackRow key={'w' + t.id} t={t} i={i} time={t.duration}
-                                onPlay={() => P.play(res.web, i)}
-                                onMenu={() => setMenu(t)} />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </Reveal>
-            )}
             {res.err && (
               <div className="err search-error" role="alert">
                 <span>{res.err}</span>
                 <button className="bigbtn" onClick={() => run(q)}>Повторить поиск</button>
               </div>
             )}
-            {!all.length && !albums.length && !res.err && (
+            {!busy && !allTracks.length && !albums.length && !res.err && (
               <div className="empty">
                 <div className="big float">🔎</div>
                 Ничего не нашлось. Попробуй короче: «артист — трек» или просто «название песни».
@@ -257,30 +268,5 @@ export default function SearchScreen({ initial = '' }) {
 
       <TrackMenu t={menu} open={!!menu} onClose={() => setMenu(null)} />
     </div>
-  );
-}
-
-/* мини-карточка альбома в выдаче — стиль .albert в theme.css */
-function AlbumMini({ a, i }) {
-  return (
-    <motion.div className="albert"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileTap={{ scale: .995 }}
-                transition={{ duration: .22, ease: [.16, 1, .3, 1], delay: Math.min(i, 8) * 0.03 }}
-                onClick={() => routes.goAlbum(a)}>
-      <span className="albert-cov">
-        {a.cover
-          ? <img src={a.cover.startsWith('http') ? a.cover : a.cover} alt="" loading="lazy" />
-          : <span className="cph" style={{ background: gradFor(a.title) }} />}
-      </span>
-      <span className="albert-m">
-        <span className="albert-t">{a.title}</span>
-        <span className="albert-s">{a.artist}{a.year ? ' · ' + a.year : ''} · {a.tracks.length}</span>
-      </span>
-      <span className="albert-play" onClick={e => { e.stopPropagation(); haptic('light'); P.play(a.tracks, 0); }}>
-        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8.2 5.6v12.8L18.6 12z" /></svg>
-      </span>
-    </motion.div>
   );
 }

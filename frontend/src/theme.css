@@ -946,6 +946,11 @@ h1.h {
 .searchbar input::placeholder { color: var(--t3); }
 .searchclr { color: var(--t3); width: 32px; height: 32px; display: grid; place-items: center; margin-right: -4px; }
 .searchclr svg { width: 16px; height: 16px; }
+/* пока идёт новый запрос: спиннер в поле, старые результаты приглушены
+   и не принимают нажатия — нельзя запустить трек из прошлой выдачи */
+.search-spin { flex: 0 0 auto; margin-right: 8px; }
+.search-stale { opacity: .45; pointer-events: none; }
+.search-stale * { cursor: default; }
 
 .tagcloud { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
 
@@ -1238,12 +1243,19 @@ h1.h {
 }
 .np-vol .cbtn { width: 34px; height: 34px; color: var(--t2); }
 .np-vol .cbtn svg { width: 18px; height: 18px; }
-.np-vol-range { flex: 1; height: 5px; }
+/* input высотой 40 px — зона захвата для большого пальца, а сам трек
+   рисуется фоном по центру: визуально те же 5 px, но промахнуться сложно */
+.np-vol-range {
+  flex: 1; height: 40px;
+  background: linear-gradient(to right, var(--accent) var(--fill),
+              color-mix(in srgb, var(--t2) 22%, transparent) var(--fill))
+              center / 100% 5px no-repeat;
+}
 .np-vol-range::-webkit-slider-thumb {
   opacity: 1; transform: scale(1);
-  width: 14px; height: 14px;
+  width: 18px; height: 18px;
 }
-.np-vol-range::-moz-range-thumb { opacity: 1; width: 14px; height: 14px; }
+.np-vol-range::-moz-range-thumb { opacity: 1; width: 18px; height: 18px; }
 .np-vol-pct {
   min-width: 34px; text-align: right;
   color: var(--t3); font-size: 11px; font-variant-numeric: tabular-nums;
