@@ -17,7 +17,9 @@ export async function cacheTracks(list) {
     duration: t.duration || 0,
     cover_url: t.cover_url || null,
     ready: !!t.ready,
+    audio_url: t.audio_url || null,
     source: t.source || '',
+    podcast: !!t.podcast,
     artist_id: t.artist_id ?? null,
     album_id: t.album_id ?? null,
     dl_state: t.dl_state || 'remote',
@@ -35,6 +37,8 @@ export async function cacheTracks(list) {
         await db.tracks.update(r.id, {
           title: r.title, artist: r.artist, album: r.album,
           duration: r.duration, cover_url: r.cover_url, ready: r.ready,
+          audio_url: r.audio_url || prev.audio_url || null,
+          podcast: r.podcast || prev.podcast || false,
           source: r.source, artist_id: r.artist_id, album_id: r.album_id,
         });
       } else {
@@ -165,6 +169,7 @@ export async function setSetting(key, value) {
 export async function addHistory(trackId, { finished = false, skipped = false,
                                           played = 0, local = null } = {}) {
   try {
+    if (!Number.isSafeInteger(Number(trackId))) return;
     await db.playback_history.add({
       track_id: trackId, at: now(), finished: !!finished,
       skipped: !!skipped, played: Math.max(0, Math.round(played || 0)),
@@ -184,6 +189,7 @@ function uuid() {
 }
 
 export async function recordEvent(ev) {
+  if (ev.track_id != null && !Number.isSafeInteger(Number(ev.track_id))) return null;
   const row = {
     event_id: uuid(),
     kind: ev.kind || 'started',
@@ -221,7 +227,7 @@ export async function syncEvents() {
     const j = await api('/api/history/sync', { method: 'POST', body: JSON.stringify({
       events: rows.map(r => ({
         event_id: r.event_id,
-        track_id: r.track_id ?? undefined,
+        track_id: r.podcast ? undefined : (r.track_id ?? undefined),
         kind: r.kind,
         played_seconds: r.played_seconds,
         finished: r.finished,

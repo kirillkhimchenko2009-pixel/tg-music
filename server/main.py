@@ -17,6 +17,8 @@ from music.db import init_music_db
 from server.routes import tracks as tracks_route
 from server.routes import playlists as playlists_route
 from server.routes import auth as auth_route
+from server.routes import podcasts as podcasts_route
+from server.routes import audiobooks as audiobooks_route
 
 # INFO наших сервисов (провайдеры, релей, онлайн-звук) — в stderr под uvicorn
 logging.basicConfig(level=logging.INFO,
@@ -102,6 +104,8 @@ app.include_router(playlists_route.router)
 app.include_router(playlists_route.likes_router)
 app.include_router(playlists_route.artists_router)
 app.include_router(auth_route.router)
+app.include_router(podcasts_route.router)
+app.include_router(audiobooks_route.router)
 from server.routes import playlist_import as import_route  # noqa: E402
 app.include_router(import_route.router)
 from server.routes import wave as wave_route  # noqa: E402

@@ -12,7 +12,7 @@ import { firstUserName, haptic } from './tg.js';
 import { navInit, navPush, navBack, navFwd, useNav, useNavMeta } from './nav.js';
 import {
   coverOr, FadeImg, Eq, HeartBtn, PlayPause, fmtTime, gradFor,
-  IcoHome, IcoWave, IcoSearch, IcoLib, IcoImport, IcoPodcast,
+  IcoHome, IcoWave, IcoSearch, IcoLib, IcoImport, IcoPodcast, IcoBook,
   IcoChevL, IcoChevR, IcoBell, IcoX, IcoCheck,
   IcoPrev, IcoNext, IcoShuffle, IcoRepeat, IcoVol, IcoVolOff,
   IcoExpand, IcoDl, IcoHeart, IcoClock, IcoNote,
@@ -28,6 +28,7 @@ import Collection, { PlaylistScreen } from './screens/Collection.jsx';
 import SearchScreen from './screens/Search.jsx';
 import ImportScreen from './screens/Import.jsx';
 import Podcasts from './screens/Podcasts.jsx';
+import Audiobooks from './screens/Audiobooks.jsx';
 import Artist from './screens/Artist.jsx';
 import Album from './screens/Album.jsx';
 import Wave from './screens/Wave.jsx';
@@ -55,7 +56,8 @@ const NAV_COLL = [
 ];
 const NAV_MISC = [
   { tab: 'import', icon: IcoImport, label: 'Импорт' },
-  { tab: 'podcasts', icon: IcoPodcast, label: 'Подкасты', soon: true },
+  { tab: 'podcasts', icon: IcoPodcast, label: 'Подкасты' },
+  { tab: 'audiobooks', icon: IcoBook, label: 'Аудиокниги' },
   { tab: 'storage', icon: IcoDl, label: 'Хранилище' },
 ];
 
@@ -64,6 +66,7 @@ const TABS_M = [
   { id: 'wave', icon: IcoWave, label: 'Волна' },
   { id: 'search', icon: IcoSearch, label: 'Поиск' },
   { id: 'collection', icon: IcoLib, label: 'Коллекция' },
+  { id: 'audiobooks', icon: IcoBook, label: 'Книги' },
   { id: 'import', icon: IcoImport, label: 'Импорт' },
 ];
 
@@ -89,10 +92,13 @@ export default function App() {
     const boot = async () => {
       setOk('boot');
       for (let i = 0; i < 12 && !hasAuth() && !dead; i++) await sleep(100);
-      for (let t = 0; t < 6 && !hasAuth() && !dead; t++) {
-        if (t) await sleep(2500);
+      for (let t = 0; t < 3 && !hasAuth() && !dead; t++) {
+        if (t) await sleep(500);
         try { await ensureGuestToken(); }
-        catch (e) { lastError = e?.message || 'нет связи с сервером'; }
+        catch (e) {
+          lastError = e?.message || 'нет связи с сервером';
+          if (e?.name === 'AbortError') break;
+        }
       }
       if (dead) return;
       if (hasAuth()) {
@@ -165,6 +171,7 @@ function Screen({ view }) {
     case 'collection': return <Collection sub={view.sub || null} />;
     case 'import': return <ImportScreen />;
     case 'podcasts': return <Podcasts />;
+    case 'audiobooks': return <Audiobooks />;
     case 'storage': return <Storage />;
     case 'artist': return <Artist name={view.name} cover={view.cover} />;
     case 'album': return <Album album={view.album} />;

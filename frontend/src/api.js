@@ -1,6 +1,7 @@
 /* HTTP-клиент v2: initData (внутри Telegram) → Bearer (тихий гость в браузере). */
 import { authToken, initDataRaw, setAuthToken } from './store.js';
 import { classifyDevice } from './device.js';
+import { withRequestTimeout } from './requestTimeout.js';
 
 export const API_BASE = (new URLSearchParams(location.search).get('api') || '')
   .replace(/\/$/, '');
@@ -95,14 +96,17 @@ export async function ensureGuestToken() {
       .toLowerCase();
     localStorage.setItem('device_id', dev);
   }
-  const res = await fetch(API_BASE + '/api/auth/guest', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Pinggy-No-Screen': '1' },
-    body: JSON.stringify({ device_id: dev }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.detail || 'не удалось создать гостевую сессию');
-  setAuthToken(j.token);
+  await withRequestTimeout(async signal => {
+    const res = await fetch(API_BASE + '/api/auth/guest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pinggy-No-Screen': '1' },
+      body: JSON.stringify({ device_id: dev }),
+      signal,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.detail || 'не удалось создать гостевую сессию');
+    setAuthToken(j.token);
+  }, 5000, 'Сервер не ответил за 5 секунд. Возможно, он запускается — попробуй ещё раз.');
 }
 
 /* ---------- стрим: короткоживущий токен в URL → нативный потоковый <audio> ---------- */

@@ -30,6 +30,7 @@ export const IcoSearch = p => <Icon {...p}><circle cx="11" cy="11" r="7" /><path
 export const IcoLib = p => <Icon {...p}><path d="M4 4h6M4 9h6M14 4h6M14 9h6M4 14h16M4 19h9" /><path d="M17 14v6.5" /><circle cx="17" cy="20.5" r="0" /></Icon>;
 export const IcoImport = p => <Icon {...p}><path d="M12 3v10" /><path d="m7.5 9 4.5 4.5L16.5 9" /><path d="M4 17.5h16" /></Icon>;
 export const IcoPodcast = p => <Icon {...p}><rect x="9" y="2.8" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0" /><path d="M12 17.5V21" /></Icon>;
+export const IcoBook = p => <Icon {...p}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z" /><path d="M4 5.5v16M8 7h8M8 11h8" /></Icon>;
 export const IcoQueue = p => <Icon {...p}><path d="M3 6h13M3 11h13M3 16h8" /><circle cx="18" cy="16.5" r="2.6" fill="currentColor" stroke="none" /><path d="M20.6 16.5V9.5l-4-1v6" /></Icon>;
 export const IcoExpand = p => <Icon {...p}><path d="m6 14 6-6 6 6" strokeDasharray="0 0" opacity="0" /><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3" /></Icon>;
 export const IcoBell = p => <Icon {...p}><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" /><path d="M10.3 20a2 2 0 0 0 3.4 0" /></Icon>;

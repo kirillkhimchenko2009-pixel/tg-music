@@ -5,7 +5,7 @@
    офлайн-события истории (§17). Любой сбой локального слоя не должен
    ломать онлайн-плеер: всё в try/catch с фолбэком на стрим. */
 import { useSyncExternalStore } from 'react';
-import { api, playerSrc, coverUrl } from './api.js';
+import { API_BASE, api, playerSrc, coverUrl } from './api.js';
 import { localSrc, addHistory, recordEvent, syncEvents, cacheTracks } from './local/repo.js';
 import { saveSession, saveSessionSoon, getSession } from './local/recover.js';
 import * as ms from './local/mediasession.js';
@@ -110,7 +110,10 @@ async function startUrl(trackId) {
       src = await localSrc(trackId);           // OPFS/IDB → blob URL
       isLocal = !!src;
     } catch { src = null; }
-    if (!src) {
+    if (!src && track.audio_url) {
+      src = /^https?:/.test(track.audio_url) ? track.audio_url : API_BASE + track.audio_url;
+      kind = 'podcast';
+    } else if (!src) {
       const r = await playerSrc(trackId);      // { url, kind? }
       src = r.url || r;
       kind = r.kind || null;
@@ -188,7 +191,7 @@ export async function next(manual = true) {
     /* ручной скип: локальное событие → идемпотентная синхронизация (§17) */
     const cur = current();
     const played = audio.currentTime || 0;
-    if (cur && played > 5) {
+    if (cur && played > 5 && !cur.podcast) {
       try { addHistory(cur.id, { skipped: true, played, finished: false }); } catch { /* ок */ }
       try { recordEvent({ kind: 'skipped', track_id: cur.id,
                           played_seconds: played, skipped: true }).catch(() => {}); }
@@ -304,7 +307,7 @@ let beaconUid = null;
 
 function beacon(finished, played) {
   const t = current();
-  if (!t) return;
+  if (!t || t.podcast || t.audio_url || !Number.isSafeInteger(Number(t.id))) return;
   if (!finished) {
     if (beaconUid === t.id) return;
     beaconUid = t.id;

@@ -79,7 +79,7 @@ async function wifiGate() {
 
 export async function enqueue(track, priority = 1) {
   if (!booted) await boot();
-  if (!track?.id) throw new Error('нет трека');
+  if (!track?.id || !Number.isSafeInteger(Number(track.id))) throw new Error('некорректный ID трека');
   const st = await storage.storageInfo();
   if (st.strategy === 'none') throw new Error('Хранилище недоступно');
   const prev = await db.tracks.get(track.id);
@@ -89,11 +89,13 @@ export async function enqueue(track, priority = 1) {
   await wifiGate();
   const v = view(track.id);
   v.name = track.title ? `${track.artist || ''} — ${track.title}`.replace(/^ — /, '') : '';
+  v.audioUrl = track.audio_url ? (/^https?:/.test(track.audio_url) ? track.audio_url : API_BASE + track.audio_url) : null;
   v.priority = priority;
   v.error = null;
-  if (v.state === 'done') v.state = 'queued';
+  if (v.state !== 'down' && v.state !== 'hash') v.state = 'queued';
   await db.download_jobs.put({ track_id: track.id, state: v.state === 'down' ? 'down' : 'queued',
-                               created: Date.now(), priority, name: v.name });
+                               created: Date.now(), priority, name: v.name,
+                               audio_url: v.audioUrl || null });
   emit();
   pump();
   return 'queued';
@@ -127,7 +129,8 @@ export async function cancel(trackId) {
 
 export async function retry(trackId) {
   const row = await db.tracks.get(trackId);
-  return enqueue({ id: trackId, title: row?.title || '', artist: row?.artist || '' }, 2);
+  return enqueue({ id: trackId, title: row?.title || '', artist: row?.artist || '',
+                   audio_url: row?.audio_url || null, podcast: !!row?.podcast }, 2);
 }
 
 export async function removeOffline(trackId) {
@@ -168,16 +171,20 @@ async function run(v) {
   v.error = null;
   emit();
   await db.download_jobs.put({ track_id: trackId, state: 'down',
-                               created: Date.now(), priority: v.priority, name: v.name });
+                               created: Date.now(), priority: v.priority, name: v.name,
+                               audio_url: v.audioUrl || null });
   try {
-    /* 1) тот же подписанный URL, что у плеера (same-origin → fetch без CORS) */
-    const j = await api('/api/player/' + trackId);
+    /* Подкасты используют безопасный серверный RSS-прокси; обычные треки —
+       короткоживущий подписанный URL плеера. */
+    const j = v.audioUrl
+      ? { url: v.audioUrl }
+      : await api('/api/player/' + trackId);
     if (j.kind === 'preview') {
       /* 30-секундный фрагмент нельзя выдавать за полный трек: честная
          ошибка — юзер сначала качает трек на сервер («Скачать в чат») */
       throw new Error('полный трек ещё не на сервере — сначала «Скачать в чат»');
     }
-    const url = API_BASE + j.url;
+    const url = /^https?:/.test(j.url) ? j.url : API_BASE + j.url;
 
     /* 2) недокачанная часть с прошлого раза */
     let head = null, headMeta = null;
@@ -278,14 +285,15 @@ async function run(v) {
       } else {
         await db.download_jobs.put({ track_id: trackId, state: 'paused',
                                      created: Date.now(), priority: v.priority,
-                                     name: v.name });
+                                     name: v.name, audio_url: v.audioUrl || null });
       }
     } else {
       v.state = 'error';
       v.error = (e && e.message) || 'ошибка загрузки';
       await db.download_jobs.put({ track_id: trackId, state: 'error',
                                    created: Date.now(), priority: v.priority,
-                                   name: v.name, error: v.error });
+                                   name: v.name, error: v.error,
+                                   audio_url: v.audioUrl || null });
     }
     emit();
     settledFire();
@@ -321,6 +329,11 @@ export async function boot() {
       v.name = r.name || (t ? `${t.artist || ''} — ${t.title}`.replace(/^ — /, '') : '');
       v.priority = 0;                    // дозагрузка фоном, ниже пользовательских
       if (r.state === 'error') { v.state = 'error'; v.error = r.error || 'ошибка'; }
+      else if (r.audio_url || t?.audio_url) {
+        const url = r.audio_url || t.audio_url;
+        v.audioUrl = /^https?:/.test(url) ? url : API_BASE + url;
+        v.state = 'queued';
+      }
       else { v.state = 'queued'; }
       emit();
       pump();
