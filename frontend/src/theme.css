@@ -77,17 +77,20 @@
 /* светлые токены подготовлены, но тёмная — основная тема */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #F3F4F6; --bg-elev: #ECEEF1; --card: #FFFFFF; --card-hover: #F1F2F4;
-    --surface2: #E7E9EC; --border: #D4D7DC; --border-soft: #E2E4E8;
-    --t1: #16181D; --t2: #565B64; --t3: #8A8F98;
-    --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0) 38%);
-    --glass: rgba(255, 255, 255, .82);
-    --glass-fill: rgba(255, 255, 255, .55);
-    --glass-line: rgba(255, 255, 255, .65);
-    --glass-light: inset 0 1px 0 rgba(255, 255, 255, .8), 0 8px 24px rgba(30, 34, 40, .08);
-    --shadow-card: 0 12px 32px rgba(30, 34, 40, .10);
-    --shadow-pop: 0 18px 50px rgba(30, 34, 40, .18);
+    --bg: #F2F3F1; --bg-elev: #F8F9F7; --card: #FFFFFF; --card-hover: #F0F2EE;
+    --surface2: #E8EBE5; --border: #D0D5CD; --border-soft: #E0E4DD;
+    --t1: #191C18; --t2: #4F564E; --t3: #687067;
+    --accent: #687A08; --accent-hover: #566706; --accent-ink: #FFFFFF;
+    --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .84), rgba(255, 255, 255, 0) 42%);
+    --glass: rgba(248, 249, 247, .88);
+    --glass-fill: rgba(255, 255, 255, .72);
+    --glass-line: rgba(255, 255, 255, .92);
+    --glass-light: inset 0 1px 0 rgba(255, 255, 255, .95), 0 8px 24px rgba(32, 40, 28, .08);
+    --shadow-1: 0 3px 12px rgba(32, 40, 28, .09);
+    --shadow-card: 0 16px 38px rgba(32, 40, 28, .12);
+    --shadow-pop: 0 22px 56px rgba(32, 40, 28, .18);
   }
+  html { color-scheme: light; }
 }
 
 /* ---------- reset / base ---------- */
@@ -592,7 +595,7 @@ h1.h {
   display: flex; flex-direction: column; justify-content: space-between;
   cursor: pointer;
   overflow: hidden;
-  color: var(--t1);
+  color: #fff;
   font-weight: 700; font-size: 14.5px;
   letter-spacing: -.1px;
   background-color: var(--surface2);
@@ -2478,3 +2481,148 @@ h1.h {
 }
 .lyr-save:disabled { opacity: .5; cursor: default; }
 .lyr-note { color: var(--t3); font-size: 12px; line-height: 1.5; }
+
+/* ---------------- unified finish: editorial surfaces + clearer hierarchy ---------------- */
+.page {
+  width: min(100%, 1520px);
+  margin-inline: auto;
+  padding-bottom: 48px;
+}
+.page > .h:first-child,
+.page > h1.h:first-child { margin-top: 10px; }
+.sechead { margin-top: 36px; }
+.sechead h2 { letter-spacing: -.65px; }
+.cap { color: var(--t2); font-size: 10px; letter-spacing: .11em; }
+
+/* One calm material language across screens and collection tiles. */
+.cardbox, .albert, .stg-card, .podcasts-episode, .books-modern {
+  border: 1px solid var(--border-soft);
+  background: var(--grad-surface), var(--card);
+  box-shadow: var(--shadow-1);
+}
+.cardbox { border-radius: var(--r-lg); }
+.albert { border-radius: 16px; padding: 12px 15px; }
+.albert-cov { border-radius: 11px; }
+.stg { max-width: 880px; margin: 0 auto; gap: 16px; }
+.stg-card { border-radius: 18px; padding: 5px 17px; }
+.stg-row { min-height: 50px; }
+.stg-acts { gap: 9px; }
+.stg-btn { min-height: 38px; border: 1px solid var(--border-soft); transition: background .18s var(--ease), transform .18s var(--spring); }
+.stg-btn:hover:not(:disabled) { background: var(--surface2); }
+.stg-btn.danger { border-color: color-mix(in srgb, var(--danger) 20%, var(--border-soft)); }
+
+.side {
+  background: linear-gradient(180deg, var(--bg-elev), color-mix(in srgb, var(--bg-elev) 86%, var(--bg)));
+}
+.side-item { min-height: 43px; }
+.topbar { border-bottom-color: color-mix(in srgb, var(--border-soft) 42%, transparent); }
+.tabbar {
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+  border-top-color: var(--border);
+  box-shadow: 0 -10px 30px rgba(20, 24, 18, .08);
+}
+.tab { font-size: 10px; }
+.tab svg { width: 22px; height: 22px; }
+.tab.on { color: var(--accent); }
+.tab-plate {
+  background: color-mix(in srgb, var(--accent) 11%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* Wave gets a contained listening stage instead of floating on the page. */
+.waves {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 900px);
+  margin: 0 auto;
+  padding: 18px clamp(14px, 3vw, 30px) 28px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--card) 48%, transparent), color-mix(in srgb, var(--bg) 72%, transparent));
+}
+.wave-head { margin-bottom: 10px; }
+.wave-title { letter-spacing: -.8px; }
+.wave-scen { border-radius: 15px; background: color-mix(in srgb, var(--card) 88%, transparent); }
+.wave-scen.on { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.wave-start-card { background: color-mix(in srgb, var(--card) 90%, transparent); }
+.wave-hist-chip { border-radius: 13px; }
+
+/* Podcasts: clearer selected show, restrained feature glow and touch-safe controls. */
+.podcasts-feature { box-shadow: var(--shadow-card); }
+.podcasts-show { min-height: 58px; }
+.podcasts-show.active {
+  border-color: color-mix(in srgb, var(--show-color) 50%, var(--border-soft));
+  background: color-mix(in srgb, var(--show-color) 12%, var(--card));
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--show-color) 78%, var(--accent));
+}
+.podcasts-episode { border-radius: 18px; }
+.podcasts-download, .podcasts-offline { min-height: 36px; font-size: 11px; }
+.podcasts-search:focus-within, .books-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Book grid is intentionally legible on phones, not miniature desktop UI. */
+.book-card { border-radius: 16px; padding: 10px; }
+.book-card-hit { border-radius: 11px; }
+.book-card-meta { font-size: 9px; }
+.book-card h3 { min-height: 38px; font-size: 12px; }
+.book-card > p { font-size: 10px; }
+.book-card-play { min-height: 36px; border-radius: 10px; font-size: 10px; }
+.books-load-more { min-height: 44px; font-size: 12px; }
+.books-drawer { background: var(--bg-elev); }
+.book-chapter { min-height: 56px; border-radius: 13px; }
+.book-chapter-copy > span { font-size: 8px; }
+.book-chapter-copy strong { font-size: 12px; }
+.book-chapter-copy small { font-size: 10px; }
+.book-chapter-download, .book-chapter-offline { min-height: 34px; font-size: 10px; }
+
+.bigbtn, .chip, .books-hero-cta, .books-service, .podcasts-refresh,
+.podcasts-download, .podcasts-offline, .stg-btn { touch-action: manipulation; }
+.bigbtn:focus-visible, .chip:focus-visible, .podcasts-show:focus-visible,
+.podcasts-download:focus-visible, .podcasts-offline:focus-visible,
+.books-service:focus-visible, .book-card-hit:focus-visible, .book-card-play:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: 3px;
+}
+
+@media (min-width: 1024px) {
+  .page { padding-inline: clamp(28px, 3.2vw, 52px); }
+  .side { padding-inline: 16px; }
+  .side-item { padding-block: 11px; }
+  .podcasts-layout { gap: clamp(28px, 4vw, 52px); }
+}
+@media (max-width: 720px) {
+  .page { padding-top: 12px; padding-bottom: 96px; }
+  .sechead { margin-top: 30px; }
+  .tabbar { padding-inline: 4px; }
+  .tab { gap: 2px; font-size: clamp(8px, 2.45vw, 10px); }
+  .tab svg { width: 21px; height: 21px; }
+  .podcasts-episode { gap: 11px; }
+  .podcasts-episode-meta { font-size: 9px; }
+  .podcasts-episode-info h3 { font-size: 13px; }
+  .podcasts-episode-info > p { font-size: 10.5px; }
+  .podcasts-episode-bottom { font-size: 10px; }
+  .books-page { padding-bottom: 24px; }
+  .book-card { padding: 7px; }
+  .book-card-meta { margin: 8px 0 5px; font-size: 8px; }
+  .book-card h3 { min-height: 34px; font-size: 11px; }
+  .book-card > p { font-size: 9px; }
+  .book-card-play { min-height: 32px; font-size: 9px; }
+}
+@media (max-width: 380px) {
+  .tab { font-size: 8px; }
+  .tab svg { width: 20px; height: 20px; }
+  .wave-title { font-size: 25px; }
+  .wave-formula { max-width: 58%; padding-inline: 10px; font-size: 11px; }
+  .book-card { padding: 8px; }
+  .book-card h3 { min-height: 32px; font-size: 12px; }
+  .book-card > p { font-size: 10px; }
+  .book-card-play { min-height: 36px; font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-aura, .wave-aurora i, .wave-covwrap::before { animation: none; }
+  .card:hover .cardcov, .albert:hover, .podcasts-show:hover, .podcasts-episode:hover,
+  .book-card:hover, .books-service:hover { transform: none; }
+}
