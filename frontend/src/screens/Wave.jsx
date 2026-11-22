@@ -19,6 +19,7 @@ import {
 import { toggleLike, useLikes } from '../likes.js';
 import { AnimatedIcon, Seek, Sheet, toast } from '../motion/index.js';
 import auroraCity from '../assets/aurora-city.jpg';
+import { initialWavePhase } from '../waveStartup.js';
 
 const MOODS = [
   { id: null, icon: '∞', label: 'Любое' },
@@ -81,7 +82,10 @@ function hexA(hex, a) {
 
 export default function Wave() {
   const st = usePlayerSnap();
-  const [phase, setPhase] = useState('boot');   // boot | ready | err
+  const [phase, setPhase] = useState(() => {
+    const snap = P.getState();
+    return initialWavePhase({ inWave: P.inWave(), queueLength: snap.queue.length });
+  }); // idle | boot | ready | err
   const [err, setErr] = useState('');
   const [ws, setWs] = useState(null);           // формула (settings DTO)
   const [sess, setSess] = useState(null);       // { session_id, engine }
@@ -200,16 +204,10 @@ export default function Wave() {
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
-    (async () => {
-      let formula = null;
-      try { formula = await waveSettings(); setWs(formula); } catch { /* формула по умолчанию */ }
-      loadScenarios();
-      waveDiscovery(10).then(j => setDisc(j.artists || [])).catch(() => {});
-      const snap = P.getState();
-      if (P.inWave() && snap.queue.length) { setPhase('ready'); return; }
-      if (!snap.playing) { await startWave(formula?.engine || 'auto'); }
-      else setPhase('ready');   // играет обычная очередь — не перехватываем
-    })();
+    // A delayed settings response must not overwrite a user-triggered boot phase.
+    waveSettings().then(setWs).catch(() => { /* формула по умолчанию */ });
+    loadScenarios();
+    waveDiscovery(10).then(j => setDisc(j.artists || [])).catch(() => {});
   }, []);
 
   useEffect(() => () => {
@@ -552,12 +550,25 @@ export default function Wave() {
               </div>
             </div>
           </motion.div>
-        ) : (
-          <motion.div key="wave-boot" className="wave-stage"
+        ) : phase === 'boot' ? (
+          <motion.div key="wave-boot" className="wave-stage" role="status" aria-live="polite"
                       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                       transition={{ duration: .2, ease: EASE }}>
             <div className="boot-eq wave-boot"><i /><i /><i /></div>
-            <p className="muted wave-boottext">Настраиваю волну…</p>
+            <p className="muted wave-boottext">Подключаю волну…</p>
+          </motion.div>
+        ) : (
+          <motion.div key="wave-idle" className="wave-stage wave-idle"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      transition={{ duration: .2, ease: EASE }}>
+            <div className="cardbox wave-start-card">
+              <div className="wave-start-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2v13.6L19 12 8 5.2z" /></svg>
+              </div>
+              <h2>Музыка начнётся по твоему сигналу</h2>
+              <p className="muted">Волна подберёт треки с учётом настроек и недавних реакций. В гостевом режиме рекомендации начнут обучаться по мере прослушивания и лайков.</p>
+              <button className="bigbtn primary" onClick={() => startWave(ws?.engine || 'auto')}>Начать волну</button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

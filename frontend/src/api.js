@@ -1,5 +1,6 @@
 /* HTTP-клиент v2: initData (внутри Telegram) → Bearer (тихий гость в браузере). */
 import { authToken, initDataRaw, setAuthToken } from './store.js';
+import { classifyDevice } from './device.js';
 
 export const API_BASE = (new URLSearchParams(location.search).get('api') || '')
   .replace(/\/$/, '');
@@ -122,11 +123,12 @@ export function coverUrl(t) {
 /* Устройство — косвенный признак для контекста (без геолокации и без
    категоричных выводов на сервере: сервер валидирует и может игнорировать). */
 export function deviceKind() {
-  const ua = navigator.userAgent || '';
-  if (/iPad|Tablet/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) return 'tablet';
-  if (/Android.*Mobile|iPhone|iPod/i.test(ua)) return 'phone';
-  if (/Android|TV|SmartTV|WebOS/i.test(ua)) return 'tv';
-  return 'desktop';
+  return classifyDevice({
+    userAgent: navigator.userAgent || '',
+    width: Math.min(window.innerWidth || 0, window.innerHeight || 0),
+    touch: 'ontouchstart' in window,
+    touchPoints: navigator.maxTouchPoints || 0,
+  });
 }
 
 /* Контекст запроса: локальное время пользователя (не сервера) + устройство.

@@ -691,6 +691,7 @@ h1.h {
   /* Keep the home-wave copy readable instead of squeezing it between
      desktop-sized art and controls on a narrow phone. */
   .mixcard { gap: 14px; padding: 18px; min-height: 132px; }
+  .mixcard:not(:has(.mix-play)) .mix-sub { -webkit-line-clamp: 1; }
   .mix-ava { width: 60px; height: 60px; }
   .mix-m { flex: 1; }
   .mix-sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.4; }
@@ -1465,6 +1466,29 @@ h1.h {
   .search-error { align-items: stretch; flex-direction: column; }
   .search-error .bigbtn { width: 100%; }
 }
+@media (max-width: 360px) {
+  :root { --page-x: 16px; }
+  .mixcard { gap: 10px; padding: 14px; }
+  .mix-ava { width: 48px; height: 48px; }
+  .mix-play { width: 40px; height: 40px; }
+  .mix-name { font-size: 19px; }
+  .trow { gap: 5px; padding-inline: 2px; }
+  .trow .num { width: 16px; }
+  .trow .covwrap, .trow .covwrap .cov { width: 36px; height: 36px; }
+  .trow .heart { width: 24px; }
+  .trow .heart svg { width: 15px; height: 15px; }
+  .pl-meta { min-width: 0; }
+  .pl-title, .pl-artist { max-width: 34vw; }
+  .pl-mctl { gap: 0; }
+  .pl-ctl { width: 34px; height: 38px; }
+}
+@media (max-width: 340px) {
+  .trow .num { display: none; }
+  .trow .covwrap, .trow .covwrap .cov { width: 32px; height: 32px; }
+  .trow .heart { width: 22px; }
+  .trow .heart svg { width: 14px; height: 14px; }
+  .tab { font-size: 9px; }
+}
 .wave-scens-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .wave-scens-error button { color: var(--t1); text-decoration: underline; }
 
@@ -1659,6 +1683,17 @@ h1.h {
 .boot-eq i:nth-child(2) { height: 100%; animation-delay: .15s; }
 .boot-eq i:nth-child(3) { height: 65%; animation-delay: .3s; }
 .wave-boottext { margin-top: 12px; }
+.wave-idle { width: 100%; padding: 14px 0; }
+.wave-start-card { width: min(100%, 520px); text-align: center; }
+.wave-start-icon { width: 52px; height: 52px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 16px; color: var(--accent); background: rgba(217, 237, 58, .1); }
+.wave-start-icon svg { width: 26px; height: 26px; }
+.wave-start-card h2 { margin: 0; font: 800 20px/1.25 var(--font-display); }
+.wave-start-card p { margin: 10px auto 18px; max-width: 42ch; line-height: 1.55; }
+.wave-start-card .bigbtn { min-height: 44px; }
+@media (max-width: 520px) {
+  .wave-start-card { padding: 22px 18px; }
+  .wave-start-card h2 { font-size: 18px; }
+}
 
 /* заголовок формулы волны внутри общего Sheet */
 .wsheet-head { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 6px; }
