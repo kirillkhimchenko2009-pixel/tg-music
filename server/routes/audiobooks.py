@@ -13,7 +13,10 @@ from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api/audiobooks", tags=["audiobooks"])
 LIBRIVOX_API = "https://librivox.org/api/feed/audiobooks/"
+ARCHIVE_SEARCH_API = "https://archive.org/advancedsearch.php"
+ARCHIVE_METADATA_URL = "https://archive.org/metadata/"
 _FIELDS = "id,title,description,language,authors,url_librivox,totaltime,totaltimesecs,coverart_jpg,coverart_thumbnail"
+_ARCHIVE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _TTL = 900
 _CACHE_LIMIT = 120
 _cache: dict[str, tuple[float, dict]] = {}
@@ -42,6 +45,19 @@ def _authors(rows: object) -> str:
                                       str(row.get("last_name", "")).strip())))
              for row in rows if isinstance(row, dict)]
     return ", ".join(name for name in names if name) or "Неизвестный автор"
+
+
+def _duration(value: str) -> int:
+    try:
+        parts = [int(part) for part in value.split(":")]
+        if not 1 <= len(parts) <= 3 or any(part < 0 for part in parts):
+            return 0
+        total = 0
+        for part in parts:
+            total = total * 60 + part
+        return total
+    except (TypeError, ValueError):
+        return 0
 
 
 def _trusted_archive_url(url: str) -> bool:
@@ -130,6 +146,139 @@ async def _fetch_page(params: dict) -> list[dict]:
     return payload.get("books", []) if isinstance(payload, dict) else []
 
 
+async def _archive_search(query: str, offset: int, limit: int) -> tuple[list[dict], int]:
+    params = [
+        ("q", query), ("fl[]", "identifier"), ("fl[]", "title"),
+        ("fl[]", "creator"), ("fl[]", "language"), ("fl[]", "description"),
+        ("fl[]", "date"), ("fl[]", "runtime"),
+        ("rows", str(limit)), ("start", str(offset)), ("output", "json"),
+    ]
+    async with httpx.AsyncClient(timeout=httpx.Timeout(22, connect=8),
+                                 follow_redirects=False,
+                                 headers={"User-Agent": "VibeMusic-Audiobooks/1.0 (public catalog)"}) as client:
+        response = await client.get(ARCHIVE_SEARCH_API, params=params)
+    response.raise_for_status()
+    payload = response.json()
+    result = payload.get("response", {}) if isinstance(payload, dict) else {}
+    docs = result.get("docs", []) if isinstance(result, dict) else []
+    return ([row for row in docs if isinstance(row, dict)
+             and row.get("language") == "rus" and _ARCHIVE_ID_RE.fullmatch(str(row.get("identifier", "")))],
+            int(result.get("numFound", 0) or 0))
+
+
+def _archive_summary(row: dict) -> dict:
+    identifier = str(row["identifier"])
+    creator = row.get("creator", "")
+    if isinstance(creator, list):
+        creator = ", ".join(str(value) for value in creator if value)
+    return {
+        "id": identifier,
+        "title": _text(row.get("title"), 500),
+        "author": _text(creator, 300) or "Неизвестный автор",
+        "language": "Russian",
+        "duration": _duration(str(row.get("runtime") or "")),
+        "cover_url": f"https://archive.org/services/img/{quote(identifier, safe='')}",
+        "catalog_url": f"https://archive.org/details/{quote(identifier, safe='')}",
+        "source": "LibriVox · русская запись · Internet Archive",
+    }
+
+
+def _archive_file_rank(name: str) -> int:
+    match = re.search(r"_(64|96|128|192|256|320)kb(?:ps)?(?=\.mp3$)", name, re.IGNORECASE)
+    return int(match.group(1)) if match else 1000
+
+
+def _archive_chapters(identifier: str, files: object) -> list[dict]:
+    candidates = []
+    for file in files if isinstance(files, list) else []:
+        if not isinstance(file, dict):
+            continue
+        name = str(file.get("name", ""))
+        if (not name.lower().endswith(".mp3") or len(name) > 244
+                or "/" in name or "\\" in name or name in (".", "..")):
+            continue
+        if file.get("source") not in (None, "original"):
+            continue
+        if file.get("format") and "mp3" not in str(file["format"]).lower():
+            continue
+        stem = re.sub(r"_(?:64|96|128|192|256|320)kb(?:ps)?(?=\.mp3$)", "", name, flags=re.IGNORECASE)
+        candidates.append((stem.lower(), _archive_file_rank(name), name, file))
+    best = {}
+    for candidate in candidates:
+        key, rank, name, file = candidate
+        if key not in best or rank > best[key][1]:
+            best[key] = (name, rank, file)
+    def chapter_order(item):
+        name, _rank, file = item
+        track = str(file.get("track", "")).split("/")[0]
+        try:
+            return (0, int(track), name.lower())
+        except ValueError:
+            return (1, name.lower(), name.lower())
+
+    selected = sorted(best.values(), key=chapter_order)
+    chapters = []
+    for index, (name, _rank, file) in enumerate(selected, 1):
+        try:
+            duration = max(0, int(float(file.get("length", 0))))
+        except (TypeError, ValueError, OverflowError):
+            duration = 0
+        size = file.get("size", 0)
+        try:
+            size = max(0, int(size))
+        except (TypeError, ValueError, OverflowError):
+            size = 0
+        title = _text(file.get("title"), 240) or re.sub(r"[_-]+", " ", name[:-4]).strip()
+        url = f"https://archive.org/download/{quote(identifier, safe='')}/{quote(name, safe='')}"
+        chapters.append({
+            "id": str(index), "number": str(file.get("track", index)).split("/")[0],
+            "title": title, "language": "Russian", "duration": duration,
+            "narrator": _text(file.get("artist") or file.get("creator"), 240),
+            "size": size, "audio_url": f"/api/audiobooks/audio/{quote(identifier, safe='')}/{index}",
+            "_source_url": url,
+        })
+    return chapters
+
+
+async def _archive_book(book_id: str) -> dict:
+    cached = _cached(book_id)
+    if cached:
+        return cached
+    if not _ARCHIVE_ID_RE.fullmatch(book_id):
+        raise HTTPException(404, "Книга не найдена в каталоге LibriVox")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(25, connect=8),
+                                 follow_redirects=False,
+                                 headers={"User-Agent": "VibeMusic-Audiobooks/1.0 (public catalog)"}) as client:
+        response = await client.get(ARCHIVE_METADATA_URL + quote(book_id, safe=""))
+    if response.status_code == 404:
+        raise HTTPException(404, "Книга не найдена в каталоге LibriVox")
+    response.raise_for_status()
+    payload = response.json()
+    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+    collections = metadata.get("collection", []) if isinstance(metadata, dict) else []
+    if isinstance(collections, str):
+        collections = [collections]
+    if (not isinstance(metadata, dict) or not isinstance(collections, list)
+            or "librivoxaudio" not in collections
+            or metadata.get("language") != "rus"):
+        raise HTTPException(404, "Русская запись LibriVox не найдена")
+    summary = _archive_summary({
+        "identifier": book_id, "title": metadata.get("title"),
+        "creator": metadata.get("creator"), "runtime": metadata.get("runtime"),
+    })
+    description = _text(metadata.get("description"), 1800)
+    chapters = _archive_chapters(book_id, payload.get("files", []))
+    if not chapters:
+        raise HTTPException(404, "У этой записи нет доступных глав в MP3")
+    normalized = {**summary, "description": description, "cover_large": summary["cover_url"],
+                  "chapters": chapters}
+    async with _cache_lock:
+        if len(_cache) >= _CACHE_LIMIT:
+            _cache.pop(min(_cache, key=lambda key: _cache[key][0]), None)
+        _cache[book_id] = (time.monotonic(), normalized)
+    return normalized
+
+
 def _summary(row: dict) -> dict | None:
     book_id = str(row.get("id", ""))
     if not book_id.isdigit():
@@ -149,38 +298,42 @@ def _summary(row: dict) -> dict | None:
 @router.get("/catalog")
 async def catalog(q: str = Query("", max_length=120), offset: int = Query(0, ge=0, le=100000),
                   limit: int = Query(30, ge=1, le=60)):
-    """Paginated discovery across LibriVox's 20k+ recordings, or title/author search."""
-    params = {"format": "json", "limit": limit, "offset": offset,
-              "sort_order": "desc", "coverart": 1, "fields": _FIELDS}
+    """Paginated Russian-language LibriVox recordings from Internet Archive."""
     query = q.strip()
+    if query and len(query) < 2:
+        return {"books": [], "offset": 0, "limit": limit, "has_more": False,
+                "total_hint": "Русская классика", "source": "LibriVox"}
+    archive_query = "collection:librivoxaudio AND language:rus"
+    if query:
+        safe_query = re.sub(r"[^\w -]", " ", query, flags=re.UNICODE).strip()
+        if not safe_query:
+            return {"books": [], "offset": offset, "limit": limit,
+                    "has_more": False, "total_hint": "Русская классика",
+                    "source": "LibriVox · Russian"}
+        archive_query += f" AND (title:{safe_query} OR creator:{safe_query})"
     try:
-        if query:
-            if len(query) < 2:
-                return {"books": [], "offset": 0, "limit": limit, "has_more": False,
-                        "total_hint": "20 000+", "source": "LibriVox"}
-            params.pop("offset")
-            params["title"] = query
-            title_rows = await _fetch_page(params)
-            params.pop("title", None)
-            params["author"] = query
-            author_rows = await _fetch_page(params)
-            merged = {str(row.get("id")): row for row in title_rows + author_rows
-                      if isinstance(row, dict)}
-            rows = list(merged.values())[:limit]
-        else:
-            rows = await _fetch_page(params)
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(502, "Каталог LibriVox временно недоступен") from exc
-    books = [item for row in rows if isinstance(row, dict) and (item := _summary(row))]
+        rows, total = await _archive_search(archive_query, offset, limit)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        raise HTTPException(502, "Каталог русских аудиокниг временно недоступен") from exc
+    books = [_archive_summary(row) for row in rows]
     return {"books": books, "offset": offset, "limit": limit,
-            "has_more": len(rows) >= limit if not query else False,
-            "total_hint": "20 000+", "source": "LibriVox"}
+            "has_more": offset + len(rows) < total,
+            "total_hint": f"{total} русских записей", "source": "LibriVox · Russian"}
 
 
 @router.get("/book/{book_id}")
 async def book(book_id: str):
     if not book_id.isdigit():
-        raise HTTPException(404, "Книга не найдена")
+        try:
+            result = await _archive_book(book_id)
+        except HTTPException:
+            raise
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(502, "Не удалось загрузить главы книги") from exc
+        return {key: value for key, value in result.items() if key != "chapters"} | {
+            "chapters": [{key: value for key, value in chapter.items() if not key.startswith("_")}
+                         for chapter in result["chapters"]]
+        }
     try:
         result = await _upstream_book(book_id)
     except HTTPException:
@@ -195,10 +348,10 @@ async def book(book_id: str):
 
 @router.api_route("/audio/{book_id}/{section_id}", methods=["GET", "HEAD"])
 async def audio(book_id: str, section_id: str, request: Request, download: bool = False):
-    if not book_id.isdigit() or not section_id.isdigit():
+    if not _ARCHIVE_ID_RE.fullmatch(book_id) or not section_id.isdigit():
         raise HTTPException(404, "Глава не найдена")
     try:
-        data = await _upstream_book(book_id)
+        data = await (_upstream_book(book_id) if book_id.isdigit() else _archive_book(book_id))
     except HTTPException:
         raise
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:

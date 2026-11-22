@@ -10,25 +10,23 @@ from server.routes import audiobooks
 @pytest.fixture
 async def client(monkeypatch):
     rows = [
-        {"id": "253", "title": "Pride and Prejudice", "authors": [
-            {"first_name": "Jane", "last_name": "Austen"}], "language": "English",
-            "totaltimesecs": 47204, "url_librivox": "https://librivox.org/pride-and-prejudice-by-jane-austen/",
-            "coverart_thumbnail": "https://archive.org/download/book/cover.jpg"},
-        {"id": "271", "title": "Dracula", "authors": [
-            {"first_name": "Bram", "last_name": "Stoker"}], "language": "English",
-            "totaltimesecs": 0, "url_librivox": "https://librivox.org/dracula/"},
+        {"identifier": "eugene_onegin_1801_librivox", "title": "Евгений Онегин",
+         "creator": "Alexander Pushkin", "language": "rus", "runtime": "4:26:23"},
+        {"identifier": "aesops_fables_russian_0905_librivox", "title": "Басни Эзопа",
+         "creator": "Aesop", "language": "rus", "runtime": "50:28"},
+        {"identifier": "an-english-item", "title": "Pride and Prejudice",
+         "creator": "Jane Austen", "language": "eng"},
     ]
 
-    async def fetch(params):
-        if params.get("id"):
-            raise httpx.HTTPStatusError("should use details mock", request=None, response=None)
-        if params.get("title"):
-            return [rows[0]]
-        if params.get("author"):
-            return [rows[0]]
-        return rows
+    async def archive_search(query, offset, limit):
+        if "Pushkin" in query:
+            matching = [rows[0]]
+        else:
+            matching = rows[:2]
+        total = 76 if "Pushkin" not in query else len(matching)
+        return matching[offset:offset + limit], total
 
-    monkeypatch.setattr(audiobooks, "_fetch_page", fetch)
+    monkeypatch.setattr(audiobooks, "_archive_search", archive_search)
     async def details(book_id):
         return {"id": book_id, "title": "Pride and Prejudice", "author": "Jane Austen",
                 "language": "English", "description": "A classic", "duration": 47204,
@@ -45,20 +43,25 @@ async def client(monkeypatch):
         yield http
 
 
-async def test_catalog_is_paginated_and_includes_large_collection_hint(client):
-    response = await client.get("/api/audiobooks/catalog?limit=2&offset=30")
+async def test_catalog_is_paginated_and_contains_only_russian_recordings(client):
+    response = await client.get("/api/audiobooks/catalog?limit=2&offset=0")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["offset"] == 30
-    assert payload["total_hint"] == "20 000+"
-    assert payload["books"][0]["author"] == "Jane Austen"
+    assert payload["offset"] == 0
+    assert payload["total_hint"] == "76 русских записей"
+    assert [book["id"] for book in payload["books"]] == [
+        "eugene_onegin_1801_librivox", "aesops_fables_russian_0905_librivox"
+    ]
+    assert all(book["language"] == "Russian" for book in payload["books"])
+    assert payload["books"][0]["title"] == "Евгений Онегин"
     assert payload["books"][0]["source"].startswith("LibriVox")
+    assert payload["has_more"] is True
 
 
-async def test_search_merges_title_and_author_results_without_duplicates(client):
-    response = await client.get("/api/audiobooks/catalog?q=austen")
+async def test_search_uses_archive_query_for_russian_title_or_author(client):
+    response = await client.get("/api/audiobooks/catalog?q=Pushkin")
     assert response.status_code == 200
-    assert [book["id"] for book in response.json()["books"]] == ["253"]
+    assert [book["id"] for book in response.json()["books"]] == ["eugene_onegin_1801_librivox"]
 
 
 async def test_short_search_is_not_sent_to_external_catalog(client, monkeypatch):
@@ -77,6 +80,37 @@ async def test_book_hides_upstream_audio_url(client):
     assert payload["chapters"][0]["audio_url"] == "/api/audiobooks/audio/253/124135"
     assert "_source_url" not in response.text
     assert "archive.org/download/book/chapter.mp3" not in response.text
+
+
+async def test_archive_book_hides_source_url_and_keeps_public_chapter_route(client, monkeypatch):
+    async def details(book_id):
+        return {"id": book_id, "title": "Евгений Онегин", "chapters": [{
+            "id": "1", "title": "Глава 1", "audio_url": f"/api/audiobooks/audio/{book_id}/1",
+            "_source_url": f"https://archive.org/download/{book_id}/chapter.mp3",
+        }]}
+
+    monkeypatch.setattr(audiobooks, "_archive_book", details)
+    response = await client.get("/api/audiobooks/book/eugene_onegin_1801_librivox")
+    assert response.status_code == 200
+    assert response.json()["chapters"][0]["audio_url"].endswith("/1")
+    assert "_source_url" not in response.text
+    assert "archive.org/download" not in response.text
+
+
+def test_archive_chapters_selects_highest_quality_audio_and_builds_proxy_urls():
+    chapters = audiobooks._archive_chapters("eugene_onegin_1801_librivox", [
+        {"name": "one_64kb.mp3", "source": "original", "format": "64Kbps MP3",
+         "title": "Глава первая", "track": "1/2", "length": "61", "size": "100"},
+        {"name": "one.mp3", "source": "original", "format": "VBR MP3",
+         "title": "Глава первая", "track": "1/2", "length": "62", "size": "200"},
+        {"name": "two.mp3", "source": "original", "format": "VBR MP3", "track": "2/2"},
+        {"name": "folder/evil.mp3", "source": "original", "format": "VBR MP3"},
+        {"name": "cover.jpg", "source": "original", "format": "JPEG"},
+    ])
+    assert [chapter["title"] for chapter in chapters] == ["Глава первая", "two"]
+    assert chapters[0]["_source_url"] == "https://archive.org/download/eugene_onegin_1801_librivox/one.mp3"
+    assert chapters[0]["audio_url"] == "/api/audiobooks/audio/eugene_onegin_1801_librivox/1"
+    assert chapters[0]["duration"] == 62
 
 
 def test_archive_host_allowlist_rejects_external_or_insecure_urls():

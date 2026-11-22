@@ -1112,7 +1112,7 @@ h1.h {
 .tabbar {
   position: fixed; left: 0; right: 0; z-index: 47;
   bottom: 0;
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
   height: calc(58px + env(safe-area-inset-bottom, 0px));
   padding: 4px 6px calc(env(safe-area-inset-bottom, 0px) + 4px);
   background: color-mix(in srgb, var(--bg-elev) 84%, transparent);
@@ -1915,6 +1915,7 @@ h1.h {
      их содержимого при скролле контента под стеклом */
   .pbar,
   .tabbar { will-change: transform; }
+  .tab { font-size: 9px; }
 }
 
 /* Compact desktop dock on short laptop/browser viewports. */
@@ -2294,7 +2295,7 @@ h1.h {
 .books-search input::placeholder { color: var(--t3); }
 .books-search button { display: grid; flex: 0 0 auto; width: 27px; height: 27px; place-items: center; border: 0; border-radius: 50%; background: var(--card-hover); color: var(--t2); cursor: pointer; }
 .books-search button svg { width: 14px; height: 14px; }
-.books-search-row select { min-width: 116px; padding: 0 12px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--card); color: var(--t2); font: inherit; font-size: 11px; }
+.books-language-badge { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--card); color: var(--t2); font-size: 11px; }
 .books-section-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 0 0 14px; }
 .books-section-heading > div > span { color: #c99a55; font-size: 8px; font-weight: 850; letter-spacing: .16em; }
 .books-section-heading h2 { margin: 4px 0 0; font: 750 clamp(19px, 2.7vw, 26px)/1.2 var(--font-display); letter-spacing: -.4px; }
@@ -2390,7 +2391,7 @@ h1.h {
   .books-hero-stack { right: -4px; transform: translateY(-50%) scale(.72); transform-origin: right center; opacity: .74; }
   .books-hero-caption { right: 12px; bottom: 10px; font-size: 6px; }
   .books-search-row { gap: 7px; }
-  .books-search-row select { min-width: 91px; max-width: 100px; padding: 0 6px; font-size: 9px; }
+  .books-language-badge { min-height: 44px; padding-inline: 9px; font-size: 9px; }
   .books-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
   .book-card { padding: 6px; border-radius: 11px; }
   .book-card-meta { flex-wrap: wrap; margin: 7px 0 4px; font-size: 6px; }
@@ -2415,7 +2416,7 @@ h1.h {
   .book-chapter-download, .book-chapter-offline { min-width: 25px; height: 26px; padding-inline: 5px; }
 }
 @media (max-width: 380px) {
-  .tabbar { grid-template-columns: repeat(6, minmax(0, 1fr)); padding-inline: 2px; }
+  .tabbar { grid-template-columns: repeat(7, minmax(0, 1fr)); padding-inline: 2px; }
   .tab { font-size: 8px; }
   .tab svg { width: 19px; height: 19px; }
   .books-library-count { display: none; }

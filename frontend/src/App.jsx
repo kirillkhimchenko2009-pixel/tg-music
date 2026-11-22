@@ -66,6 +66,7 @@ const TABS_M = [
   { id: 'wave', icon: IcoWave, label: 'Волна' },
   { id: 'search', icon: IcoSearch, label: 'Поиск' },
   { id: 'collection', icon: IcoLib, label: 'Коллекция' },
+  { id: 'podcasts', icon: IcoPodcast, label: 'Подкасты' },
   { id: 'audiobooks', icon: IcoBook, label: 'Книги' },
   { id: 'import', icon: IcoImport, label: 'Импорт' },
 ];

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as P from '../player.js';
 import { API_BASE, api } from '../api.js';
 import { haptic } from '../tg.js';
@@ -6,7 +6,7 @@ import { IcoBook, IcoDl, IcoSearch, IcoX } from '../ui.jsx';
 import { cacheTracks } from '../local/repo.js';
 import * as downloads from '../local/downloads.js';
 import { toast } from '../motion/utils/toast.js';
-import { audiobookTrackId, filterBooks, formatBookDuration } from '../audiobooks.js';
+import { audiobookTrackId, formatBookDuration } from '../audiobooks.js';
 
 const MODERN_SOURCES = [
   { id: 'akniga-classic', name: 'Аудиокнига', note: 'Классика · русская и мировая', url: 'https://akniga.org/section/classic/', mark: 'А' },
@@ -45,13 +45,13 @@ function BookCover({ book, className = '' }) {
 export default function Audiobooks() {
   const [books, setBooks] = useState([]);
   const [query, setQuery] = useState('');
-  const [language, setLanguage] = useState('Все');
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [bookBusy, setBookBusy] = useState(false);
   const [savingId, setSavingId] = useState('');
+  const [totalHint, setTotalHint] = useState('Русская классика');
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
   const busyMoreRef = useRef(false);
@@ -76,6 +76,7 @@ export default function Audiobooks() {
       setBooks(current => append ? [...current, ...rows.filter(book => !current.some(item => item.id === book.id))] : rows);
       offsetRef.current = offset + rows.length;
       hasMoreRef.current = !!data.has_more;
+      if (!search && data.total_hint) setTotalHint(data.total_hint);
       setError('');
     } catch (cause) {
       if (generation === generationRef.current && cause?.name !== 'AbortError') setError(cause?.message || 'Каталог книг временно недоступен');
@@ -112,8 +113,7 @@ export default function Audiobooks() {
     searchTimer.current = setTimeout(() => fetchCatalog({ search: value.trim(), generation }), 420);
   };
 
-  const languages = useMemo(() => ['Все', ...new Set(books.map(book => book.language).filter(Boolean))], [books]);
-  const visibleBooks = useMemo(() => filterBooks(books, language), [books, language]);
+  const visibleBooks = books;
   const featured = visibleBooks[0] || null;
 
   const closeBook = () => {
@@ -173,7 +173,7 @@ export default function Audiobooks() {
     <header className="books-header">
       <div><span className="books-overline"><IcoBook /> VIBE · БИБЛИОТЕКА</span><h1>Аудиокниги</h1>
         <p>Классика в голосах LibriVox — слушай свободно, по главам и без подписки.</p></div>
-      <span className="books-library-count"><strong>20 000+</strong><small>записей в каталоге</small></span>
+      <span className="books-library-count"><strong>{totalHint}</strong><small>русских аудиокниг</small></span>
     </header>
 
     <section className="books-hero">
@@ -191,9 +191,7 @@ export default function Audiobooks() {
         <input value={query} onChange={event => onSearch(event.target.value)} placeholder="Название книги или автор" type="search" />
         {query && <button type="button" aria-label="Очистить поиск" onClick={() => onSearch('')}><IcoX /></button>}
       </label>
-      <select value={language} onChange={event => setLanguage(event.target.value)} aria-label="Язык книг">
-        {languages.map(item => <option key={item} value={item}>{item === 'Все' ? 'Все языки' : item}</option>)}
-      </select>
+      <span className="books-language-badge">Русский</span>
     </div>
 
     <div className="books-section-heading"><div><span>ЛЕНТА LIBRIVOX</span><h2>{query ? 'Результаты поиска' : 'Выбери следующую историю'}</h2></div>
