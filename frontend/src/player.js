@@ -102,14 +102,20 @@ async function loadAndPlay() {
 }
 
 async function startUrl(trackId) {
+  /* трек берём из очереди: у главы книги это объект с audio_url/skipLocalLookup */
+  const track = current()
+    ?? state.queue.find(t => String(t.id) === String(trackId));
+  if (!track) return;
   state.loading = true;
   emit();
   try {
     let src = null, kind = null, isLocal = false;
-    try {
-      src = await localSrc(trackId);           // OPFS/IDB → blob URL
-      isLocal = !!src;
-    } catch { src = null; }
+    if (!track.skipLocalLookup) {
+      try {
+        src = await localSrc(trackId);         // OPFS/IDB → blob URL
+        isLocal = !!src;
+      } catch { src = null; }
+    }
     if (!src && track.audio_url) {
       src = /^https?:/.test(track.audio_url) ? track.audio_url : API_BASE + track.audio_url;
       kind = 'podcast';
@@ -191,7 +197,7 @@ export async function next(manual = true) {
     /* ручной скип: локальное событие → идемпотентная синхронизация (§17) */
     const cur = current();
     const played = audio.currentTime || 0;
-    if (cur && played > 5 && !cur.podcast) {
+    if (cur && played > 5 && !cur.podcast && !cur.audio_url) {
       try { addHistory(cur.id, { skipped: true, played, finished: false }); } catch { /* ок */ }
       try { recordEvent({ kind: 'skipped', track_id: cur.id,
                           played_seconds: played, skipped: true }).catch(() => {}); }

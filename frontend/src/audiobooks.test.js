@@ -5,9 +5,18 @@ import { audiobookTrackId, filterBooks, formatBookDuration } from './audiobooks.
 test('creates stable safe local IDs for audiobook chapter tracks', () => {
   assert.equal(Number.isSafeInteger(audiobookTrackId('253', '124135')), true);
   assert.equal(audiobookTrackId('253', '124135'), audiobookTrackId(253, 124135));
-  assert.throws(() => audiobookTrackId('x', '1'), /ID главы/);
+  assert.throws(() => audiobookTrackId('x', 'x'), /ID главы/);
   assert.equal(Number.isSafeInteger(audiobookTrackId('200000', '999999')), true);
   assert.throws(() => audiobookTrackId('200001', '1'), /ID главы/);
+});
+
+test('archive.org string identifiers map to stable numeric chapter IDs', () => {
+  const id = audiobookTrackId('ushkuiniks_1903_librivox', '1');
+  assert.equal(Number.isSafeInteger(id), true);
+  assert.equal(id, audiobookTrackId('ushkuiniks_1903_librivox', '1'));
+  assert.notEqual(id, audiobookTrackId('izbrannye_2212_librivox', '1'));
+  assert.equal(audiobookTrackId('ushkuiniks_1903_librivox', '2'), id + 1);
+  assert.throws(() => audiobookTrackId('', '1'), /ID главы/);
 });
 
 test('filters books by language and formats long durations', () => {

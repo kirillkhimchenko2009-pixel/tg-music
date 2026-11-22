@@ -2395,7 +2395,7 @@ h1.h {
   .books-hero-caption { right: 12px; bottom: 10px; font-size: 6px; }
   .books-search-row { gap: 7px; }
   .books-language-badge { min-height: 44px; padding-inline: 9px; font-size: 9px; }
-  .books-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
+  .books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
   .book-card { padding: 6px; border-radius: 11px; }
   .book-card-meta { flex-wrap: wrap; margin: 7px 0 4px; font-size: 6px; }
   .book-card h3 { min-height: 30px; font-size: 9px; }
@@ -2424,7 +2424,7 @@ h1.h {
   .tab svg { width: 19px; height: 19px; }
   .books-library-count { display: none; }
   .books-hero-copy { width: 88%; }
-  .books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+  .books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .books-services { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

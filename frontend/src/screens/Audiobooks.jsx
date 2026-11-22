@@ -31,7 +31,7 @@ function chapterTrack(book, chapter) {
     audio_url: chapter.audio_url,
     source: 'LibriVox public domain',
     ready: true,
-    podcast: true,
+    skipLocalLookup: true,
   };
 }
 
@@ -149,12 +149,14 @@ export default function Audiobooks() {
     }
   };
 
-  const playBook = async (book, chapters, index = 0) => {
+  const playBook = (book, chapters, index = 0) => {
     const tracks = chapters.map(chapter => chapterTrack(book, chapter));
     if (!tracks.length) return;
-    try { await cacheTracks(tracks); } catch { /* metadata cache is optional */ }
     haptic('medium');
+    // Start audio before any IndexedDB await; mobile WebViews can drop the
+    // user's playback gesture if local storage is checked first.
     P.play(tracks, index);
+    cacheTracks(tracks).catch(() => {});
   };
 
   const saveChapter = async (book, chapter) => {
