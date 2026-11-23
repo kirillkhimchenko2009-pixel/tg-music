@@ -29,14 +29,18 @@ app = FastAPI(title="TGMusicBot API", docs_url="/api/docs", redoc_url=None)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
-# Статика мини-аппа не должна кэшироваться: иначе в Telegram-вебвью застревает
-# старый app.js/index.html и после каждого обновления видна «та же ошибка».
+# Статика мини-аппа: index.html — never-cache (иначе в Telegram-вебвью застревает
+# старый app.js/index.html и после каждого обновления видна «та же ошибка»),
+# а хешированные ассеты /v2/assets/* — кеш на год: имена содержат хеш содержимого,
+# поэтому повторное открытие мини-аппа не перекачивает ~800КБ через медленный канал.
 @app.middleware("http")
-async def nocache_static(request: Request, call_next):
+async def cache_static(request: Request, call_next):
     response = await call_next(request)
     p = request.url.path
     if p in ("/", "/v2", "/v2/", "/v2/index.html"):
         response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+    elif p.startswith("/v2/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
 @app.on_event("startup")

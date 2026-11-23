@@ -382,6 +382,7 @@ audio.addEventListener('play', () => {
    ставим их и маячим старт именно на событии playing */
 audio.addEventListener('playing', () => {
   ms.bindActions(MS_ACTIONS);      // iOS: ⏮/⏭ появляются именно здесь
+  warmNext();                      // пока играет — заранее резолвим следующий
   if (wave && current()) {
     const cur = current();
     const dur = audio.duration || cur.duration || 0;
@@ -463,6 +464,32 @@ function sessData() {
     lo: state.loop,
     v: state.volume,
   };
+}
+
+/* ---------- прогрев следующего трека (быстрый старт в очереди) ----------
+   Первый старт нескачанного трека ждёт цепочку резолва на сервере
+   (ЯМ → zaycev → … → yt-dlp) — десятки секунд. Пока играет текущий,
+   заранее дёргаем /api/player + первые 128КБ стрима следующего: сервер
+   резолвит и кеширует URL на 35 минут, и к моменту «Следующий» звук готов. */
+let warmTimer = null;
+function warmNext() {
+  clearTimeout(warmTimer);
+  if (!state.playing) return;
+  const next = state.queue[state.index + 1];
+  if (!next) return;
+  warmTimer = setTimeout(async () => {
+    try {
+      if (!state.playing) return;
+      const still = state.queue[state.index + 1];
+      if (!still || String(still.id) !== String(next.id)) return;
+      const j = await api('/api/player/' + next.id);
+      if (!j?.url) return;
+      const ctl = new AbortController();
+      const stop = setTimeout(() => ctl.abort(), 25000);
+      await fetch(API_BASE + j.url, { headers: { Range: 'bytes=0-131071' }, signal: ctl.signal });
+      clearTimeout(stop);
+    } catch { /* прогрев не критичен */ }
+  }, 4000);
 }
 
 /* демо-очистка данных */
