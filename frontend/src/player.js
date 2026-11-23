@@ -9,11 +9,26 @@ import { API_BASE, api, playerSrc, coverUrl } from './api.js';
 import { localSrc, addHistory, recordEvent, syncEvents, cacheTracks } from './local/repo.js';
 import { saveSession, saveSessionSoon, getSession } from './local/recover.js';
 import * as ms from './local/mediasession.js';
-import { bootLockAnime, lockAnimeState } from './local/lockanime.js';
+import { bootLockAnime, lockAnimeState, onLockFrame } from './local/lockanime.js';
 import { boot as bootDownloads } from './local/downloads.js';
 
-const audio = new Audio();
+/* iOS/WebKit: mediaSession.metadata.artwork игнорируется — обложка Now
+   Playing (экран блокировки) берётся из POSTER видео-элемента. Поэтому
+   «аудио» — это <video> (поток обычного аудио играет без картинки),
+   спрятанный за экраном: display:none iOS может считать неиграбельным.
+   Постер тянки подставляет lockanime (onLockFrame ниже). */
+const audio = document.createElement('video');
 audio.preload = 'metadata';
+audio.playsInline = true;
+audio.setAttribute('playsinline', '');
+try { audio.webkitWirelessVideoPlaybackDisabled = true; } catch { /* не WebKit */ }
+try { audio.disableRemotePlayback = true; } catch { /* не поддерживается */ }
+try { audio.setAttribute('poster', ''); } catch { /* ок */ }
+try {
+  const el = document.body || document.documentElement;
+  el.appendChild(audio);
+  audio.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+} catch { /* элемент вне DOM — играем и так */ }
 
 const savedVol = parseFloat(localStorage.getItem('vol'));
 const initVolume = isNaN(savedVol) ? 1 : Math.min(1, Math.max(0, savedVol));
@@ -25,6 +40,9 @@ const initLastVolume = !isNaN(savedLastVol) && savedLastVol > 0
   ? Math.min(1, savedLastVol)
   : (initVolume > 0 ? initVolume : 1);
 try { audio.volume = initVolume; } catch { /* webview strictness */ }
+
+/* живая обложка: каждый кадр тянки → poster видео-элемента (iOS локскрин) */
+onLockFrame(url => { if (url) { try { audio.poster = url; } catch { /* ок */ } } });
 
 let state = {
   queue: [],

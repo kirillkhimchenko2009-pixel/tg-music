@@ -130,6 +130,16 @@ async function rasterize(i) {
 
 let currentFrame = -1;
 
+/* подписка на смену кадра (player.js ставит poster видео-элемента для iOS) */
+const frameListeners = new Set();
+export function onLockFrame(fn) {
+  if (typeof fn !== 'function') return () => frameListeners.delete(fn);
+  frameListeners.add(fn);
+  /* если кадр уже отрисован — сразу отдаём */
+  if (currentFrame >= 0) { rasterize(currentFrame).then(u => { if (u && currentFrame >= 0) { try { fn(u); } catch { /* ок */ } } }); }
+  return () => frameListeners.delete(fn);
+}
+
 /* Поставить кадр как artwork Media Session (метаданные сохраняются) */
 export async function setLockFrame(i) {
   if (currentFrame === i) return;
@@ -138,6 +148,7 @@ export async function setLockFrame(i) {
   if (currentFrame !== i) return;         // пока декодировали — кадр сменился
   const { setArtwork } = await import('./mediasession.js');
   setArtwork(url ? [{ src: url, sizes: '512x512', type: 'image/png' }] : []);
+  frameListeners.forEach(f => { try { f(url); } catch { /* ок */ } });
 }
 
 /* Состояние из плеера: играет → кадры цикла, пауза → «спит» */
