@@ -21,3 +21,13 @@
 
 Загружены с commons.wikimedia.org через thumb-эндпоинт (960px), пережаты до 720px JPEG.
 `hero-wave.jpg` — кроп 16:9 (лёгкое охлаждение тона + виньетка), `aurora-city.jpg` — thumb 1280 → 1024px JPEG (используется с opacity ~0.16 под CSS-авророй).
+
+## Фото-ассеты экрана блокировки (`assets/lock/`)
+
+Обложка Now Playing / локскрина: аниме-портреты полным фоном, кадры 512×512 JPEG.
+
+| Файл | Автор | Лицензия |
+|---|---|---|
+| `lock1.jpg`, пауза-кадр | VulcanSphere — «Anime-style Self-portrait (AnimagineXL 4.0)», кроп 1:1 | CC BY 4.0 ([Commons](https://commons.wikimedia.org/wiki/File:VulcanSphere_Anime-style_Self-portrait_(AnimagineXL_4.0).webp)) |
+| `lock2.jpg` | VulcanSphere — «Alter Anime-style Self-portrait (AnimagineXL 4.0 + Flux.1 Kontext)», кроп 1:1 | CC BY 4.0 ([Commons](https://commons.wikimedia.org/wiki/File:VulcanSphere_Alter_Anime-style_Self-portrait_(AnimagineXL_4.0_%2B_Flux.1_Kontext).webp)) |
+| `lock3.jpg` | 冷床系 — «A high school girl, rectangular glasses, cat ears…», кроп 1:1 | Public domain ([Commons](https://commons.wikimedia.org/wiki/File:A_high_school_girl,_rectangular_glasses,_cynically_smiling,_cat_ears_s-2194273305.webp)) |

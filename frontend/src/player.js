@@ -159,6 +159,7 @@ async function startUrl(trackId) {
     state.local = isLocal;
     audio.src = src;
     await audio.play();
+    ms.bindActions(MS_ACTIONS);      // iOS: кнопки локскрина после старта
   } catch (e) {
     if (e && e.name === 'AbortError') { state.loading = false; emit(); return; }
     state.error = (e && e.message) || 'не удалось открыть трек';
@@ -468,7 +469,10 @@ export function fmt(s) {
 }
 
 /* ---------------- Media Session: экранные кнопки ---------------- */
-ms.bindActions({
+/* iOS: обработчики нужно переустанавливать ПОСЛЕ старта воспроизведения,
+   иначе на экране блокировки могут не появиться ⏮/⏭ — поэтому байнд и
+   пере-байнд после каждого удачного play(). */
+const MS_ACTIONS = {
   toggle,
   next: () => { next(true).catch(() => {}); },
   prev: () => { prev().catch(() => {}); },
@@ -484,7 +488,8 @@ ms.bindActions({
     } catch { /* ок */ }
     emit();
   },
-});
+};
+ms.bindActions(MS_ACTIONS);
 
 /* ---------------- восстановление состояния при старте (§10) ----------------
    shuffle/repeat/громкость применяем сразу; сама позиция/очередь ждут
