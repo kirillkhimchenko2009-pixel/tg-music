@@ -302,7 +302,7 @@ async def wave_taste(user: CurrentUser = Depends(tg_user)):
                 ArtistStats.user_id == int(user.id),
                 ArtistStats.artist_key.in_(aks)))).scalars().all()
             names = {r.artist_key: r.display_name for r in rows}
-        return {
+        resp = {
             "strong_artists": [names.get(ak, ak) for ak in lv.strong_artists][:12],
             "experimental_artists": [names.get(ak, ak) for ak in lv.experimental_artists][:12],
             "top_genres": sorted((profile.genre_affinity or {}).items(),
