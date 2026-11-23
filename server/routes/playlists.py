@@ -42,6 +42,11 @@ async def _likes_playlist(user: CurrentUser, s):
 
 @router.get("")
 async def my_playlists(user: CurrentUser = Depends(tg_user)):
+    from core import ramcache
+    ck = ("pl:list", int(user.id))
+    hit = ramcache.get(ck)
+    if hit is not None:
+        return hit
     async with runtime.get_session() as s:
         from core.models import Playlist, PlaylistTrack, Track
         likes = await _likes_playlist(user, s)
@@ -70,7 +75,9 @@ async def my_playlists(user: CurrentUser = Depends(tg_user)):
             out.append({"id": pl.id, "title": pl.title, "count": counts[pl.id],
                         "cover_url": cv[0] if cv else None, "covers": cv,
                         "source": getattr(pl, "source", "") or ""})
-    return {"playlists": out}
+    resp = {"playlists": out}
+    ramcache.put(ck, resp, 45)
+    return resp
 
 @router.post("")
 async def create(body: PlaylistIn, user: CurrentUser = Depends(tg_user)):
@@ -82,6 +89,8 @@ async def create(body: PlaylistIn, user: CurrentUser = Depends(tg_user)):
         pl = await runtime.get_or_create_playlist(s, int(user.id), title)
         pl.source = "manual"
         await s.commit()
+        from core import ramcache
+        ramcache.drop_uid(int(user.id))
         return {"id": pl.id, "title": pl.title, "count": 0, "source": "manual"}
 
 
@@ -148,6 +157,8 @@ async def add_track(playlist_id: int, body: TrackIn, user: CurrentUser = Depends
         if not t:
             raise HTTPException(404, "нет такого трека")
         ok = await runtime.playlist_add_track(s, playlist_id, body.track_id)
+    from core import ramcache
+    ramcache.drop_uid(int(user.id))          # списки/счётчики изменились
     return {"added": ok}
 
 @router.delete("/{playlist_id}/tracks/{track_id}")
@@ -160,6 +171,8 @@ async def del_track(playlist_id: int, track_id: int, user: CurrentUser = Depends
             PlaylistTrack.playlist_id == playlist_id,
             PlaylistTrack.track_id == track_id))
         await s.commit()
+    from core import ramcache
+    ramcache.drop_uid(int(user.id))
     return {"deleted": True}
 
 @router.delete("/{playlist_id}")
@@ -171,6 +184,8 @@ async def delete_playlist(playlist_id: int, user: CurrentUser = Depends(tg_user)
         await s.execute(_del(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_id))
         await s.execute(_del(Playlist).where(Playlist.id == playlist_id))
         await s.commit()
+    from core import ramcache
+    ramcache.drop_uid(int(user.id))
     return {"deleted": True}
 
 

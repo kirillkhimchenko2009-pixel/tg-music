@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from bot import runtime
+from core import ramcache
 from server.auth import CurrentUser, tg_user
 from services.wave import prefetch, service
 from services.wave.intel import (context as intel_context,
@@ -189,13 +190,19 @@ async def wave_scenarios(local_hour: int | None = None, local_weekday: int | Non
                          mood: str | None = None,
                          user: CurrentUser = Depends(tg_user)):
     """Карточки сценариев: динамически по профилю и контексту (§2.3)."""
+    ck = ("wave:scen", int(user.id), local_hour, local_weekday, device, activity, mood)
+    hit = ramcache.get(ck)
+    if hit is not None:
+        return hit
     async with runtime.get_session() as s:
         ws = await service.ensure_settings(s, int(user.id))
         ctx = await intel_endless_ctx(s, int(user.id), ws, local_hour,
                                       local_weekday, device, activity, mood)
         scen_list = intel_context.scenario_list(ctx, ctx.snapshot)
-        return {"scenarios": [sc.to_json() for sc in scen_list],
+        resp = {"scenarios": [sc.to_json() for sc in scen_list],
                 "context": ctx.explain()}
+    ramcache.put(ck, resp, 180)
+    return resp
 
 
 async def intel_endless_ctx(s, user_id, ws, local_hour, local_weekday,
@@ -280,6 +287,10 @@ async def wave_shake(body: ShakeBody, user: CurrentUser = Depends(tg_user)):
 @router.get("/taste")
 async def wave_taste(user: CurrentUser = Depends(tg_user)):
     """Профиль вкуса: уровни A/B/C, исключённые, доля открытий (§12)."""
+    ck = ("wave:taste", int(user.id))
+    hit = ramcache.get(ck)
+    if hit is not None:
+        return hit
     async with runtime.get_session() as s:
         profile = await intel_taste.get_profile(s, int(user.id))
         lv = intel_taste.levels_of(profile)
@@ -306,6 +317,8 @@ async def wave_taste(user: CurrentUser = Depends(tg_user)):
                          (profile.language_affinity or {}).items()},
             "refreshed_at": profile.refreshed_at.isoformat() if profile.refreshed_at else None,
         }
+    ramcache.put(ck, resp, 60)
+    return resp
 
 
 @router.post("/taste/exclude")
@@ -333,6 +346,7 @@ async def wave_taste_exclude(body: ExcludeBody, user: CurrentUser = Depends(tg_u
             profile.excluded_genres = excluded[:20]
         await service._invalidate_prefetch(s, int(user.id))
         await s.commit()
+        ramcache.drop_uid(int(user.id))          # вкус изменился
         return {"ok": True}
 
 
@@ -354,6 +368,7 @@ async def wave_taste_include(body: ExcludeBody, user: CurrentUser = Depends(tg_u
                                        if x != body.genre]
         await service._invalidate_prefetch(s, int(user.id))
         await s.commit()
+        ramcache.drop_uid(int(user.id))          # вкус изменился
         return {"ok": True}
 
 
@@ -378,6 +393,7 @@ async def wave_clear(body: ClearBody, user: CurrentUser = Depends(tg_user)):
             await adaptive.reset(s, uid)   # личные веса и аудит адаптации
         await service._invalidate_prefetch(s, uid)
         await s.commit()
+        ramcache.drop_uid(uid)               # вкус/история очищены
         return {"ok": True, "scope": scope}
 
 
@@ -397,10 +413,16 @@ async def wave_metrics(days: int = 14, user: CurrentUser = Depends(tg_user)):
 @router.get("/discovery")
 async def wave_discovery(limit: int = 8, user: CurrentUser = Depends(tg_user)):
     """Карточки новых артистов (§9.1): не случайные, рядом с вкусом."""
+    ck = ("wave:disc", int(user.id), max(1, min(16, limit)))
+    hit = ramcache.get(ck)
+    if hit is not None:
+        return hit
     async with runtime.get_session() as s:
         cards = await intel_discovery.discovery_cards(s, int(user.id),
                                                      limit=max(1, min(16, limit)))
-        return {"artists": cards}
+        resp = {"artists": cards}
+    ramcache.put(ck, resp, 300)
+    return resp
 
 
 @router.post("/artist")
@@ -421,8 +443,14 @@ async def wave_artist(body: dict, user: CurrentUser = Depends(tg_user)):
 
 @router.get("/settings")
 async def wave_settings(user: CurrentUser = Depends(tg_user)):
+    ck = ("wave:set", int(user.id))
+    hit = ramcache.get(ck)
+    if hit is not None:
+        return hit
     async with runtime.get_session() as s:
-        return await service.settings_dto(s, int(user.id))
+        resp = await service.settings_dto(s, int(user.id))
+    ramcache.put(ck, resp, 300)
+    return resp
 
 
 @router.put("/settings")
@@ -431,4 +459,5 @@ async def wave_save_settings(body: SettingsBody, user: CurrentUser = Depends(tg_
     async with runtime.get_session() as s:
         resp = await service.update_settings(s, int(user.id), patch)
     invalidate_config()                        # веса/лимиты могли обновиться
+    ramcache.drop_uid(int(user.id))            # settings/scenarios/taste устарели
     return resp
