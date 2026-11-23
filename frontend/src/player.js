@@ -9,6 +9,7 @@ import { API_BASE, api, playerSrc, coverUrl } from './api.js';
 import { localSrc, addHistory, recordEvent, syncEvents, cacheTracks } from './local/repo.js';
 import { saveSession, saveSessionSoon, getSession } from './local/recover.js';
 import * as ms from './local/mediasession.js';
+import { bootLockAnime, lockAnimeState } from './local/lockanime.js';
 import { boot as bootDownloads } from './local/downloads.js';
 
 const audio = new Audio();
@@ -350,11 +351,13 @@ audio.addEventListener('loadedmetadata', () => {
     catch { /* webview strictness */ }
     state.pendingSeek = null;
   }
+  ms.setPositionState({ duration: audio.duration, position: audio.currentTime, rate: audio.playbackRate });
 });
 
 audio.addEventListener('play', () => {
   state.attempts = 0;
   ms.setPlaybackState(true);
+  lockAnimeState(true);            // живая обложка локскрина: тянка просыпается
   if (wave && current()) {
     const cur = current();
     const dur = audio.duration || cur.duration || 0;
@@ -376,11 +379,21 @@ audio.addEventListener('play', () => {
 });
 audio.addEventListener('pause', () => {
   ms.setPlaybackState(false);
+  lockAnimeState(false);           // тянка спит — видно на локскрине
+  ms.setPositionState({ duration: audio.duration, position: audio.currentTime, rate: audio.playbackRate });
   saveSession(sessData());
   emit();
 });
+/* позиция для локскрина: не чаще раза в секунду (setPositionState дешёвый,
+   но вызов на каждом timeupdate излишен) */
+let lastPosMs = 0;
 audio.addEventListener('timeupdate', () => {
   if (wave && current()) waveMark();
+  const nowMs = Date.now();
+  if (nowMs - lastPosMs >= 1000) {
+    lastPosMs = nowMs;
+    ms.setPositionState({ duration: audio.duration, position: audio.currentTime, rate: audio.playbackRate });
+  }
   saveSessionSoon(sessData());
   emit();
 });
@@ -475,5 +488,6 @@ ms.bindActions({
     }
   } catch { /* состояние — best effort */ }
   try { bootDownloads(); } catch { /* загрузки не критичны */ }
+  try { bootLockAnime(); } catch { /* живая обложка не критична */ }
   try { syncEvents(); } catch { /* офлайн-события уйдут позже */ }
 })();

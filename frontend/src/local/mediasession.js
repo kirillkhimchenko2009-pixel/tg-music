@@ -21,6 +21,34 @@ export function setPlaybackState(playing) {
   catch { /* ок */ }
 }
 
+/* живая обложка (локскрин-аниме): подменяет только artwork, метаданные целы */
+export function setArtwork(items) {
+  if (!msAvailable()) return;
+  try {
+    const md = navigator.mediaSession.metadata;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: md?.title || '', artist: md?.artist || '', album: md?.album || '',
+      artwork: items || [],
+    });
+  } catch { /* ок */ }
+}
+
+/* прогресс для локскрина: полоса позиции и корректные ±10с */
+export function setPositionState({ duration = 0, position = 0, rate = 1 } = {}) {
+  if (!msAvailable() || typeof navigator.mediaSession.setPositionState !== 'function') return;
+  try {
+    if (!Number.isFinite(duration) || duration <= 0) {
+      navigator.mediaSession.setPositionState();
+      return;
+    }
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: Number.isFinite(rate) && rate > 0 ? rate : 1,
+      position: Math.min(Math.max(0, position || 0), duration),
+    });
+  } catch { /* ок */ }
+}
+
 /* h: { toggle, next, prev, seekTo(sec), skip(sec) } */
 export function bindActions(h) {
   if (!msAvailable()) return;
