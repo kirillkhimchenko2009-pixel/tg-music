@@ -27,7 +27,7 @@ function bookCover(book) {
 
 function chapterTrack(book, chapter) {
   return {
-    id: audiobookTrackId(book.id, chapter.id),
+    id: chapterTrackId(book, chapter),
     title: chapter.title,
     artist: book.author,
     album: book.title,
@@ -40,6 +40,11 @@ function chapterTrack(book, chapter) {
   };
 }
 
+/* безопасный числовой ID главы (для сравнения с текущим треком плеера) */
+function chapterTrackId(book, chapter) {
+  try { return audiobookTrackId(book.id, chapter.id); } catch { return null; }
+}
+
 function BookCover({ book, className = '' }) {
   return <span className={'books-cover ' + className}>
     {bookCover(book) ? <img src={bookCover(book)} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none'; }} /> : null}
@@ -48,6 +53,7 @@ function BookCover({ book, className = '' }) {
 }
 
 export default function Audiobooks() {
+  const pst = P.usePlayerSnap();          // живое состояние плеера (идёт/пауза/текущая глава)
   const [books, setBooks] = useState([]);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
@@ -135,6 +141,11 @@ export default function Audiobooks() {
   const visibleBooks = books;
   const featured = visibleBooks[0] || null;
 
+  /* что сейчас играет: id текущего трека; bookCurrentId — если это глава этой книги */
+  const curTrackId = P.current()?.id ?? null;
+  const bookCurrentId = selected?.chapters?.some(c => chapterTrackId(selected, c) === curTrackId)
+    ? curTrackId : null;
+
   const closeBook = () => {
     bookRequestRef.current += 1;
     bookAbortRef.current?.abort();
@@ -172,10 +183,13 @@ export default function Audiobooks() {
     const tracks = chapters.map(chapter => chapterTrack(book, chapter));
     if (!tracks.length) return;
     haptic('medium');
+    const cur = P.current();
+    if (cur && tracks[index]?.id === cur.id) { P.toggle(); return; }   // та же глава → пауза/продолжить
     // Start audio before any IndexedDB await; mobile WebViews can drop the
     // user's playback gesture if local storage is checked first.
     P.play(tracks, index);
     cacheTracks(tracks).catch(() => {});
+    toast(`▶ Играет: ${tracks[index]?.title || book.title}`, { kind: 'success' });
   };
 
   const saveChapter = async (book, chapter) => {
@@ -255,17 +269,23 @@ export default function Audiobooks() {
         <button className="books-drawer-close" aria-label="Закрыть" onClick={closeBook}><IcoX /></button>
         <div className="books-drawer-top"><BookCover book={selected} className="books-drawer-cover" /><div><span>LIBRIVOX · ОТКРЫТАЯ ЗАПИСЬ</span><h2 id="books-drawer-title">{selected.title}</h2><p>{selected.author}</p>
           <div className="books-book-meta"><span>{selected.language}</span>{selected.duration > 0 && <span>{formatBookDuration(selected.duration)}</span>}</div>
-          <button className="books-play-all" disabled={bookBusy || !selected.chapters?.length} onClick={() => playBook(selected, selected.chapters || [])}>{bookBusy ? 'Загружаем главы…' : '▶  Слушать книгу'}</button>
+          {bookCurrentId != null
+            ? <button className="books-play-all on" onClick={() => P.toggle()} aria-label={pst.playing ? 'Пауза' : 'Продолжить'}>{pst.playing ? '❚❚  Пауза' : '▶  Продолжить'}</button>
+            : <button className="books-play-all" disabled={bookBusy || !selected.chapters?.length} onClick={() => playBook(selected, selected.chapters || [])}>{bookBusy ? 'Загружаем главы…' : '▶  Слушать книгу'}</button>}
         </div></div>
         {selected.description && <p className="books-description">{selected.description}</p>}
         <div className="books-chapter-head"><span>СОДЕРЖАНИЕ</span><strong>{selected.chapters?.length || 0} глав</strong></div>
         {bookBusy && !selected.chapters ? <div className="books-more">Загружаем содержание…</div> : null}
-        {selected.chapters?.length ? <div className="books-chapters">{selected.chapters.map((chapter, index) => <article key={chapter.id} className="book-chapter">
-          <button className="book-chapter-play" aria-label={`Слушать ${chapter.title}`} onClick={() => playBook(selected, selected.chapters, index)}>▶</button>
-          <div className="book-chapter-copy"><span>ГЛАВА {chapter.number || index + 1}</span><strong>{chapter.title}</strong><small>{chapter.narrator || 'Чтец LibriVox'}{chapter.duration ? ` · ${formatBookDuration(chapter.duration)}` : ''}</small></div>
+        {selected.chapters?.length ? <div className="books-chapters">{selected.chapters.map((chapter, index) => {
+          const tid = chapterTrackId(selected, chapter);
+          const isCur = tid != null && tid === curTrackId;
+          return <article key={chapter.id} className={'book-chapter' + (isCur ? ' on' : '')}>
+          <button className="book-chapter-play" aria-label={isCur ? (pst.playing ? 'Пауза' : 'Продолжить') : `Слушать ${chapter.title}`} onClick={() => playBook(selected, selected.chapters, index)}>{isCur && pst.playing ? '❚❚' : '▶'}</button>
+          <div className="book-chapter-copy"><span>{isCur ? (pst.playing ? 'ИГРАЕТ · ГЛАВА ' : 'ПАУЗА · ГЛАВА ') : 'ГЛАВА '}{chapter.number || index + 1}</span><strong>{chapter.title}</strong><small>{chapter.narrator || 'Чтец LibriVox'}{chapter.duration ? ` · ${formatBookDuration(chapter.duration)}` : ''}</small></div>
           <a className="book-chapter-download" href={`${API_BASE}${chapter.audio_url}?download=1`} aria-label={`Скачать главу ${chapter.title}`}><IcoDl /></a>
           {chapter.duration > 0 && chapter.duration <= 3600 && <button className="book-chapter-offline" disabled={!!savingId} onClick={() => saveChapter(selected, chapter)}>{savingId === chapter.id ? '…' : 'В Vibe'}</button>}
-        </article>)}</div> : null}
+        </article>;
+        })}</div> : null}
         <a className="books-credit" href={selected.catalog_url} target="_blank" rel="noreferrer">Страница записи и лицензия в LibriVox ↗</a>
       </section>
     </div>}

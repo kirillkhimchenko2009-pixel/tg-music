@@ -2347,8 +2347,10 @@ h1.h {
 .books-empty > svg { width: 25px; height: 25px; color: #c99a55; }
 .books-error { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin: 10px 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border)); border-radius: 11px; color: var(--t2); font-size: 10px; }
 .books-error button { border: 0; background: none; color: #c99a55; font: inherit; cursor: pointer; }
-.books-drawer-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: flex-end; background: rgba(0,0,0,.62); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
-.books-drawer { position: relative; width: min(540px, 100%); height: 100%; overflow-y: auto; padding: 25px; background: var(--bg); box-shadow: -18px 0 60px rgba(0,0,0,.3); animation: books-drawer-in .22s ease-out; }
+.books-drawer-backdrop { position: fixed; inset: 0; z-index: 44; display: flex; justify-content: flex-end; background: rgba(0,0,0,.62); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+/* z-44: мини-плеер (z-46) и таббар (z-47) остаются ВИДНЫМИ поверх шторки —
+   сразу видно, что книга включилась, и её можно поставить на паузу */
+.books-drawer { position: relative; width: min(540px, 100%); height: 100%; overflow-y: auto; padding: 25px; padding-bottom: calc(var(--pb-h) + 30px); background: var(--bg); box-shadow: -18px 0 60px rgba(0,0,0,.3); animation: books-drawer-in .22s ease-out; }
 .books-drawer-close { position: absolute; top: 14px; right: 14px; z-index: 2; display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border-soft); border-radius: 50%; background: var(--card); color: var(--t2); cursor: pointer; }
 .books-drawer-close svg { width: 17px; height: 17px; }
 .books-drawer-top { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 18px; padding: 13px 28px 17px 0; }
@@ -2360,11 +2362,30 @@ h1.h {
 .books-book-meta span { padding: 4px 7px; border: 1px solid var(--border-soft); border-radius: 999px; color: var(--t3); font-size: 8px; }
 .books-play-all { min-height: 34px; margin-top: 11px; padding: 0 12px; border: 0; border-radius: 9px; background: #c99a55; color: #251e15; font: 750 9px var(--font-ui); cursor: pointer; }
 .books-play-all:disabled { opacity: .5; cursor: wait; }
+.books-play-all.on {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
+  color: #fff;
+  box-shadow: 0 0 18px rgba(255, 61, 129, .4);
+  letter-spacing: .04em;
+}
 .books-description { margin: 8px 0 19px; color: var(--t3); font-size: 10px; line-height: 1.65; }
 .books-chapter-head { display: flex; justify-content: space-between; margin: 0 0 8px; color: #c99a55; font-size: 8px; font-weight: 850; letter-spacing: .13em; }
 .books-chapter-head strong { color: var(--t3); font-size: 8px; letter-spacing: 0; }
 .books-chapters { display: grid; gap: 5px; }
 .book-chapter { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 9px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--card); }
+.book-chapter.on {
+  border-color: rgba(255, 61, 129, .45);
+  background: linear-gradient(90deg, rgba(255, 61, 129, .10), rgba(255, 61, 129, .02));
+  box-shadow: 0 0 16px rgba(255, 61, 129, .18);
+}
+.book-chapter.on .book-chapter-play {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 0 14px rgba(255, 61, 129, .45);
+}
+.book-chapter.on .book-chapter-copy > span {
+  color: var(--sakura);
+  text-shadow: 0 0 10px rgba(255, 61, 129, .35);
+}
 .book-chapter-play { display: grid; flex: 0 0 30px; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 50%; background: rgba(201,154,85,.15); color: #d4aa6c; font-size: 9px; cursor: pointer; }
 .book-chapter-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
 .book-chapter-copy > span { color: #bd9152; font-size: 6px; font-weight: 850; letter-spacing: .1em; }
