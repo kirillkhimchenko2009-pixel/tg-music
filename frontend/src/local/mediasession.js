@@ -49,17 +49,21 @@ export function setPositionState({ duration = 0, position = 0, rate = 1 } = {}) 
   } catch { /* ок */ }
 }
 
-/* h: { toggle, next, prev, seekTo(sec), skip(sec) } */
+/* h: { toggle, next, prev, seekTo(sec) } */
+/* ВАЖНО (iOS/WebKит): нельзя регистрировать seekbackward/seekforward вместе
+   с previoustrack/nexttrack — тогда iOS прячет ⏮/⏭ и показывает только
+   ±10с. Seek-обработчики явно сбрасываем в null. */
 export function bindActions(h) {
   if (!msAvailable()) return;
   const set = (name, fn) => {
-    try { navigator.mediaSession.setActionHandler(name, fn); } catch { /* нет действия */ }
+    try { navigator.mediaSession.setActionHandler(name, fn || null); } catch { /* нет действия */ }
   };
   set('play', () => h.toggle?.());
   set('pause', () => h.toggle?.());
   set('nexttrack', () => h.next?.());
   set('previoustrack', () => h.prev?.());
   set('seekto', d => { if (d && d.seekTime != null && Number.isFinite(d.seekTime)) h.seekTo?.(d.seekTime); });
-  set('seekbackward', d => h.skip?.(-(d?.seekOffset || 10)));
-  set('seekforward', d => h.skip?.(d?.seekOffset || 10));
+  set('seekbackward', null);
+  set('seekforward', null);
+  set('stop', () => h.toggle?.());
 }

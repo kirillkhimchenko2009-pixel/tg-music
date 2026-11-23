@@ -377,6 +377,11 @@ audio.addEventListener('play', () => {
   state.attempts = 0;
   ms.setPlaybackState(true);
   lockAnimeState(true);            // живая обложка локскрина: тянка просыпается
+});
+/* iOS: handlers действуют только когда элемент уже «Now Playing» —
+   ставим их и маячим старт именно на событии playing */
+audio.addEventListener('playing', () => {
+  ms.bindActions(MS_ACTIONS);      // iOS: ⏮/⏭ появляются именно здесь
   if (wave && current()) {
     const cur = current();
     const dur = audio.duration || cur.duration || 0;
