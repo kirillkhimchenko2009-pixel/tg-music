@@ -1,43 +1,44 @@
 /* ============================================================
-   VIBE MUSIC · Design System v3.1 «Premium Dark»
-   Глубже фон, холоднее поверхности, тоньше бордеры, глубже тени.
-   Фаза 1 редизайна: только токены и точечные правила — классы
-   и логика не меняются (см. frontend/docs/design-research.md).
+   VIBE MUSIC · Design System v4 «夜のネオン» (Neon Sakura)
+   Аниме-ночь: глубокое индиго, неоново-розовый + циан, сакура.
+   Классы и логика не меняются — редизайн через токены и v4-слой
+   в конце файла (структурные оверрайды).
    ============================================================ */
 
 /* ---------- токены ---------- */
 :root {
-  /* Premium Dark → серый графит (референс: серый фон под jelly-glass).
-     Нейтральная серая рампа без синевы; поверхности читаются
-     слоями (bg → elev → card), а не бордерами. */
-  --bg: #2A2C31;
-  --bg-elev: #303237;
-  --card: #36383E;
-  --card-hover: #3E4148;
-  --surface2: #33353B;
-  --border: #42454C;
-  --border-soft: #3B3E44;
+  /* ночная индиго-рампа: bg → elev → card читаются слоями */
+  --bg: #0A0C18;
+  --bg-elev: #10142A;
+  --card: #161B36;
+  --card-hover: #1E2448;
+  --surface2: #12172E;
+  --border: #2B3160;
+  --border-soft: #20264A;
 
-  --t1: #F7F8FA;
-  --t2: #AEB5C0;
-  --t3: #8F98A6;   /* ≥4.5:1 на --bg (доступность мелких подписей) */
+  --t1: #F2F4FF;
+  --t2: #A7AEE0;
+  --t3: #7E86BE;   /* ≥4.5:1 на --bg (доступность мелких подписей) */
 
-  --accent: #D9ED3A;
-  --accent-hover: #E7F56B;
-  --accent-ink: #17190c;
+  --accent: #FF3D81;        /* неоновая сакура */
+  --accent-hover: #FF659C;
+  --accent-ink: #2A0812;
+  --accent-2: #38E1FF;      /* циан-партнёр */
+  --accent-3: #B44DFF;      /* фиолетовый градиент-партнёр */
+  --sakura: #FFB7D5;
   --danger: #FF6D6D;
 
   /* материалы: верхний свет на карточках, стеклянная подложка шитов,
      свечение акцента для главных действий */
-  --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, 0) 38%);
-  --glass: rgba(24, 26, 31, .82);
-  --shadow-glow: 0 0 0 1px rgba(217, 237, 58, .16), 0 10px 34px rgba(217, 237, 58, .12);
+  --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, 0) 38%);
+  --glass: rgba(11, 14, 30, .84);
+  --shadow-glow: 0 0 0 1px rgba(255, 61, 129, .20), 0 12px 38px rgba(255, 61, 129, .16);
 
   /* стеклянные кнопки (iOS-подобный материал): полупрозрачная светлая
      заливка + hairline + верхний свет; blur применяется точечно */
   --glass-fill: rgba(255, 255, 255, .07);
-  --glass-line: rgba(255, 255, 255, .11);
-  --glass-light: inset 0 1px 0 rgba(255, 255, 255, .13), 0 8px 24px rgba(0, 0, 0, .26);
+  --glass-line: rgba(255, 255, 255, .12);
+  --glass-light: inset 0 1px 0 rgba(255, 255, 255, .14), 0 8px 24px rgba(0, 0, 0, .34);
   --glass-blur: blur(14px) saturate(1.6);
 
   --r-xl: 24px;
@@ -66,7 +67,7 @@
   --ease-exit: cubic-bezier(.45, 0, .3, 1);
 
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Manrope', 'Inter', system-ui, sans-serif;
+  --font-display: 'Unbounded', 'Manrope', 'Inter', system-ui, sans-serif;
 
   --side-w: 236px;
   --pb-h: 84px;
@@ -74,24 +75,8 @@
   --page-x: 26px;
 }
 
-/* светлые токены подготовлены, но тёмная — основная тема */
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #F2F3F1; --bg-elev: #F8F9F7; --card: #FFFFFF; --card-hover: #F0F2EE;
-    --surface2: #E8EBE5; --border: #D0D5CD; --border-soft: #E0E4DD;
-    --t1: #191C18; --t2: #4F564E; --t3: #687067;
-    --accent: #687A08; --accent-hover: #566706; --accent-ink: #FFFFFF;
-    --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, .84), rgba(255, 255, 255, 0) 42%);
-    --glass: rgba(248, 249, 247, .88);
-    --glass-fill: rgba(255, 255, 255, .72);
-    --glass-line: rgba(255, 255, 255, .92);
-    --glass-light: inset 0 1px 0 rgba(255, 255, 255, .95), 0 8px 24px rgba(32, 40, 28, .08);
-    --shadow-1: 0 3px 12px rgba(32, 40, 28, .09);
-    --shadow-card: 0 16px 38px rgba(32, 40, 28, .12);
-    --shadow-pop: 0 22px 56px rgba(32, 40, 28, .18);
-  }
-  html { color-scheme: light; }
-}
+/* светлая тема отключена: «夜のネオン» — всегда ночь (полный редизайн v4) */
+
 
 /* ---------- reset / base ---------- */
 *, *::before, *::after { box-sizing: border-box; }
@@ -102,12 +87,14 @@ html { color-scheme: dark; height: 100%; }
 body {
   margin: 0;
   min-height: 100%;
-  /* ambient оболочки: два статичных свечения (дешевле любого blur) —
-     лайм-акцент сверху справа, холодный контрагент слева */
+  /* 夜のネオン: ночное небо — розовая аврора справа сверху, циан слева,
+     фиолетовый подвал; всё статично (дешевле любого blur) */
   background:
-    radial-gradient(120% 55% at 85% -12%, rgba(217, 237, 58, .045), transparent 58%),
-    radial-gradient(90% 50% at -15% 24%, rgba(96, 120, 255, .05), transparent 60%),
-    var(--bg);
+    radial-gradient(110% 50% at 88% -10%, rgba(255, 61, 129, .09), transparent 58%),
+    radial-gradient(80% 46% at -12% 16%, rgba(56, 225, 255, .06), transparent 56%),
+    radial-gradient(130% 60% at 50% 120%, rgba(180, 77, 255, .10), transparent 62%),
+    linear-gradient(180deg, #0C0F20, var(--bg) 42%);
+  background-attachment: fixed;
   color: var(--t1);
   font-family: var(--font-ui);
   font-size: 14px;
@@ -127,17 +114,17 @@ button {
 }
 input { font: inherit; color: inherit; }
 input:focus, button:focus-visible {
-  outline: 2px solid rgba(217, 237, 58, .38);
+  outline: 2px solid rgba(255, 61, 129, .38);
   outline-offset: 3px;
   /* радиус не переопределяем: outline следует родному радиусу элемента,
      иначе круглые кнопки «квадратятся» при клавиатурном фокусе */
 }
-::selection { background: rgba(217, 237, 58, .22); }
+::selection { background: rgba(255, 61, 129, .22); }
 
 /* тонкий фирменный скроллбар */
-* { scrollbar-width: thin; scrollbar-color: #2A3140 transparent; }
+* { scrollbar-width: thin; scrollbar-color: #232A52 transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: #2A3140; border-radius: 8px; }
+*::-webkit-scrollbar-thumb { background: #232A52; border-radius: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 /*("----------------layout="shell---------------------------------------------------*/
@@ -164,9 +151,9 @@ input:focus, button:focus-visible {
 }
 .ellipse {
   width: 30px; height: 30px; border-radius: 50%;
-  background: linear-gradient(145deg, var(--accent), #86e04a 70%);
+  background: linear-gradient(145deg, var(--accent), #B44DFF 70%);
   display: grid; place-items: center;
-  box-shadow: 0 0 18px rgba(217, 237, 58, .35);
+  box-shadow: 0 0 18px rgba(255, 61, 129, .35);
 }
 .ellipse svg { width: 16px; height: 16px; color: var(--accent-ink); }
 .wordmark {
@@ -513,7 +500,7 @@ h1.h {
   content: '';
   position: absolute; inset: 0; pointer-events: none;
   background:
-    radial-gradient(120% 130% at 88% -10%, rgba(217, 237, 58, .14), transparent 46%),
+    radial-gradient(120% 130% at 88% -10%, rgba(255, 61, 129, .14), transparent 46%),
     radial-gradient(100% 120% at 0% 110%, rgba(0,0,0,.42), transparent 55%);
 }
 .mix-ava {
@@ -576,12 +563,12 @@ h1.h {
 }
 .genretile:hover { transform: translateY(-2px); border-color: var(--border); }
 .genretile:active { transform: scale(.965); }
-.genretile[data-h="0"] { --glow: rgba(255, 108, 88, .17); }   /* хип-хоп */
-.genretile[data-h="1"] { --glow: rgba(92, 140, 255, .18); }   /* рок */
-.genretile[data-h="2"] { --glow: rgba(255, 176, 76, .15); }   /* поп */
-.genretile[data-h="3"] { --glow: rgba(168, 112, 255, .17); }  /* электро */
-.genretile[data-h="4"] { --glow: rgba(64, 224, 178, .14); }   /* инди */
-.genretile[data-h="5"] { --glow: rgba(217, 237, 58, .12); }   /* джаз */
+.genretile[data-h="0"] { --glow: rgba(255, 61, 129, .22); }   /* хип-хоп */
+.genretile[data-h="1"] { --glow: rgba(56, 225, 255, .20); }   /* рок */
+.genretile[data-h="2"] { --glow: rgba(255, 183, 213, .20); }  /* поп */
+.genretile[data-h="3"] { --glow: rgba(180, 77, 255, .22); }   /* электро */
+.genretile[data-h="4"] { --glow: rgba(64, 224, 178, .18); }   /* инди */
+.genretile[data-h="5"] { --glow: rgba(255, 165, 76, .18); }   /* джаз */
 
 /* компакт-карточки «Продолжить слушать» */
 .squircle { border-radius: var(--r-lg); }
@@ -750,12 +737,12 @@ h1.h {
 .bigbtn.primary {
   background: linear-gradient(180deg, var(--accent-hover), var(--accent) 72%);
   color: var(--accent-ink); border-color: transparent;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px rgba(217, 237, 58, .28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px rgba(255, 61, 129, .28);
 }
 .bigbtn.primary:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 10px 26px rgba(217, 237, 58, .36);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 10px 26px rgba(255, 61, 129, .36);
 }
 .bigbtn.primary:active { transform: translateY(0) scale(.96); }
 .bigbtn.wide { width: 100%; }
@@ -782,7 +769,7 @@ h1.h {
 .chip.on {
   background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
   color: var(--accent-ink); border-color: transparent;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 4px 14px rgba(217, 237, 58, .2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 4px 14px rgba(255, 61, 129, .2);
 }
 .chip.on:hover { background: var(--accent-hover); transform: translateY(-1px); }
 .chiprow { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -879,7 +866,7 @@ h1.h {
   width: 52px; height: 52px; border-radius: 50%;
   background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center;
-  box-shadow: 0 10px 26px rgba(217, 237, 58, .25);
+  box-shadow: 0 10px 26px rgba(255, 61, 129, .25);
   transition: transform .22s var(--spring), background .2s var(--ease);
 }
 .pbtn-lg:hover { background: var(--accent-hover); transform: scale(1.06); }
@@ -895,7 +882,7 @@ h1.h {
 }
 .iconact:hover { color: var(--t1); background: var(--card-hover); }
 .iconact svg { width: 18px; height: 18px; }
-.iconact.on { color: var(--accent); border-color: rgba(217, 237, 58, .4); }
+.iconact.on { color: var(--accent); border-color: rgba(255, 61, 129, .4); }
 
 /* сетка альбомов */
 .albgrid {
@@ -1043,7 +1030,7 @@ h1.h {
   background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
   color: var(--accent-ink);
   display: grid; place-items: center;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 18px rgba(217, 237, 58, .24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 18px rgba(255, 61, 129, .24);
   transition: transform .2s var(--spring), box-shadow .2s var(--ease), background .2s var(--ease);
 }
 .pl-play:hover { filter: brightness(1.07); transform: scale(1.04); }
@@ -1075,7 +1062,7 @@ h1.h {
   appearance: none; -webkit-appearance: none;
   width: 12px; height: 12px; border-radius: 50%;
   background: var(--t1);
-  box-shadow: 0 0 0 4px rgba(217, 237, 58, .16), 0 2px 10px rgba(0, 0, 0, .5);
+  box-shadow: 0 0 0 4px rgba(255, 61, 129, .16), 0 2px 10px rgba(0, 0, 0, .5);
   opacity: 0; transform: scale(.5);
   transition: opacity .18s var(--ease), transform .25s var(--spring);
 }
@@ -1084,7 +1071,7 @@ h1.h {
 .seek::-moz-range-thumb {
   width: 12px; height: 12px; border: 0; border-radius: 50%;
   background: var(--t1); opacity: 0;
-  box-shadow: 0 0 0 4px rgba(217, 237, 58, .16), 0 2px 10px rgba(0, 0, 0, .5);
+  box-shadow: 0 0 0 4px rgba(255, 61, 129, .16), 0 2px 10px rgba(0, 0, 0, .5);
   transition: opacity .18s var(--ease);
 }
 .seek:hover::-moz-range-thumb, .seek:active::-moz-range-thumb { opacity: 1; }
@@ -1142,8 +1129,8 @@ h1.h {
 .tab-plate {
   position: absolute; inset: 4px 3px; z-index: 0;
   border-radius: 12px;
-  background: rgba(217, 237, 58, .10);
-  border: 1px solid rgba(217, 237, 58, .16);
+  background: rgba(255, 61, 129, .10);
+  border: 1px solid rgba(255, 61, 129, .16);
   pointer-events: none;
 }
 
@@ -1272,7 +1259,7 @@ h1.h {
   width: 56px; height: 56px;
   background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
   color: var(--accent-ink);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32), 0 10px 26px rgba(217, 237, 58, .26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32), 0 10px 26px rgba(255, 61, 129, .26);
 }
 .cbtn.big:hover { filter: brightness(1.07); color: var(--accent-ink); transform: scale(1.02); }
 .cbtn.big:active { transform: scale(.96); }
@@ -1332,7 +1319,7 @@ h1.h {
     inset 0 -7px 12px rgba(64, 74, 6, .42),
     inset 0 0 0 1px rgba(255, 255, 255, .28),
     0 10px 22px rgba(0, 0, 0, .40),
-    0 6px 20px rgba(217, 237, 58, .22);
+    0 6px 20px rgba(255, 61, 129, .22);
 }
 /* верхний блик-«стекло» — общий для всех */
 .cbtn.big::before, .cbtn.glass::before, .pl-play::before,
@@ -1373,8 +1360,8 @@ h1.h {
 .npq-bg {
   position: absolute; inset: 0; z-index: 0;
   border-radius: 10px;
-  background: rgba(217, 237, 58, .12);
-  border: 1px solid rgba(217, 237, 58, .16);
+  background: rgba(255, 61, 129, .12);
+  border: 1px solid rgba(255, 61, 129, .16);
   pointer-events: none;
 }
 .npq:hover { background: rgba(255,255,255,.05); color: var(--t1); }
@@ -1523,7 +1510,7 @@ h1.h {
 .wave-aura {
   position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(60% 50% at 70% 0%, rgba(217, 237, 58, .07), transparent 60%),
+    radial-gradient(60% 50% at 70% 0%, rgba(255, 61, 129, .07), transparent 60%),
     radial-gradient(70% 60% at 20% 90%, rgba(90, 120, 255, .06), transparent 60%);
   transition: background 1.6s var(--ease);
   animation: auraBreath 9s ease-in-out infinite alternate;
@@ -1562,7 +1549,7 @@ h1.h {
 }
 .wave-aurora i:nth-child(3) {
   width: 78vmax; height: 78vmax; left: -18%; bottom: -40%;
-  background: radial-gradient(closest-side, rgba(217, 237, 58, .075), transparent 70%);
+  background: radial-gradient(closest-side, rgba(255, 61, 129, .075), transparent 70%);
   animation: auroraC 27s ease-in-out infinite alternate;
 }
 @keyframes auroraA {
@@ -1633,7 +1620,7 @@ h1.h {
   transition: all .18s var(--ease);
 }
 .wave-formula:hover { color: var(--t1); border-color: var(--border); }
-.wave-formula.dirty { border-color: rgba(217, 237, 58, .5); color: var(--accent); }
+.wave-formula.dirty { border-color: rgba(255, 61, 129, .5); color: var(--accent); }
 .wave-gear { opacity: .75; }
 
 .wave-covwrap { position: relative; width: min(72vw, 300px); aspect-ratio: 1; margin: 14px 0 16px; }
@@ -1700,7 +1687,7 @@ h1.h {
 .wave-boottext { margin-top: 12px; }
 .wave-idle { width: 100%; padding: 14px 0; }
 .wave-start-card { width: min(100%, 520px); text-align: center; }
-.wave-start-icon { width: 52px; height: 52px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 16px; color: var(--accent); background: rgba(217, 237, 58, .1); }
+.wave-start-icon { width: 52px; height: 52px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 16px; color: var(--accent); background: rgba(255, 61, 129, .1); }
 .wave-start-icon svg { width: 26px; height: 26px; }
 .wave-start-card h2 { margin: 0; font: 800 20px/1.25 var(--font-display); }
 .wave-start-card p { margin: 10px auto 18px; max-width: 42ch; line-height: 1.55; }
@@ -1720,15 +1707,15 @@ h1.h {
   width: 100%;
   margin: 10px 0 2px; padding: 10px 12px;
   border-radius: var(--r-md);
-  background: rgba(217, 237, 58, .1);
-  border: 1px solid rgba(217, 237, 58, .35);
+  background: rgba(255, 61, 129, .1);
+  border: 1px solid rgba(255, 61, 129, .35);
   color: var(--accent);
   font-size: 12.5px; font-weight: 650;
   text-align: left;
 }
 .wave-dirty .minispinner {
   width: 13px; height: 13px; flex: 0 0 auto;
-  border-width: 2px; border-color: rgba(217, 237, 58, .25); border-top-color: var(--accent);
+  border-width: 2px; border-color: rgba(255, 61, 129, .25); border-top-color: var(--accent);
 }
 .wsec { padding: 12px 0 2px; }
 .wsec.row3 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1806,7 +1793,7 @@ h1.h {
   background: rgba(255,255,255,.08);
   font-size: 12px; font-weight: 800;
 }
-.toast-success .toast-ic { background: rgba(217, 237, 58, .16); color: var(--accent); }
+.toast-success .toast-ic { background: rgba(255, 61, 129, .16); color: var(--accent); }
 .toast-error .toast-ic { background: rgba(255, 109, 109, .14); color: var(--danger); }
 .toast-tx { flex: 1; min-width: 0; }
 .toast-x {
@@ -2641,3 +2628,190 @@ h1.h {
   .card:hover .cardcov, .albert:hover, .podcasts-show:hover, .podcasts-episode:hover,
   .book-card:hover, .books-service:hover { transform: none; }
 }
+
+/* ============================================================
+   v4 «夜のネオン» — структурный слой редизайна (аниме-ночь)
+   Переопределяет форму и материалы ключевых блоков поверх
+   базовой системы v3. Классы не переименованы.
+   ============================================================ */
+
+/* ---------- бренд-блок сайдбара: неоновый логотип ---------- */
+.ellipse {
+  background: linear-gradient(135deg, var(--accent), var(--accent-3) 78%);
+  box-shadow: 0 0 20px rgba(255, 61, 129, .45), 0 0 44px rgba(180, 77, 255, .18);
+}
+.ellipse svg { color: #fff; }
+.wordmark { font-weight: 800; letter-spacing: .02em; }
+.wordmark em {
+  background: linear-gradient(100deg, var(--accent) 10%, var(--accent-2) 90%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: var(--accent);
+}
+.side-group { letter-spacing: .16em; }
+
+/* активный пункт: стеклянная плашка + неоновая кромка слева */
+.side-plate {
+  background: linear-gradient(90deg, rgba(255, 61, 129, .16), rgba(180, 77, 255, .07) 70%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px rgba(255, 255, 255, .05);
+}
+.side-item.on { font-weight: 600; }
+.side-foot { border-top-color: var(--border-soft); }
+
+/* ---------- топбар: стеклянная пленка над ночным небом ---------- */
+.topbar {
+  background: color-mix(in srgb, #0B0E20 72%, transparent);
+  border-bottom-color: rgba(255, 255, 255, .05);
+}
+.topbar.scrolled { border-bottom-color: rgba(255, 61, 129, .10); }
+.tb-search { background: rgba(22, 27, 54, .72); border-color: var(--border-soft); }
+.tb-search:hover { border-color: #38406F; background: rgba(30, 36, 72, .78); }
+.tb-ava { background: linear-gradient(145deg, #2A3060, #171C38); }
+
+/* ---------- заголовки: катана-акцент и вайлд-дисплей ---------- */
+h1.h { letter-spacing: -.2px; }
+.sechead h2 { letter-spacing: -.2px; }
+.sechead h2::before {
+  content: '';
+  display: inline-block; vertical-align: .34em;
+  width: 22px; height: 4px; margin-right: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 12px rgba(255, 61, 129, .5);
+}
+.cap { letter-spacing: .14em; }
+
+/* ---------- герой «Моя волна»: постер аниме с неоновой рамкой ---------- */
+.mixcard {
+  border-radius: 26px;
+  padding: 24px;
+  min-height: 186px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  background-color: var(--surface2);
+  background-image:
+    linear-gradient(115deg, rgba(10, 12, 24, .10) 0%, rgba(10, 12, 24, .42) 46%, rgba(10, 12, 24, .88) 100%),
+    var(--img, none),
+    var(--g, none);
+  background-position: right center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 61, 129, .10);
+}
+.mixcard::before {
+  content: 'ヴァイブ';
+  position: absolute; right: 18px; bottom: 6px; z-index: 1;
+  font-family: var(--font-display);
+  font-size: 74px; font-weight: 800; line-height: 1;
+  color: rgba(255, 255, 255, .05);
+  pointer-events: none;
+  text-shadow: 0 0 32px rgba(255, 61, 129, .18);
+}
+.mixcard::after {
+  background:
+    radial-gradient(110% 130% at 100% 0%, rgba(255, 61, 129, .20), transparent 48%),
+    radial-gradient(90% 120% at 0% 110%, rgba(56, 225, 255, .12), transparent 52%);
+}
+.mix-ava {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 183, 213, .35);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .5), 0 0 26px rgba(255, 61, 129, .25);
+  background: rgba(10, 12, 24, .5);
+}
+.mix-ava svg { color: var(--sakura); filter: drop-shadow(0 0 10px rgba(255, 61, 129, .55)); }
+.mix-kicker { color: rgba(255, 183, 213, .85); }
+.mix-play {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 61, 129, .10));
+  border: 1px solid rgba(255, 61, 129, .4);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 10px 30px rgba(255, 61, 129, .35);
+}
+.mixcard:hover .mix-play { background: linear-gradient(180deg, var(--accent-hover), var(--accent) 78%); color: var(--accent-ink); }
+
+/* ---------- плитки жанров: неоновая рамка при наведении ---------- */
+.genretile {
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 18px;
+}
+.genretile:hover {
+  border-color: rgba(255, 61, 129, .45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 30px rgba(255, 61, 129, .22);
+}
+
+/* ---------- настроение: крупные постеры ---------- */
+.moodgrid { gap: 14px; }
+.mood {
+  min-height: 108px;
+  border-radius: 18px;
+  padding: 13px 15px;
+  font-size: 15px;
+  border: 1px solid rgba(255, 255, 255, .07);
+}
+.mood:hover {
+  border-color: rgba(56, 225, 255, .4);
+  box-shadow: inset 0 0 0 1px rgba(56, 225, 255, .12), 0 14px 34px rgba(0, 0, 0, .45);
+}
+@media (min-width: 700px) { .moodgrid { grid-template-columns: repeat(4, 1fr); } }
+
+/* ---------- карточки-обложки: мягкое неоновое кольцо ---------- */
+.cardcov { border-radius: 16px; box-shadow: 0 2px 14px rgba(0, 0, 0, .38); }
+.card:hover .cardcov { box-shadow: 0 18px 44px rgba(0, 0, 0, .5), 0 0 0 2px rgba(255, 61, 129, .35); }
+.cplay {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 24px rgba(255, 61, 129, .4);
+}
+.cplay:hover { background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%); filter: brightness(1.08); }
+
+/* ---------- нижний плеер-бар ---------- */
+.pbar {
+  background: color-mix(in srgb, #0D1124 86%, transparent);
+  border-top-color: rgba(255, 255, 255, .06);
+  box-shadow: 0 -18px 44px rgba(0, 0, 0, .45);
+}
+.pbar-line-fill { background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+.pl-play {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 20px rgba(255, 61, 129, .38);
+}
+.pl-ctl.on { color: var(--accent); }
+.pcovwrap { border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 61, 129, .18); }
+
+/* ---------- таббар: неоновая плашка активной вкладки ---------- */
+.tabbar {
+  background: color-mix(in srgb, #0D1124 88%, transparent);
+  border-top-color: rgba(255, 255, 255, .06);
+}
+.tab.on { color: var(--sakura); }
+.tab-plate {
+  background: rgba(255, 61, 129, .13);
+  border: 1px solid rgba(255, 61, 129, .22);
+  box-shadow: 0 0 18px rgba(255, 61, 129, .18);
+}
+
+/* ---------- нау-плей: ночная сцена с двойной авророй ---------- */
+.np-bg { background: linear-gradient(180deg, #0C0F22, var(--bg) 40%); }
+.np::before { opacity: .62; }
+.np-cover {
+  border-radius: 20px;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 255, 255, .08), 0 0 60px rgba(255, 61, 129, .16);
+}
+.cbtn.big {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32), 0 10px 28px rgba(255, 61, 129, .38);
+}
+
+/* ---------- сайдбар-подложка: стекло поверх аврор ---------- */
+@media (min-width: 1024px) {
+  .side {
+    background: color-mix(in srgb, #0C0F22 92%, transparent);
+    border-right-color: rgba(255, 255, 255, .06);
+  }
+}
+
+/* ---------- экранные акценты: чипы, кнопки, ссылки ---------- */
+.resume-chip { border: 1px solid rgba(255, 61, 129, .25); background: linear-gradient(90deg, rgba(255, 61, 129, .10), rgba(56, 225, 255, .06)); }
+.resume-ico { color: var(--sakura); }
+.btn, .btnacc, .pillbtn { letter-spacing: .01em; }
+.err { color: var(--danger); }
+
+/* поповеры и шиты: ночной материал */
+.pop { background: #141935; border-color: rgba(255, 255, 255, .08); }

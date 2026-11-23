@@ -104,14 +104,14 @@ export function Eq({ playing = true, big = false }) {
 
 /* детерминированные градиенты для плейсхолдеров (без картинок) */
 const GRADS = [
-  'linear-gradient(140deg,#3a4256,#20242c)',
-  'linear-gradient(140deg,#5a4d88,#26203a)',
-  'linear-gradient(140deg,#2e5a52,#1c2c2a)',
-  'linear-gradient(140deg,#6a4438,#31201a)',
-  'linear-gradient(140deg,#40506e,#1e2635)',
-  'linear-gradient(140deg,#655d33,#2a2a1c)',
-  'linear-gradient(140deg,#573345,#2b1a22)',
-  'linear-gradient(140deg,#345c63,#18262b)',
+  'linear-gradient(140deg,#2A2C5E,#12142E)',
+  'linear-gradient(140deg,#6B2A5E,#1A1030)',
+  'linear-gradient(140deg,#1F4E6E,#0F1A30)',
+  'linear-gradient(140deg,#7A2A48,#200D1E)',
+  'linear-gradient(140deg,#39348A,#161438)',
+  'linear-gradient(140deg,#155C74,#0C2028)',
+  'linear-gradient(140deg,#8A3470,#22102A)',
+  'linear-gradient(140deg,#2A5E8A,#101C34)',
 ];
 export function gradFor(seed) {
   if (!seed) return GRADS[0];

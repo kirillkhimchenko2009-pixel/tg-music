@@ -335,7 +335,7 @@ export default function Wave() {
 
   /* палитра активного сценария → аура и рамка активной карточки */
   const auraStyle = scen?.colors ? (() => {
-    const acc = hexA(scen.colors.accent, .12) || 'rgba(217,237,58,.07)';
+    const acc = hexA(scen.colors.accent, .12) || 'rgba(255,61,129,.07)';
     const gl = hexA(scen.colors.glow, .12) || 'rgba(90,120,255,.06)';
     return { background:
       `radial-gradient(60% 50% at 70% 0%, ${acc}, transparent 60%),`

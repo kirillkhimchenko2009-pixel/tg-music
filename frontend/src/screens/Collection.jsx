@@ -64,7 +64,7 @@ export default function Collection({ sub }) {
       {sub === null && likes && (
         <button className="likesrow rise" onClick={() => { haptic('light'); setOpen(likes.id); }}>
           <span className="likescov" style={{ '--g': 'linear-gradient(140deg,#42504a,#20282a)' }}>
-            <svg viewBox="0 0 24 24" width="30" height="30" fill="#D9ED3A">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="#FF3D81">
               <path d="M12 21c-4.6-4-8.7-7-8.7-10.8C3.3 7 5.6 4.7 8.4 4.7c1.6 0 3.1.8 4.1 2 1-1.2 2.4-2 4-2 2.8 0 5.1 2.3 5.1 5.5 0 3.8-4.1 6.8-8.7 10.8z" />
             </svg>
           </span>

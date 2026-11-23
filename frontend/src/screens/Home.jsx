@@ -141,7 +141,7 @@ export default function Home() {
         </motion.button>
       )}
 
-      {/* большой персональный микс (Моя волна) */}
+      {/* большой персональный микс (Моя волна) — главный герой экрана */}
       <motion.div className="mixcard"
                   style={{ '--img': `url(${heroWave})`, marginTop: 22 }}
                   initial={intro ? { opacity: 0, y: 16 } : false}
@@ -160,6 +160,21 @@ export default function Home() {
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 5.4v13.2L19.4 12z" /></svg>
         </span>
       </motion.div>
+
+      {/* по настроению — аниме-постеры, сразу под волной */}
+      <Reveal>
+        <SectionHead title="По настроению" />
+        <div className="moodgrid">
+          {MOODS.map(m => (
+            <button key={m.q} className="mood"
+                    style={{ '--g': m.g, '--img': `url(${m.img})` }}
+                    onClick={() => { haptic('medium'); routes.goSearch(m.q); }}>
+              <span className="ic">{m.ic}</span>
+              {m.t}
+            </button>
+          ))}
+        </div>
+      </Reveal>
 
       {/* жанры — крупные плитки, ведут в поиск */}
       <Reveal>
@@ -243,31 +258,16 @@ export default function Home() {
         </Reveal>
       )}
 
-      {/* по настроению */}
-      <Reveal>
-        <SectionHead title="По настроению" />
-        <div className="moodgrid">
-          {MOODS.map(m => (
-            <button key={m.q} className="mood"
-                    style={{ '--g': m.g, '--img': `url(${m.img})` }}
-                    onClick={() => { haptic('medium'); routes.goSearch(m.q); }}>
-              <span className="ic">{m.ic}</span>
-              {m.t}
-            </button>
-          ))}
-        </div>
-      </Reveal>
-
       {/* ❤ Любимое — быстрый вход */}
       {likesPl && likesPl.count > 0 && (
         <Reveal style={{ marginTop: 26 }}>
           <SectionHead title="Любимое" />
           <motion.button className="mixcard"
-                         style={{ '--g': 'linear-gradient(140deg,#3f4654,#1e2330)' }}
+                         style={{ '--g': 'linear-gradient(140deg,#6B2A5E,#1A1030)' }}
                          whileHover={{ y: -2 }} whileTap={{ scale: .995 }}
                          onClick={() => routes.goTab('collection', 'likes')}>
             <span className="mix-ava">
-              <svg viewBox="0 0 24 24" width="38" height="38" fill="#D9ED3A">
+              <svg viewBox="0 0 24 24" width="38" height="38" fill="#FF3D81">
                 <path d="M12 21c-4.6-4-8.7-7-8.7-10.8C3.3 7 5.6 4.7 8.4 4.7c1.6 0 3.1.8 4.1 2 1-1.2 2.4-2 4-2 2.8 0 5.1 2.3 5.1 5.5 0 3.8-4.1 6.8-8.7 10.8z" />
               </svg>
             </span>
