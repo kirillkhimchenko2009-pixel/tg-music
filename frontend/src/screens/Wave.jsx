@@ -409,10 +409,12 @@ export default function Wave() {
         </div>
       )}
 
-      <AnimatePresence mode="wait" initial={false}>
-        {phase === 'ready' && cur ? (
-          <motion.div key="wave-ready" className="wave-stage"
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      {/* Фазы экрана — простой key-ремаунт без AnimatePresence(mode="wait"):
+        в motion 14 presence зависает на смене idle→boot→ready (станция не
+        появляется, хотя трек играет) — уходим от ожидания exit-анимации. */}
+      {phase === 'ready' && cur ? (
+          <motion.div key={'wave-ready-' + cur.id} className="wave-stage"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                       transition={{ duration: .26, ease: EASE }}>
             <div className="wave-covwrap">
               <AnimatePresence mode="popLayout" initial={false}>
@@ -571,7 +573,6 @@ export default function Wave() {
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
 
       <FormulaSheet open={sheet} ws={ws} dirty={dirty} fam={fam} autoPend={autoPend}
         onClose={() => { setSheet(false); if (restartTimer.current) flushRestart(); }}
