@@ -612,7 +612,12 @@ def start_local_reserve() -> None:
     _reserve = MediaJobPoller(
         name=music_settings.worker_name or "render-reserve",
         poll_sec=music_settings.local_poll_sec,
-        caps_ffmpeg=True,  # на Render ffmpeg есть (образ)
+        # ffmpeg-джобы (ytmusic/soundcloud → yt-dlp-сабпроцесс) оставляем
+        # основному воркеру Botkeep: на free-инстансе Render 512 МБ на
+        # сервер+бота+yt-dlp не хватает — OOM-kill вырубает весь инстанс
+        # (симптом: 503 после wave/start, «Application loading» по кругу).
+        # Лёгкие джобы (прямые mp3-сайты через httpx) резерву можно.
+        caps_ffmpeg=False,
         min_age_sec=music_settings.local_fallback_sec,
     )
     _reserve.start()
