@@ -34,6 +34,47 @@ def create_bot() -> Bot:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
+async def _broadcast_keyboard(bot: Bot) -> None:
+    """Разово отправить всем реальным пользователям новую reply-клавиатуру:
+    Telegram держит последнюю присланный вариант «прилипшим», обновить его
+    можно только новым сообщением. Флаг рассылки — ключ в wave_kv."""
+    import asyncio as _aio
+    from sqlalchemy import select
+    from core.models import User, WaveKV
+    from bot import runtime
+    from bot.keyboards import main_reply
+
+    key = "kb_broadcast_v2"
+    try:
+        async with runtime.get_session() as s:
+            done = (await s.execute(select(WaveKV).where(WaveKV.key == key))).scalar_one_or_none()
+            if done is not None:
+                return
+            kb = main_reply()
+            if kb is None:
+                return
+            ids = (await s.execute(
+                select(User.id).where(User.id < 1_000_000_000_000))).scalars().all()
+        sent = 0
+        for uid in ids:
+            try:
+                await bot.send_message(
+                    int(uid),
+                    "🎧 Обновление: в меню теперь «💳 Оплата» и «🌟 Промокод» — "
+                    "подписка за звёзды (Lite/Pro, аудиокниги в Pro).",
+                    reply_markup=kb, disable_notification=True)
+                sent += 1
+            except Exception:  # noqa: BLE001  (заблокировали бота / нет чата)
+                pass
+            await _aio.sleep(0.06)
+        async with runtime.get_session() as s:
+            s.add(WaveKV(key=key, value={"sent": sent, "total": len(ids)}))
+            await s.commit()
+        log.info("клавиатура разослана %s/%s", sent, len(ids))
+    except Exception:  # noqa: BLE001
+        log.exception("рассылка клавиатуры не удалась")
+
+
 async def set_commands(bot: Bot):
     from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
     commands = [
@@ -97,6 +138,9 @@ async def run() -> None:
         # запрос пользователя висел ~20 сек до таймаута)
         from bot.handlers.search import yt as _search_yt
         asyncio.create_task(_search_yt.warmup())
+        # разовая рассылка новой reply-клавиатуры (она «прилипшая» в клиентах —
+        # сама не обновится); один раз, ключ в wave_kv
+        asyncio.create_task(_broadcast_keyboard(bot))
         log.info("Бот запущен (polling), webapp=%s", settings.WEBAPP_URL or "-")
 
     try:
