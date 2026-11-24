@@ -21,6 +21,7 @@ BT_FAVS = "❤ Любимое"
 BT_PLS = "📋 Плейлисты"
 BT_IMPORT = "🔗 Импорт плейлиста"
 BT_LOGIN = "🔑 Вход из браузера"
+BT_PROMO = "🌟 Промокод"
 BT_HELP = "ℹ️ Помощь"
 
 
@@ -38,7 +39,8 @@ def main_reply() -> ReplyKeyboardMarkup | None:
         [KeyboardButton(text=BT_FIND), KeyboardButton(text=BT_MUSIC),
          KeyboardButton(text=BT_FAVS)],
         [KeyboardButton(text=BT_PLS), KeyboardButton(text=BT_IMPORT)],
-        [KeyboardButton(text=BT_LOGIN), KeyboardButton(text=BT_HELP)],
+        [KeyboardButton(text=BT_LOGIN), KeyboardButton(text=BT_PROMO)],
+        [KeyboardButton(text=BT_HELP)],
     ]
     return ReplyKeyboardMarkup(
         keyboard=rows, resize_keyboard=True, is_persistent=True,

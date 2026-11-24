@@ -188,11 +188,17 @@ async def init_db() -> None:
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS tier VARCHAR(16) NOT NULL DEFAULT 'pro'"))
                 await conn.execute(text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_user_tier ON subscriptions (user_id, tier)"))
+                await conn.execute(text(
+                    "ALTER TABLE subscriptions ALTER COLUMN expires_at DROP NOT NULL"))
             else:
                 for tbl in ("subscriptions", "star_payments"):
                     cols = (await conn.execute(
                         text(f"PRAGMA table_info({tbl})"))).mappings().all()
-                    if cols and not any(c["name"] == "tier" for c in cols):
+                    old = cols and not any(c["name"] == "tier" for c in cols)
+                    # subscriptions: ещё и expires_at NOT NULL (до вечных подписок)
+                    exp = next((c for c in cols if c["name"] == "expires_at"), None)
+                    nn = tbl == "subscriptions" and exp is not None and exp["notnull"] == 1
+                    if cols and (old or nn):
                         await conn.execute(text(f"DROP TABLE {tbl}"))
     except Exception:  # noqa: BLE001
         logging.getLogger("server").exception("billing: миграция subscriptions")

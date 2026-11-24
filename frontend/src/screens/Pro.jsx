@@ -24,6 +24,10 @@ export default function Pro() {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [promo, setPromo] = useState('');
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoMsg, setPromoMsg] = useState('');
+  const [promoOk, setPromoOk] = useState(false);
 
   const load = async () => {
     try {
@@ -39,6 +43,28 @@ export default function Pro() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const applyPromo = async () => {
+    if (!promo.trim() || promoBusy) return;
+    haptic('medium');
+    setPromoBusy(true); setPromoMsg('');
+    try {
+      const res = await api('/api/billing/promo/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code: promo.trim() }),
+      });
+      setPromoOk(true);
+      setPromoMsg(res?.message || 'Промокод активирован');
+      setPromo('');
+      haptic('success');
+      setStatus(await api('/api/billing/status').catch(() => status));
+    } catch (e) {
+      setPromoOk(false);
+      setPromoMsg((e && e.message) || 'не удалось активировать');
+    } finally {
+      setPromoBusy(false);
+    }
+  };
 
   const buy = async (tierId, termId) => {
     if (isGuest()) {
@@ -119,6 +145,17 @@ export default function Pro() {
           открой Vibe из бота (кнопка «Приложение 🎧») или войди по коду.
         </p>
       )}
+
+      <section className="pro-promo">
+        <h3>Промокод</h3>
+        <div className="pro-promo-row">
+          <input className="pro-promo-input" placeholder="Например: sever1908"
+                 value={promo} maxLength={48} onChange={e => setPromo(e.target.value)} />
+          <button className="pro-promo-btn" disabled={promoBusy || !promo.trim()}
+                  onClick={applyPromo}>{promoBusy ? '…' : 'Активировать'}</button>
+        </div>
+        {promoMsg && <p className={'pro-promo-msg' + (promoOk ? ' ok' : '')}>{promoMsg}</p>}
+      </section>
 
       <p className="pro-legal">
         Оплата проходит через Telegram (валюта XTR — звёзды). Подписка

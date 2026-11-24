@@ -50,6 +50,13 @@ async def startup():
         await init_music_db()
     except Exception:  # noqa: BLE001
         logging.getLogger("server").exception("music: таблицы не созданы")
+    # биллинг: сид промокодов (sever1908 и др.)
+    try:
+        from services.billing import seed_promos
+        async with runtime.get_session() as s:
+            await seed_promos(s)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("server").exception("billing: сид промокодов")
     # Релиз 1 (распределённые роли): при MEDIA_ROLE=app таблица очереди
     # media_download_jobs создаётся автоматически (create_all выше), а
     # локальный воркер Render работает как последний резерв — берёт джобы,

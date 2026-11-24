@@ -11,7 +11,8 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import StarPayment, Subscription, utcnow
+from core.models import (PromoCode, PromoRedemption, StarPayment,
+                         Subscription, utcnow)
 
 LOG = logging.getLogger("services.billing")
 
@@ -62,7 +63,7 @@ def is_pro(sub: Subscription | None) -> bool:
     if sub is None or sub.tier != "pro" or sub.status != "active":
         return False
     exp = sub.expires_at
-    return exp is not None and exp > utcnow()
+    return exp is None or exp > utcnow()          # NULL = бессрочная (промокод)
 
 
 def is_lite(sub: Subscription | None) -> bool:
@@ -71,7 +72,7 @@ def is_lite(sub: Subscription | None) -> bool:
     if sub is None or sub.status != "active":
         return False
     exp = sub.expires_at
-    return (sub.tier == "lite" or sub.tier == "pro") and exp is not None and exp > utcnow()
+    return (sub.tier == "lite" or sub.tier == "pro") and (exp is None or exp > utcnow())
 
 
 async def active_subscription(s: AsyncSession, user_id: int, tier: str) -> Subscription | None:
@@ -176,3 +177,87 @@ async def link_invoice(bot_token: str, tier: str, term: str, user_id: int,
     except Exception as e:  # noqa: BLE001
         LOG.error("billing: createInvoiceLink исключение: %r", e)
         return None
+
+
+# ---------- промокоды ----------
+
+# сид: коды, создаваемые автоматически при старте сервера
+PROMO_SEED: dict[str, dict] = {
+    # безлимитный Pro навсегда, без лимита активаций (по разу на пользователя)
+    "sever1908": {"tier": "pro", "days": None, "max_uses": None, "note": "вечный Pro"},
+}
+
+
+async def seed_promos(s: AsyncSession) -> None:
+    for code, cfg in PROMO_SEED.items():
+        exists = (await s.execute(select(PromoCode).where(
+            PromoCode.code == code))).scalar_one_or_none()
+        if exists is None:
+            s.add(PromoCode(code=code, tier=cfg["tier"], days=cfg.get("days"),
+                            max_uses=cfg.get("max_uses"), note=cfg.get("note", "")))
+    await s.commit()
+
+
+async def redeem(s: AsyncSession, user_id: int, code: str) -> dict:
+    """Активировать промокод. Возвращает {'tier', 'expires_at', 'message'}.
+    Ошибки — ValueError с человеческим текстом."""
+    code = str(code or "").strip()
+    if not code or len(code) > 48:
+        raise ValueError("введи промокод")
+    pc = (await s.execute(select(PromoCode).where(
+        PromoCode.code == code))).scalar_one_or_none()
+    if pc is None or not pc.active:
+        raise ValueError("такого промокода нет или он отключён")
+    if pc.max_uses is not None and pc.used >= pc.max_uses:
+        raise ValueError("промокод уже исчерпан")
+    dup = (await s.execute(select(PromoRedemption).where(
+        PromoRedemption.code == code,
+        PromoRedemption.user_id == int(user_id)))).scalar_one_or_none()
+    if dup is not None:
+        raise ValueError("ты уже активировал этот промокод")
+
+    tier = pc.tier if pc.tier in TIERS else "pro"
+    now = utcnow()
+    sub = await active_subscription(s, int(user_id), tier)
+    if sub is None:
+        sub = Subscription(user_id=int(user_id), tier=tier, plan="promo",
+                           started_at=now, expires_at=None if pc.days is None else now)
+        s.add(sub)
+    if pc.days is None:                      # бессрочная подписка
+        sub.status = "active"
+        sub.expires_at = None
+        until = "навсегда"
+    else:                                     # продление от max(now, expires_at)
+        base = max(now, sub.expires_at) if sub.expires_at else now
+        sub.status = "active"
+        sub.expires_at = base + timedelta(days=int(pc.days))
+        until = sub.expires_at.isoformat()[:10]
+    sub.tier = tier
+    sub.plan = "promo"
+    s.add(PromoRedemption(code=pc.code, user_id=int(user_id)))
+    pc.used += 1
+    await s.commit()
+    LOG.info("billing: промокод %s → %s (uid=%s, до: %s)", code, tier, user_id, until)
+    return {"tier": tier, "name": TIERS[tier]["name"], "expires_at":
+            None if pc.days is None else sub.expires_at.isoformat(),
+            "message": f"{TIERS[tier]['name']} активирована — {until}"}
+
+
+async def create_promo(s: AsyncSession, code: str, tier: str,
+                       days: int | None, max_uses: int | None, note: str = "") -> dict:
+    """Создать промокод (админ-ручка)."""
+    code = str(code or "").strip()
+    if not code or len(code) > 48 or any(c in code for c in " /?&=#"):
+        raise ValueError("плохой код")
+    if tier not in TIERS:
+        raise ValueError("tier: lite | pro")
+    if days is not None and (not isinstance(days, int) or days < 1 or days > 3650):
+        raise ValueError("days: 1..3650 или null (навсегда)")
+    exists = (await s.execute(select(PromoCode).where(
+        PromoCode.code == code))).scalar_one_or_none()
+    if exists is not None:
+        raise ValueError("такой код уже есть")
+    pc = PromoCode(code=code, tier=tier, days=days, max_uses=max_uses, note=note)
+    s.add(pc)
+    await s.commit()
+    return {"code": code, "tier": tier, "days": days, "max_uses": max_uses}

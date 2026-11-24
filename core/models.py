@@ -282,7 +282,7 @@ class Subscription(Base):
     plan: Mapped[str] = mapped_column(String(16), default="month")    # срок: month | half | year
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | expired | refunded
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)  # NULL = бессрочная
     __table_args__ = (
         UniqueConstraint("user_id", "tier", name="uq_sub_user_tier"),
     )
@@ -300,3 +300,29 @@ class StarPayment(Base):
     charge_id: Mapped[str] = mapped_column(String(128), unique=True)
     payload: Mapped[str] = mapped_column(String(256), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class PromoCode(Base):
+    """Промокод подписки: tier + срок (days NULL = бессрочно).
+    max_uses NULL = без ограничений активаций; на пользователя — один раз."""
+    __tablename__ = "promo_codes"
+    code: Mapped[str] = mapped_column(String(48), primary_key=True)
+    tier: Mapped[str] = mapped_column(String(16), default="pro")     # lite | pro
+    days: Mapped[int | None] = mapped_column(Integer)                # NULL = навсегда
+    max_uses: Mapped[int | None] = mapped_column(Integer)            # NULL = безлимит
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    note: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PromoRedemption(Base):
+    """Активация промокода пользователем (защита от повторной активации)."""
+    __tablename__ = "promo_redemptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(48), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("code", "user_id", name="uq_promo_user"),
+    )

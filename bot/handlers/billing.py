@@ -8,6 +8,9 @@
 import logging
 
 from aiogram import Router, types
+from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from bot import runtime
 from core.config import settings
@@ -80,3 +83,50 @@ async def pro_cmd(message: types.Message):
         "💜 <b>Vibe Pro</b> — 50★/мес, 250★/полгода, 450★/год\n"
         "Всё из Lite + PRO-обложка плеера, приоритет волны и очереди.\n\n"
         "Оплата — в мини-приложении, раздел <b>Vibe Pro</b>.", reply_markup=kb)
+
+
+
+# ---------- ввод промокода прямо в чате (кнопка «🌟 Промокод») ----------
+
+class PromoStates(StatesGroup):
+    waiting_code = State()
+
+
+async def promo_start_input(message: types.Message, state: FSMContext | None = None):
+    """Кнопка «🌟 Промокод» (kblabels): просим прислать код текстом."""
+    if state is not None:
+        await state.set_state(PromoStates.waiting_code)
+    await message.answer(
+        "🎟 Пришли промокод одним сообщением — активирую подписку.\n\n"
+        "Например: <code>sever1908</code>\n"
+        "Отмена — /cancel")
+
+
+@router.message(lambda m: m.text is not None and m.text.strip() == "/cancel")
+async def promo_cancel(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Отменил ввод промокода.")
+
+
+@router.message(PromoStates.waiting_code)
+async def promo_enter_code(message: types.Message, state: FSMContext):
+    code = (message.text or "").strip()
+    if not code or len(code) > 48:
+        await state.clear()
+        await message.answer("Не похоже на промокод — попробуй заново через кнопку «🌟 Промокод».")
+        return
+    await state.clear()
+    uid = message.from_user.id if message.from_user else 0
+    async with runtime.get_session() as s:
+        try:
+            from services.billing import redeem as _redeem
+            res = await _redeem(s, uid, code)
+        except ValueError as e:
+            await message.answer(
+                "🎟 " + str(e) + "\n\nПромокод можно активировать также в приложении: раздел «Vibe Pro».")
+            return
+    exp = (res.get("expires_at") or "")[:10]
+    until = "навсегда 💫" if res.get("expires_at") is None else "до " + exp
+    await message.answer(
+        "🌟 <b>" + res.get("name", "Vibe Pro") + " активирована!</b>\nДействует: <b>" + until + "</b>\n\n"
+        "Безлимитные скачивания в чат, PRO-обложка плеера, приоритет волны. Спасибо! 💜")

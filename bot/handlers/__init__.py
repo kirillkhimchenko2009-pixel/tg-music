@@ -17,4 +17,4 @@ from music.telegram.handlers import router as music_hub_router
 
 ALL = [kblabels_router, music_hub_router, start_router, login_router, playlists_router, batch_router,
        account_router, bulk_router, appshare_router, wave_router, musicbot_router,
-       links_router, search_router, inline_router, billing_router]
+       links_router, billing_router, search_router, inline_router]

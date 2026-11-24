@@ -60,6 +60,10 @@ async def on_label(message: types.Message, state: Optional[FSMContext] = None):
         from bot.handlers.playlists import cmd_playlists
         await cmd_playlists(message)
         return
+    if "промокод" in key:
+        from bot.handlers.billing import promo_start_input
+        await promo_start_input(message, state)
+        return
     if "помощь" in key:
         from bot.handlers.start import cmd_help
         await cmd_help(message)
