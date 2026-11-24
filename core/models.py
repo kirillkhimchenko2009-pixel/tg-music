@@ -272,16 +272,20 @@ class TrackFeedback(Base):
 
 
 class Subscription(Base):
-    """Подписка Vibe Pro (оплата Telegram-звёздами, currency XTR).
-    Одна строка на пользователя: при продлении expires_at сдвигается
-    от максимума(now, expires_at)."""
+    """Подписка Vibe (оплата Telegram-звёздами, currency XTR).
+    Два тира: lite и pro — у каждого своя строка на пользователя.
+    При продлении expires_at сдвигается от максимума(now, expires_at)."""
     __tablename__ = "subscriptions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
-    plan: Mapped[str] = mapped_column(String(16), default="month")
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    tier: Mapped[str] = mapped_column(String(16), default="pro")      # lite | pro
+    plan: Mapped[str] = mapped_column(String(16), default="month")    # срок: month | half | year
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | expired | refunded
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    __table_args__ = (
+        UniqueConstraint("user_id", "tier", name="uq_sub_user_tier"),
+    )
 
 
 class StarPayment(Base):
@@ -290,7 +294,8 @@ class StarPayment(Base):
     __tablename__ = "star_payments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
-    plan: Mapped[str] = mapped_column(String(16))
+    tier: Mapped[str] = mapped_column(String(16), default="pro")
+    plan: Mapped[str] = mapped_column(String(16))                     # срок
     amount: Mapped[int] = mapped_column(Integer)          # звёзды
     charge_id: Mapped[str] = mapped_column(String(128), unique=True)
     payload: Mapped[str] = mapped_column(String(256), default="")

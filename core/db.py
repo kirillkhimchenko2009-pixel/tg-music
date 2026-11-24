@@ -174,3 +174,32 @@ async def init_db() -> None:
                 "ON play_events (user_id, event_id)"))
     except Exception:
         pass
+
+    # Биллинг v2 (два тира Lite/Pro): старые таблицы были без колонки tier.
+    # Фича существовала меньше суток, реальных подписок/платежей нет —
+    # PG: снимаем констрейнт и добавляем tier; SQLite (дев-база): дропаем
+    # устаревшие таблицы (после миграций create_all пересоздаёт их заново).
+    try:
+        async with engine.begin() as conn:
+            if is_pg:
+                await conn.execute(text(
+                    "ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_user_id_key"))
+                await conn.execute(text(
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS tier VARCHAR(16) NOT NULL DEFAULT 'pro'"))
+                await conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_user_tier ON subscriptions (user_id, tier)"))
+            else:
+                for tbl in ("subscriptions", "star_payments"):
+                    cols = (await conn.execute(
+                        text(f"PRAGMA table_info({tbl})"))).mappings().all()
+                    if cols and not any(c["name"] == "tier" for c in cols):
+                        await conn.execute(text(f"DROP TABLE {tbl}"))
+    except Exception:  # noqa: BLE001
+        logging.getLogger("server").exception("billing: миграция subscriptions")
+    # пересоздание дропнутых/новых таблиц после миграций
+    try:
+        async with engine.begin() as conn:
+            from .models import Base as _B
+            await conn.run_sync(_B.metadata.create_all)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("server").exception("billing: пересоздание таблиц")

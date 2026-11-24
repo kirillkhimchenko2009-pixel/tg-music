@@ -1,4 +1,4 @@
-"""Биллинг мини-аппа: планы, статус подписки, чекаут за Telegram-звёзды."""
+"""Биллинг мини-аппа: тиры/сроки, статус подписки, чекаут за звёзды."""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,15 +14,18 @@ router = APIRouter(prefix="/api/billing", tags=["billing"])
 
 
 class CheckoutIn(BaseModel):
-    plan: str = "month"
+    plan: str = "pro-month"        # "<tier>-<term>", напр. lite-month / pro-year
 
 
 @router.get("/plans")
 async def plans():
-    """Публичный список планов (звёзды, дни, названия)."""
-    return {"plans": [
-        {"id": pid, "stars": stars, "days": days, "title": title}
-        for pid, (stars, days, title) in billing.PLANS.items()
+    """Публичный каталог: два тира, у каждого три срока."""
+    return {"tiers": [
+        {"id": tid, "title": t["name"], "perks": t["perks"],
+         "terms": [{"id": term, "days": billing.PLAN_DAYS[term], "stars": t["stars"][term],
+                    "title": billing.TERM_TITLES[term]}
+                   for term in ("month", "half", "year")]}
+        for tid, t in billing.TIERS.items()
     ]}
 
 
@@ -39,11 +42,12 @@ async def checkout(body: CheckoutIn, user: CurrentUser = Depends(tg_user)):
     if is_guest_id(int(user.id)):
         raise HTTPException(400, "оплата звёздами доступна в Telegram: открой "
                                  "мини-апп из бота и войди по коду")
+    tier, term = billing.parse_plan(body.plan)
     if not settings.BOT_TOKEN:
         raise HTTPException(500, "платежи не настроены (BOT_TOKEN)")
     link = await billing.link_invoice(
-        settings.BOT_TOKEN, body.plan, int(user.id),
+        settings.BOT_TOKEN, tier, term, int(user.id),
         proxy=settings.PROXY_URL or None)
     if not link:
         raise HTTPException(502, "не удалось создать счёт — попробуй позже")
-    return {"invoice_link": link, "plan": body.plan}
+    return {"invoice_link": link, "tier": tier, "term": term}
