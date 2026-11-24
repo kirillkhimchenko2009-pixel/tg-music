@@ -174,7 +174,9 @@ async def run() -> None:
                 log.exception("music: очередь не остановлена")
 
     try:
-        await dp.start_polling(bot)
+        # handle_signals=False: polling может жить в не-main потоке (HF Space),
+        # где asyncio запрещает signal handlers
+        await dp.start_polling(bot, handle_signals=False)
     finally:
         await bot.session.close()
 
