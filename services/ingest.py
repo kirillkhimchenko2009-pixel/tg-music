@@ -22,6 +22,7 @@ from services.providers import mp3party as mpp
 from services.providers import promodj as pdj
 from services.providers import audius as aud
 from services.providers import ccmixter as ccm
+from services.providers import saavn as svn
 from services.providers.yandex import YandexProvider
 from services.providers import soundcloud as scc
 
@@ -143,7 +144,7 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     #      внутренние ретраи и упирается в потолок без результатов).
     #      Международные бесплатные: promodj (DJ-миксы, per-track download),
     #      audius (негейтованные), ccmixter (CC-материал).
-    for prov, name in ((zay, "zaycev"), (scc, "soundcloud"),
+    for prov, name in ((zay, "zaycev"), (svn, "saavn"), (scc, "soundcloud"),
                        (pdj, "promodj"), (ccm, "ccmixter"),
                        (aud, "audius"),
                        (hpl, "hotplayer"), (mpp, "mp3party"),

@@ -715,6 +715,10 @@ async def _resolve_online_audio(track_id: int, t: Track,
                                 await session.commit()
                             except Exception:
                                 pass
+                            # 18+ появился после того, как кеш уже выдал
+                            # URL «чистой» версии — сбрасываем, чтобы
+                            # следующий резолв пошёл в прямые источники
+                            _AUDIO_URL_CACHE.pop(cache_key, None)
                         url = await _ya.YandexProvider(tok).track_url(m, "")
                         if url:
                             log.info("онлайн-звук «%s» → yandex-ID %s (точный, 18+: %s)",
@@ -740,6 +744,7 @@ async def _resolve_online_audio(track_id: int, t: Track,
                     await session.commit()
                 except Exception:
                     pass
+                _AUDIO_URL_CACHE.pop(cache_key, None)
             url = await _ya.YandexProvider(tok).track_url(m, "")  # 320/aac — стримабельно
             if url:
                 log.info("онлайн-звук «%s» → yandex: %s (18+: %s)",
@@ -750,19 +755,26 @@ async def _resolve_online_audio(track_id: int, t: Track,
         return None
 
     async def direct_sources(query: str) -> tuple[str, str] | None:
-        """Полные треки с прямых сайтов (mp3, Range-стрим): zaycev → mp3party → hitmoz → hotplayer."""
+        """Полные треки с прямых сайтов (mp3, Range-стрим):
+    zaycev → mp3party → JioSaavn → soundcloud → hitmoz → hotplayer → audius.
+    JioSaavn работает с любых IP (полный 320kbps-каталог), audius — международный
+    открытый; оба закрывают треки, которых нет/недоступен на RU-пиратках."""
         from services.matching import best_match
         from services.ingest import _clean_query, _title_sim
+        from services.providers import audius as aud
         from services.providers import hitmoz as hzm
         from services.providers import hotplayer as hpl
         from services.providers import mp3party as mpp
+        from services.providers import saavn as svn
         from services.providers import soundcloud as scc
         from services.providers import zaycev as zay
         meta = TrackMeta(source="zaycev", external_id="", title=t.title or "",
                          artist=t.artist or "", duration=int(t.duration or 0))
         cquery = _clean_query(query)
         for prov, name in ((zay, "zaycev"), (mpp, "mp3party"),
-                           (scc, "soundcloud"), (hzm, "hitmoz"), (hpl, "hotplayer")):
+                           (svn, "saavn"), (scc, "soundcloud"),
+                           (hzm, "hitmoz"), (hpl, "hotplayer"),
+                           (aud, "audius")):
             try:
                 cands = await prov.search(cquery, limit=6)
                 if not cands:
