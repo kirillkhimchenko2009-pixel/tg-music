@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import httpx
 import json as _json
 import os
 import time as _time
@@ -816,32 +817,24 @@ async def _resolve_online_audio(track_id: int, t: Track,
         # не выбрасывает готовые результаты zaycev (раньше умирал общий gather)
         t_ym = asyncio.create_task(ym_source(q))
         t_dir = asyncio.create_task(direct_sources(q))
-        if explicit:
-            # 18+: у ЯМ фонограммы бывают «чистые» (замазанные/запиканные
-            # слова) — по решению юзера такое НЕ играем вовсе. Только
-            # оригиналы с прямых сайтов; дальше цепочку продолжают
-            # YouTube → 30-сек превью (те обычно без цензуры).
+        # ЯМ снова ПЕРВЫМ и для 18+ (проверено ASR: ЯМ отдаёт оригиналы без
+        # цензуры — «Мама, я люблю» Anacondaz содержит мат целиком). Прежняя
+        # политика «18+ → мимо ЯМ» давала кривые рипы с прямых сайтов —
+        # именно их пользователь слышал как «блюр».
+        # Замученные заливки (редкость) ловит фоновый censor-scan ниже:
+        # файл помечается censored=True, дальше трек идёт мимо ЯМ.
+        if getattr(t, "censored", False):
+            # уже доказано замученная ЯМ-заливка — сразу прямые сайты
+            t_ym.cancel()
             try:
-                full = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
+                full = await asyncio.wait_for(t_dir, timeout=32)
             except Exception:
                 full = None
-            t_ym.cancel()
         else:
             try:
                 full = await asyncio.wait_for(asyncio.shield(t_ym), timeout=13)
             except Exception:
                 full = None
-            if full and full[2]:
-                # ЯМ подтвердил 18+ (флаг в БД был не проставлен) —
-                # прямые сайты могут отдать оригинальную фонограмму
-                log.info("онлайн-звук: ЯМ 18+ «%s» — пробую оригинал с прямых сайтов",
-                         q[:46])
-                try:
-                    full2 = await asyncio.wait_for(asyncio.shield(t_dir), timeout=32)
-                    # запиканное не играем: без оригинала — YouTube → превью
-                    full = full2 or None
-                except Exception:
-                    full = None
             if full:
                 if not t_dir.done():
                     t_dir.cancel()
@@ -871,7 +864,59 @@ async def _resolve_online_audio(track_id: int, t: Track,
             full = (url, "preview", False)
     if full and full[1] != "yandex":
         _AUDIO_URL_CACHE[cache_key] = (full, _time.time() + 35 * 60)
+    if full and full[1] == "yandex":
+        # фоновый censor-scan: скачаем файл и проверим детектором (бипы/
+        # муты/замазки). Чистый файл — вердикт в кеш, замученный — пометим
+        # censored=True и сбросим URL-кеш: следующие проигрыши пойдут мимо ЯМ.
+        _spawn_censor_scan(int(t.id), full[0], cache_key)
     return full
+
+
+_CENSOR_SCANNED: set[int] = set()
+
+
+def _spawn_censor_scan(track_id: int, url: str, cache_key: tuple[int, int]) -> None:
+    if track_id in _CENSOR_SCANNED:
+        return
+    _CENSOR_SCANNED.add(track_id)
+
+    async def _job() -> None:
+        import tempfile
+        try:
+            from services.net import httpx_client
+            async with httpx_client(timeout=120, follow_redirects=True) as c:
+                r = await c.get(url)
+            if len(r.content) < 100000:
+                return
+            from services import censor as _censor
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(r.content)
+                path = f.name
+            try:
+                chk = await _censor.check(path)
+            finally:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            if chk.get("censored"):
+                from core.db import AsyncSessionLocal
+                from core.models import Track as _T
+                async with AsyncSessionLocal() as s:
+                    tr = await s.get(_T, track_id)
+                    if tr is not None and not getattr(tr, "censored", False):
+                        tr.censored = True
+                        await s.commit()
+                _AUDIO_URL_CACHE.pop(cache_key, None)
+                log.info("censor-scan: трек %s — замученная ЯМ-заливка "
+                         "(бипы=%s муты=%s), помечен censored",
+                         track_id, chk.get("beeps"), chk.get("mutes"))
+        except Exception:
+            log.exception("censor-scan упал (трек %s)", track_id)
+        finally:
+            _CENSOR_SCANNED.discard(track_id)
+
+    asyncio.create_task(_job())
 
 
 async def _deezer_preview(t: Track) -> str | None:

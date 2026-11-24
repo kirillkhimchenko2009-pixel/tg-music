@@ -53,18 +53,11 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     if meta.source == "yandex":
         tok = await get_token(session, user_id, "ym")
         if tok:
-            # 18+: у ЯМ бывают «чистые» заливки (слова замазаны/запиканы) —
-            # по решению юзера такое не отдаём вовсе: ЯМ-вариант исключён,
-            # только оригинал с zaycev; дальше цепочку продолжат
-            # zvuk/прямые сайты/YouTube.
-            if not getattr(meta, "explicit", False):
-                out.append((meta, tok))
-            else:
-                zc = await _zaycev_original(query, meta)
-                if zc:
-                    log.info("18+: скачиваю оригинал с zaycev (%s); ЯМ исключён",
-                             zc.display())
-                    out.append((zc, ""))
+            # ЯМ отдаёт оригиналы без цензуры даже для 18+ (проверено ASR:
+            # «Мама, я люблю» Anacondaz — мат в аудио целиком). Прежнее
+            # исключение давало кривые рипы с прямых сайтов. Замученные
+            # заливки (редкость) отсеет censor-check ниже по пайплайну.
+            out.append((meta, tok))
     if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party",
                        "promodj", "audius", "ccmixter"):
         # собственный вариант — тоже кандидат: permalink/страница скачивается
@@ -125,17 +118,7 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                     log.info("широкий ям-матч для %s: %s",
                              meta.display(), m.display())
             if m:
-                # 18+: у ЯМ фонограмма может быть «чистой» (слова замазаны) —
-                # по решению юзера ЯМ-вариант исключаем: только оригинал
-                # с zaycev, иначе цепочку продолжат другие источники
-                if getattr(m, "explicit", False):
-                    zc = await _zaycev_original(query, meta)
-                    if zc:
-                        log.info("18+: ставлю первичным оригинал zaycev "
-                                 "(%s); ЯМ исключён", zc.display())
-                        out.append((zc, ""))
-                else:
-                    out.append((m, ym_tok))
+                out.append((m, ym_tok))
         except Exception:
             log.exception("поиск на яндексе не удался")
 
