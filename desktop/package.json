@@ -1,0 +1,36 @@
+{
+  "name": "vibe-music-desktop",
+  "productName": "Vibe Music",
+  "version": "1.0.0",
+  "description": "Vibe Music — личный стриминг: десктоп-окно мини-аппа",
+  "main": "main.js",
+  "author": "kirillkhimchenko2009-pixel",
+  "license": "MIT",
+  "private": true,
+  "build": {
+    "appId": "app.vibe.music",
+    "productName": "Vibe Music",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "build/icon.ico"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "VibeMusic.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  }
+}
