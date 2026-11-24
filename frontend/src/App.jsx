@@ -291,6 +291,9 @@ function TopBar({ name }) {
           <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'likes' }); setPop(null); }}>
             <IcoHeart width="1em" height="1em" /> Любимое
           </button>
+          <button className="pop-item" onClick={() => { navPush({ tab: 'pro', sub: null }); setPop(null); }}>
+            <IcoStar width="1em" height="1em" /> Подписка · Vibe Pro
+          </button>
           <button className="pop-item" onClick={() => { navPush({ tab: 'collection', sub: 'history' }); setPop(null); }}>
             <IcoClock width="1em" height="1em" /> История
           </button>
