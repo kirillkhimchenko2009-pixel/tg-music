@@ -28,6 +28,41 @@ import sys
 WORKER_BUILD = "r31-20261124-saavn"
 
 
+def _ensure_deps() -> None:
+    """Pterodactyl пересоздаёт контейнер при каждом «Pulling Docker image»:
+    ранее установленные pip-пакеты исчезают, и воркер падал с
+    ModuleNotFoundError (dotenv и т.д.). Ставим requirements-worker.txt
+    сами, перед импортами; на Debian-образах с PEP 668 добавляем
+    --break-system-packages. Пац-эдж: даже если pip не сработает — падать
+    будем дальше с честной ошибкой, а не молча."""
+    import importlib.util
+    import subprocess
+
+    probe = ("dotenv", "httpx", "sqlalchemy", "aiogram")
+    missing = [m for m in probe if importlib.util.find_spec(m) is None]
+    if not missing:
+        return
+    req = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "requirements-worker.txt")
+    print(f"[deps] нет пакетов: {', '.join(missing)} — ставлю {req}…", flush=True)
+    for extra in ([], ["--break-system-packages"]):
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet",
+                            "--disable-pip-version-check", *extra, "-r", req],
+                           check=True)
+            print("[deps] зависимости установлены", flush=True)
+            return
+        except Exception as e:
+            print(f"[deps] pip install ({extra or 'обычный'}): "
+                  f"{type(e).__name__}: {e}", flush=True)
+    print("[deps] НЕ СМОГ установить зависимости — панель: Startup Command "
+          "должен ставить их сам (pip install -r requirements-worker.txt)",
+          flush=True)
+
+
+_ensure_deps()
+
+
 def _health_url(webapp_url: str) -> str:
     """Keepalive targets the service root even if WEBAPP_URL includes /v2/."""
     from urllib.parse import urlsplit
