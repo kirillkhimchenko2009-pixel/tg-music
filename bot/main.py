@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
+from aiogram import types
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommandScopeDefault
@@ -142,6 +143,21 @@ async def run() -> None:
         # сама не обновится); один раз, ключ в wave_kv
         asyncio.create_task(_broadcast_keyboard(bot))
         log.info("Бот запущен (polling), webapp=%s", settings.WEBAPP_URL or "-")
+
+    @dp.errors()
+    async def on_error(event: types.ErrorEvent):
+        """Ошибка хендлера → в лог и (если задан админ) ему в чат."""
+        exc = event.exception
+        log.exception("aiogram error: %r", exc)
+        try:
+            for aid in settings.ADMIN_IDS:
+                await bot.send_message(
+                    int(aid),
+                    "⚠️ Ошибка бота: <code>" + str(exc)[:300] + "</code>",
+                    disable_notification=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
