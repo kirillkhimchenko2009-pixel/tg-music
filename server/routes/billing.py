@@ -36,7 +36,11 @@ async def plans():
 @router.get("/status")
 async def status(user: CurrentUser = Depends(tg_user)):
     async with runtime.get_session() as s:
-        return await billing.status_dto(s, int(user.id))
+        dto = await billing.status_dto(s, int(user.id))
+        me = (await s.execute(select(User).where(
+            User.id == int(user.id)))).scalar_one_or_none()
+        dto["admin"] = bool(me is not None and me.is_admin)
+        return dto
 
 
 @router.post("/checkout")
@@ -95,16 +99,6 @@ async def admin_promo(body: PromoIn, user: CurrentUser = Depends(tg_user)):
         except ValueError as e:
             raise HTTPException(400, str(e))
     return res
-
-
-@router.get("/status")
-async def status(user: CurrentUser = Depends(tg_user)):
-    async with runtime.get_session() as s:
-        dto = await billing.status_dto(s, int(user.id))
-        me = (await s.execute(select(User).where(
-            User.id == int(user.id)))).scalar_one_or_none()
-        dto["admin"] = bool(me is not None and me.is_admin)
-        return dto
 
 
 @router.get("/admin/stats")
