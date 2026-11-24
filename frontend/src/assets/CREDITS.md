@@ -31,3 +31,5 @@
 | `lock1.jpg`, пауза-кадр | VulcanSphere — «Anime-style Self-portrait (AnimagineXL 4.0)», кроп 1:1 | CC BY 4.0 ([Commons](https://commons.wikimedia.org/wiki/File:VulcanSphere_Anime-style_Self-portrait_(AnimagineXL_4.0).webp)) |
 | `lock2.jpg` | VulcanSphere — «Alter Anime-style Self-portrait (AnimagineXL 4.0 + Flux.1 Kontext)», кроп 1:1 | CC BY 4.0 ([Commons](https://commons.wikimedia.org/wiki/File:VulcanSphere_Alter_Anime-style_Self-portrait_(AnimagineXL_4.0_%2B_Flux.1_Kontext).webp)) |
 | `lock3.jpg` | 冷床系 — «A high school girl, rectangular glasses, cat ears…», кроп 1:1 | Public domain ([Commons](https://commons.wikimedia.org/wiki/File:A_high_school_girl,_rectangular_glasses,_cynically_smiling,_cat_ears_s-2194273305.webp)) |
+
+Дополнительно (Vibe Pro обложка локскрина): `pro_blackgirl.jpg`, `pro_orangegirl.jpg`, `pro_animegirl.jpg` — те же источники Public domain / CC BY, кроп 1:1 512px (см. таблицу выше).

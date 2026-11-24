@@ -4,6 +4,7 @@
 const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const TB_ICONS = require('./build/tb_icons.js');
 
 const APP_URL = process.env.VIBE_URL || 'https://tg-music-0en5.onrender.com/v2/';
 const ICON = path.join(__dirname, 'build', 'icon.ico');
@@ -82,6 +83,48 @@ function createWindow() {
   });
 }
 
+/* ---------- мини-плеер: трей-меню + thumbar (Windows) ---------- */
+function press(label) {
+  if (!win || win.isDestroyed()) return;
+  const js = "[...document.querySelectorAll('.pbar button')]" +
+    ".find(b => b.getAttribute('aria-label') === " + JSON.stringify(label) + ")?.click();";
+  win.webContents.executeJavaScript(js).catch(() => {});
+}
+
+function queryState() {
+  if (!win || win.isDestroyed()) return Promise.resolve(null);
+  return win.webContents.executeJavaScript(
+    "(() => { const v = document.querySelector('video[playsinline]');" +
+    " const t = document.querySelector('.pbar strong, .pbar [class*=title]');" +
+    " return { playing: !!v && !v.paused && !v.ended, title: (t && t.textContent || '').slice(0, 60) }; })()"
+  ).catch(() => null);
+}
+
+function updateMediaUI(st) {
+  if (!st) return;
+  try {
+    tray.setToolTip('Vibe Music — ' + (st.playing ? 'играет: ' + st.title : 'пауза' + (st.title ? ': ' + st.title : '')));
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: (st.playing ? '⏸ ' : '▶ ') + (st.title || 'Играть/пауза'), click: () => press('Играть/пауза') },
+      { label: '⏮  Предыдущий', click: () => press('Предыдущий') },
+      { label: '⏭  Следующий', click: () => press('Следующий') },
+      { type: 'separator' },
+      { label: 'Открыть Vibe Music', click: showWindow },
+      { label: 'Выход', click: () => { quitting = true; app.quit(); } },
+    ]));
+  } catch { /* трей не критичен */ }
+  try {
+    if (process.platform === 'win32' && win && !win.isDestroyed()) {
+      const img = (n) => nativeImage.createFromPath(path.join(__dirname, 'build', 'tb_' + n + '.png'));
+      win.setThumbarButtons([
+        { icon: img('prev'), click: () => press('Предыдущий') },
+        { icon: img(st.playing ? 'pause' : 'play'), click: () => press('Играть/пауза') },
+        { icon: img('next'), click: () => press('Следующий') },
+      ]);
+    }
+  } catch { /* thumbar не критичен */ }
+}
+
 function showWindow() {
   if (!win) createWindow();
   else {
@@ -100,6 +143,11 @@ function createTray() {
     { label: 'Выход', click: () => { quitting = true; app.quit(); } },
   ]));
   tray.on('double-click', showWindow);
+  /* состояние плеера → меню/tooltip/thumbar, раз в 2 сек */
+  setInterval(async () => {
+    if (!win || win.isDestroyed()) return;
+    updateMediaUI(await queryState());
+  }, 2000);
 }
 
 const gotLock = app.requestSingleInstanceLock();

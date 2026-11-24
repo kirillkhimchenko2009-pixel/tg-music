@@ -9,10 +9,35 @@
 import lock1 from '../assets/lock/lock1.jpg';
 import lock2 from '../assets/lock/lock2.jpg';
 import lock3 from '../assets/lock/lock3.jpg';
+import pro1 from '../assets/lock/pro_blackgirl.jpg';
+import pro2 from '../assets/lock/pro_orangegirl.jpg';
+import pro3 from '../assets/lock/pro_animegirl.jpg';
 
 const SLEEP = 3;
 const CYCLE = [0, 1, 2];
 const PHOTOS = [lock1, lock2, lock3];
+/* Vibe Pro: эксклюзивные кадры + золотой значок PRO в углу */
+const PRO_CYCLE = [4, 5, 6];
+const PRO_PHOTOS = { 4: pro1, 5: pro2, 6: pro3 };
+
+/* золотой бейдж PRO в правом верхнем углу */
+const PRO_BADGE = (ctx) => {
+  ctx.save();
+  const w = 96, h = 40, x = 512 - w - 18, y = 18;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 12); else ctx.rect(x, y, w, h);
+  ctx.fillStyle = 'rgba(12,14,28,.72)';
+  ctx.fill();
+  ctx.strokeStyle = '#FFD36E';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#FFD36E';
+  ctx.font = '800 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('★ PRO', x + w / 2, y + h / 2 + 1);
+  ctx.restore();
+};
 
 /* пауза: затемнение + две «кнопки» паузы по центру */
 const SLEEP_OVERLAY = (ctx) => {
@@ -46,11 +71,12 @@ async function rasterize(i) {
           const w = img.width * s, h = img.height * s;
           ctx.drawImage(img, (512 - w) / 2, (512 - h) / 2, w, h);
           if (i === SLEEP) SLEEP_OVERLAY(ctx);
+          if (i >= 4) PRO_BADGE(ctx);
           resolve(canvas.toDataURL('image/png'));
         } catch { resolve(null); }
       };
       img.onerror = () => resolve(null);
-      img.src = i === SLEEP ? PHOTOS[0] : PHOTOS[i];
+      img.src = i === SLEEP ? PHOTOS[0] : (PRO_PHOTOS[i] || PHOTOS[i % PHOTOS.length]);
     } catch { resolve(null); }
   });
   rasterCache.set(i, p);
@@ -80,19 +106,29 @@ export async function setLockFrame(i) {
   frameListeners.forEach(f => { try { f(url); } catch { /* ок */ } });
 }
 
-/* Состояние из плеера: играет → «монтаж» портретов, пауза → затемнённый кадр */
+/* Состояние из плеера: играет → «монтаж» портретов, пауза → затемнённый кадр.
+   Vibe Pro: эксклюзивные кадры с бейджем (PRO_CYCLE). */
 let playing = false;
 let cycleIdx = 0;
+let isPro = false;
+
+export function setLockPro(v) {
+  isPro = !!v;
+  if (currentFrame >= 0) currentFrame = -1;   // перерисовать кадр под тариф
+  lockAnimeState(playing);
+}
 
 export function lockAnimeState(isPlaying) {
   playing = !!isPlaying;
-  setLockFrame(playing ? CYCLE[cycleIdx] : SLEEP).catch(() => {});
+  const cycle = isPro ? PRO_CYCLE : CYCLE;
+  setLockFrame(playing ? cycle[cycleIdx % cycle.length] : SLEEP).catch(() => {});
 }
 
 function tick() {
   if (!playing || typeof document === 'undefined' || document.visibilityState !== 'hidden') return;
-  cycleIdx = (cycleIdx + 1) % CYCLE.length;
-  setLockFrame(CYCLE[cycleIdx]).catch(() => {});
+  const cycle = isPro ? PRO_CYCLE : CYCLE;
+  cycleIdx = (cycleIdx + 1) % cycle.length;
+  setLockFrame(cycle[cycleIdx]).catch(() => {});
 }
 
 let booted = false;

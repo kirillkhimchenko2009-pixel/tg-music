@@ -28,6 +28,7 @@ export default function Pro() {
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoMsg, setPromoMsg] = useState('');
   const [promoOk, setPromoOk] = useState(false);
+  const [stats, setStats] = useState(null);
 
   const load = async () => {
     try {
@@ -36,13 +37,17 @@ export default function Pro() {
         api('/api/billing/status').catch(() => null),
       ]);
       setTiers(p.tiers || []);
-      if (s) setStatus(s);
+      if (s) { setStatus(s); if (s.admin) loadStats(); }
     } catch (e) {
       setErr((e && e.message) || 'не удалось загрузить планы');
     }
   };
 
   useEffect(() => { load(); }, []);
+
+  const loadStats = async () => {
+    try { setStats(await api('/api/billing/admin/stats')); } catch { setStats(null); }
+  };
 
   const applyPromo = async () => {
     if (!promo.trim() || promoBusy) return;
@@ -157,11 +162,53 @@ export default function Pro() {
         {promoMsg && <p className={'pro-promo-msg' + (promoOk ? ' ok' : '')}>{promoMsg}</p>}
       </section>
 
+      {status?.admin && <AdminStats stats={stats} />}
+
       <p className="pro-legal">
         Оплата проходит через Telegram (валюта XTR — звёзды). Подписка
         привязана к аккаунту Telegram, продлевается от даты окончания,
         а не от даты оплаты. Без автосписаний.
       </p>
     </div>
+  );
+}
+
+/* ---------------- админ: статистика продаж (только is_admin) ---------------- */
+function AdminStats({ stats }) {
+  if (!stats) return null;
+  const fmt = (iso) => (iso ? String(iso).slice(0, 10) : '—');
+  return (
+    <section className="pro-admin">
+      <h3>📊 Статистика продаж</h3>
+      <div className="pro-admin-cards">
+        <div><strong>{stats.revenue_stars} ★</strong><span>выручка</span></div>
+        <div><strong>{stats.payments}</strong><span>платежей</span></div>
+        <div><strong>{stats.subs_active?.pro ?? 0}</strong><span>Pro активен</span></div>
+        <div><strong>{stats.subs_active?.lite ?? 0}</strong><span>Lite активен</span></div>
+        <div><strong>{stats.subs_active?.lifetime ?? 0}</strong><span>бессрочных</span></div>
+      </div>
+      {stats.last_payments?.length > 0 && (
+        <table className="pro-admin-table">
+          <thead><tr><th>кто</th><th>тир</th><th>срок</th><th>★</th><th>дата</th></tr></thead>
+          <tbody>
+            {stats.last_payments.map((p, i) => (
+              <tr key={i}><td>{p.user_id}</td><td>{p.tier}</td><td>{p.plan}</td>
+                <td>{p.stars}</td><td>{fmt(p.at)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {stats.promos?.length > 0 && (
+        <table className="pro-admin-table">
+          <thead><tr><th>промокод</th><th>тир</th><th>дней</th><th>активаций</th><th>лимит</th></tr></thead>
+          <tbody>
+            {stats.promos.map((p, i) => (
+              <tr key={i}><td>{p.code}</td><td>{p.tier}</td><td>{p.days ?? '∞'}</td>
+                <td>{p.used}</td><td>{p.max_uses ?? '∞'}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }

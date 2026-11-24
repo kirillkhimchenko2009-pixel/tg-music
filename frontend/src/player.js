@@ -9,7 +9,7 @@ import { API_BASE, api, playerSrc, coverUrl } from './api.js';
 import { localSrc, addHistory, recordEvent, syncEvents, cacheTracks } from './local/repo.js';
 import { saveSession, saveSessionSoon, getSession } from './local/recover.js';
 import * as ms from './local/mediasession.js';
-import { bootLockAnime, lockAnimeState, onLockFrame } from './local/lockanime.js';
+import { bootLockAnime, lockAnimeState, onLockFrame, setLockPro } from './local/lockanime.js';
 import { boot as bootDownloads } from './local/downloads.js';
 
 /* iOS/WebKit: mediaSession.metadata.artwork игнорируется — обложка Now
@@ -544,5 +544,13 @@ ms.bindActions(MS_ACTIONS);
   } catch { /* состояние — best effort */ }
   try { bootDownloads(); } catch { /* загрузки не критичны */ }
   try { bootLockAnime(); } catch { /* живая обложка не критична */ }
+  try {
+    /* тариф обложки: Pro → эксклюзивные кадры; обновляем раз в 10 мин */
+    const refreshPro = () => api('/api/billing/status')
+      .then(st => setLockPro(!!(st && st.pro)))
+      .catch(() => {});
+    refreshPro();
+    setInterval(refreshPro, 10 * 60 * 1000);
+  } catch { /* ок */ }
   try { syncEvents(); } catch { /* офлайн-события уйдут позже */ }
 })();
