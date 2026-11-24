@@ -14,7 +14,6 @@ def main_menu() -> InlineKeyboardMarkup:
 # Подписи кнопок Reply-клавиатуры. ЕДИНЫЙ источник: их отправляет клавиатура
 # и с ними же сравнивает handlers/kblabels.py — расхождений быть не должно.
 BT_APP = "🎧 Приложение"
-BT_WAVE = "🌊 Волна"
 BT_FIND = "🔍 Найти трек"
 BT_MUSIC = "🎵 Музыка"
 BT_FAVS = "❤ Любимое"
@@ -22,6 +21,7 @@ BT_PLS = "📋 Плейлисты"
 BT_IMPORT = "🔗 Импорт плейлиста"
 BT_LOGIN = "🔑 Вход из браузера"
 BT_PROMO = "🌟 Промокод"
+BT_PAY = "💳 Оплата"
 BT_HELP = "ℹ️ Помощь"
 
 
@@ -30,12 +30,10 @@ def main_reply() -> ReplyKeyboardMarkup | None:
     каждая кнопка реально работает (см. handlers/kblabels.py)."""
     if not settings.WEBAPP_URL:
         return None
-    from bot.handlers.wave import wave_url   # лениво: keyboards — низший слой
     rows = [
         [KeyboardButton(text=BT_APP,
                         web_app=WebAppInfo(url=settings.WEBAPP_URL)),
-         KeyboardButton(text=BT_WAVE,
-                        web_app=WebAppInfo(url=wave_url()))],
+         KeyboardButton(text=BT_PAY)],
         [KeyboardButton(text=BT_FIND), KeyboardButton(text=BT_MUSIC),
          KeyboardButton(text=BT_FAVS)],
         [KeyboardButton(text=BT_PLS), KeyboardButton(text=BT_IMPORT)],

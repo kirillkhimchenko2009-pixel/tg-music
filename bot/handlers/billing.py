@@ -97,8 +97,7 @@ async def promo_start_input(message: types.Message, state: FSMContext | None = N
     if state is not None:
         await state.set_state(PromoStates.waiting_code)
     await message.answer(
-        "🎟 Пришли промокод одним сообщением — активирую подписку.\n\n"
-        "Например: <code>sever1908</code>\n"
+        "🎟 Пришли промокод одним сообщением — активирую подписку.\n"
         "Отмена — /cancel")
 
 

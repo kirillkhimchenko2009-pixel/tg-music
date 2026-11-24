@@ -149,7 +149,7 @@ export default function Pro() {
       <section className="pro-promo">
         <h3>Промокод</h3>
         <div className="pro-promo-row">
-          <input className="pro-promo-input" placeholder="Например: sever1908"
+          <input className="pro-promo-input" placeholder="Введи промокод"
                  value={promo} maxLength={48} onChange={e => setPromo(e.target.value)} />
           <button className="pro-promo-btn" disabled={promoBusy || !promo.trim()}
                   onClick={applyPromo}>{promoBusy ? '…' : 'Активировать'}</button>
