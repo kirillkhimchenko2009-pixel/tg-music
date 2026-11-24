@@ -39,6 +39,9 @@ TIERS: dict[str, dict] = {
 
 PAYLOAD_PREFIX = "vibe-sub"
 
+# дневной лимит скачиваний в чат: бесплатно / Lite / Pro (None = безлимит)
+DOWNLOAD_LIMITS = {"free": 25, "lite": 1000, "pro": None}
+
 
 def parse_plan(s: str) -> tuple[str, str]:
     """'pro-year' → ('pro', 'year'); легаси 'year' → ('pro', 'year')."""
@@ -75,6 +78,23 @@ async def active_subscription(s: AsyncSession, user_id: int, tier: str) -> Subsc
     return (await s.execute(select(Subscription).where(
         Subscription.user_id == int(user_id),
         Subscription.tier == tier))).scalar_one_or_none()
+
+
+async def download_limit(s: AsyncSession, user_id: int) -> int | None:
+    """Дневной лимит «скачать в чат»: 25 бесплатно, 1000 у Lite, None = безлимит
+    у Pro. Используется в music/downloader/queue.enqueue (единая точка —
+    покрывает и бота /get, и bulk, и кнопки мини-аппа)."""
+    if is_pro(await active_subscription(s, int(user_id), "pro")):
+        return None
+    lite = await active_subscription(s, int(user_id), "lite")
+    if is_lite(lite) and lite.tier == "lite":
+        return DOWNLOAD_LIMITS["lite"]
+    return DOWNLOAD_LIMITS["free"]
+
+
+async def has_pro(s: AsyncSession, user_id: int) -> bool:
+    """Гейт для функций, доступных только Pro (сейчас — аудиокниги)."""
+    return is_pro(await active_subscription(s, int(user_id), "pro"))
 
 
 async def status_dto(s: AsyncSession, user_id: int) -> dict:

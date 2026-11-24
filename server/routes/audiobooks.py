@@ -8,8 +8,12 @@ import time
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+
+from bot import runtime
+from server.auth import CurrentUser, tg_user
+from services import billing as _billing
 
 router = APIRouter(prefix="/api/audiobooks", tags=["audiobooks"])
 LIBRIVOX_API = "https://librivox.org/api/feed/audiobooks/"
@@ -352,15 +356,24 @@ def _catalog_hint(total: int, lang: str) -> str:
     return f"{total} записей · {_language_label(lang)}"
 
 
+async def _pro_gate(user: CurrentUser) -> None:
+    """Аудиокниги — только в подписке Vibe Pro (§ биллинг)."""
+    async with runtime.get_session() as s:
+        if not await _billing.has_pro(s, int(user.id)):
+            raise HTTPException(403, "Аудиокниги доступны в подписке Vibe Pro — раздел «Vibe Pro»")
+
+
 @router.get("/catalog")
 async def catalog(q: str = Query("", max_length=120), offset: int = Query(0, ge=0, le=100000),
-                  limit: int = Query(30, ge=1, le=60), lang: str = Query("rus", max_length=8)):
+                  limit: int = Query(30, ge=1, le=60), lang: str = Query("rus", max_length=8),
+                  user: CurrentUser = Depends(tg_user)):
     """Paginated LibriVox recordings from Internet Archive, popular first.
 
     lang — трёхбуквенный код MARC21 (rus, eng, deu…) или all. По умолчанию
     русский каталог; другие языки расширяют библиотеку публичных записей.
     """
     query = q.strip()
+    await _pro_gate(user)
     lang_code = (lang or "rus").strip().lower()
     if lang_code != "all" and not _LANG_RE.fullmatch(lang_code):
         raise HTTPException(400, "Неизвестный язык каталога")
@@ -394,7 +407,8 @@ async def catalog(q: str = Query("", max_length=120), offset: int = Query(0, ge=
 
 
 @router.get("/book/{book_id}")
-async def book(book_id: str):
+async def book(book_id: str, user: CurrentUser = Depends(tg_user)):
+    await _pro_gate(user)
     if not book_id.isdigit():
         try:
             result = await _archive_book(book_id)

@@ -7,6 +7,8 @@ import { cacheTracks } from '../local/repo.js';
 import * as downloads from '../local/downloads.js';
 import { toast } from '../motion/utils/toast.js';
 import { audiobookTrackId, formatBookDuration } from '../audiobooks.js';
+import { navPush } from '../nav.js';
+import { IcoStar } from '../ui.jsx';
 
 const MODERN_SOURCES = [
   { id: 'akniga-classic', name: 'Аудиокнига', note: 'Классика · русская и мировая', url: 'https://akniga.org/section/classic/', mark: 'А' },
@@ -54,6 +56,7 @@ function BookCover({ book, className = '' }) {
 
 export default function Audiobooks() {
   const pst = P.usePlayerSnap();          // живое состояние плеера (идёт/пауза/текущая глава)
+  const [proState, setProState] = useState('loading');   // loading | yes | no
   const [books, setBooks] = useState([]);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
@@ -101,6 +104,14 @@ export default function Audiobooks() {
       }
     }
   }, [language]);
+
+  useEffect(() => {
+    /* аудиокниги — только Vibe Pro: до ответа статуса экран не грузим */
+    api('/api/billing/status').then(s => {
+      setProState(s?.pro ? 'yes' : 'no');
+      if (s?.pro) haptic('soft');
+    }).catch(() => setProState('no'));
+  }, []);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -204,6 +215,25 @@ export default function Audiobooks() {
     finally { setSavingId(''); }
   };
 
+  if (proState === 'loading') {
+    return <main className="books-page">
+      <header className="books-header"><div><span className="books-overline"><IcoBook /> VIBE · БИБЛИОТЕКА</span><h1>Аудиокниги</h1></div></header>
+      <div className="pro-locked"><div className="boot-eq"><i /><i /><i /></div></div>
+    </main>;
+  }
+  if (proState === 'no') {
+    return <main className="books-page">
+      <header className="books-header"><div><span className="books-overline"><IcoBook /> VIBE · БИБЛИОТЕКА</span><h1>Аудиокниги</h1></div></header>
+      <section className="pro-locked">
+        <span className="pro-locked-star"><IcoStar width="1em" height="1em" /></span>
+        <h2>Аудиокниги — в Vibe Pro</h2>
+        <p>Вся библиотека LibriVox (публичные записи) открывается в подписке Vibe Pro: слушание по главам, оффлайн-главы «В Vibe», живая обложка.</p>
+        <button className="bigbtn primary" onClick={() => { haptic('medium'); navPush({ tab: 'pro', sub: null }); }}>
+          <IcoStar width="1em" height="1em" /> Смотреть Vibe Pro
+        </button>
+      </section>
+    </main>;
+  }
   return <main className="books-page">
     <header className="books-header">
       <div><span className="books-overline"><IcoBook /> VIBE · БИБЛИОТЕКА</span><h1>Аудиокниги</h1>

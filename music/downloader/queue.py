@@ -122,9 +122,23 @@ class DownloadQueue:
                         f"или отмени задачу.", code="USER_ACTIVE_LIMIT")
                 if self.settings.user_daily_jobs:
                     daily = await count_daily_downloads(session, user_id)
-                    if daily >= self.settings.user_daily_jobs:
+                    tier_limit = None
+                    try:
+                        # тарифный лимит: 25 бесплатно / 1000 Lite / безлимит Pro
+                        from bot.runtime import get_session as _core_session
+                        from services import billing as _billing
+                        async with _core_session() as _cs:
+                            tier_limit = await _billing.download_limit(_cs, user_id)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("job: тарифный лимит недоступен (%r) — базовый", exc)
+                        tier_limit = self.settings.user_daily_jobs
+                    if tier_limit is not None:
+                        tier_limit = min(tier_limit, self.settings.user_daily_jobs) \
+                            if self.settings.user_daily_jobs else tier_limit
+                    if tier_limit is not None and daily >= tier_limit:
                         raise UserLimitError(
-                            f"Дневной лимит загрузок: {self.settings.user_daily_jobs}",
+                            f"Дневной лимит: {tier_limit} треков в чат. "
+                            f"Vibe Lite — 1000/день, Pro — безлимит (раздел Vibe Pro).",
                             code="USER_DAILY_LIMIT")
                 job_id = str(uuid.uuid4())
                 await record_job(session, job_id, user_id, candidate,
