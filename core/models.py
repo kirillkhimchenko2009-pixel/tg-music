@@ -269,3 +269,29 @@ class TrackFeedback(Base):
         UniqueConstraint("user_id", "track_id", "kind", name="uq_track_feedback_kind"),
         Index("ix_track_feedback_user_track", "user_id", "track_id"),
     )
+
+
+class Subscription(Base):
+    """Подписка Vibe Pro (оплата Telegram-звёздами, currency XTR).
+    Одна строка на пользователя: при продлении expires_at сдвигается
+    от максимума(now, expires_at)."""
+    __tablename__ = "subscriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    plan: Mapped[str] = mapped_column(String(16), default="month")
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | expired | refunded
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class StarPayment(Base):
+    """Журнал платежей звёздами (successful_payment из Bot API).
+    telegram_payment_charge_id уникален — защита от двойного зачисления."""
+    __tablename__ = "star_payments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    plan: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[int] = mapped_column(Integer)          # звёзды
+    charge_id: Mapped[str] = mapped_column(String(128), unique=True)
+    payload: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

@@ -38,6 +38,7 @@ export const IcoHeart = ({ filled, ...p }) =>
   <Icon {...p}><path d="M12 21c-4.9-4.2-9-7.4-9-11.4C3 6.5 5.4 4 8.5 4c1.7 0 3.4.8 4.5 2.1C14.1 4.8 15.8 4 17.5 4 20.6 4 23 6.5 23 9.6c0 4-4.1 7.2-9 11.4z" fill={filled ? 'currentColor' : 'none'} /></Icon>;
 export const IcoDl = p => <Icon {...p}><path d="M12 3.5v11" /><path d="m7.5 10 4.5 4.5L16.5 10" /><path d="M4.5 20h15" /></Icon>;
 export const IcoSave = p => <Icon {...p}><path d="M5 4h11l3 3v13H5z" /><path d="M8 4v5h7V4" /><path d="M8 20v-6h8v6" /></Icon>;
+export const IcoStar = p => <Icon {...p}><path d="M12 3.2 14.7 9l6.3.7-4.7 4.2 1.3 6.2L12 17l-5.6 3.1 1.3-6.2L3 9.7 9.3 9z" fill="currentColor" stroke="none" /></Icon>;
 export const IcoDownload = IcoDl;              // совместимость со старыми импортами
 export const IcoMore = p => <Icon {...p}><circle cx="12" cy="5.4" r="1.7" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none" /><circle cx="12" cy="18.6" r="1.7" fill="currentColor" stroke="none" /></Icon>;
 export const IcoPlus = p => <Icon {...p}><path d="M12 5v14M5 12h14" /></Icon>;

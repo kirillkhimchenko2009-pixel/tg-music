@@ -15,7 +15,7 @@ import {
   IcoHome, IcoWave, IcoSearch, IcoLib, IcoImport, IcoPodcast, IcoBook,
   IcoChevL, IcoChevR, IcoBell, IcoX, IcoCheck,
   IcoPrev, IcoNext, IcoShuffle, IcoRepeat, IcoVol, IcoVolOff,
-  IcoExpand, IcoDl, IcoHeart, IcoClock, IcoNote,
+  IcoExpand, IcoDl, IcoHeart, IcoClock, IcoNote, IcoStar,
 } from './ui.jsx';
 import {
   AnimatedDropdown, AnimatedIcon, Seek, Sheet, ToastHost,
@@ -33,6 +33,7 @@ import Artist from './screens/Artist.jsx';
 import Album from './screens/Album.jsx';
 import Wave from './screens/Wave.jsx';
 import Storage from './screens/Storage.jsx';
+import Pro from './screens/Pro.jsx';
 import { LyricsView } from './LyricsView.jsx';
 import { extractPalette } from './local/palette.js';
 
@@ -55,6 +56,7 @@ const NAV_COLL = [
   { tab: 'collection', sub: 'history', icon: IcoClock, label: 'История' },
 ];
 const NAV_MISC = [
+  { tab: 'pro', icon: IcoStar, label: 'Vibe Pro' },
   { tab: 'import', icon: IcoImport, label: 'Импорт' },
   { tab: 'podcasts', icon: IcoPodcast, label: 'Подкасты' },
   { tab: 'audiobooks', icon: IcoBook, label: 'Аудиокниги' },
@@ -174,6 +176,7 @@ function Screen({ view }) {
     case 'podcasts': return <Podcasts />;
     case 'audiobooks': return <Audiobooks />;
     case 'storage': return <Storage />;
+    case 'pro': return <Pro />;
     case 'artist': return <Artist name={view.name} cover={view.cover} />;
     case 'album': return <Album album={view.album} />;
     case 'playlist': return <PlaylistScreen plId={view.id} pl={view} />;

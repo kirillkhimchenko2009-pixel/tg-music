@@ -114,6 +114,8 @@ from server.routes import playlist_import as import_route  # noqa: E402
 app.include_router(import_route.router)
 from server.routes import wave as wave_route  # noqa: E402
 app.include_router(wave_route.router)
+from server.routes import billing as billing_route  # noqa: E402
+app.include_router(billing_route.router)
 from server.routes import ympx as ympx_route  # noqa: E402
 app.include_router(ympx_route.router)
 

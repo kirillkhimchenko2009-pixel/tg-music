@@ -2836,3 +2836,27 @@ h1.h { letter-spacing: -.2px; }
 
 /* поповеры и шиты: ночной материал */
 .pop { background: #141935; border-color: rgba(255, 255, 255, .08); }
+
+/* ============ Vibe Pro: подписка за звёзды ============ */
+.pro-screen { max-width: 620px; margin: 0 auto; padding: 18px 16px 40px; }
+.pro-hero { position: relative; overflow: hidden; padding: 26px 20px; border: 1px solid rgba(180, 77, 255, .35); border-radius: var(--radius); background: linear-gradient(135deg, rgba(255, 61, 129, .18), rgba(180, 77, 255, .16) 55%, rgba(56, 225, 255, .12)); }
+.pro-hero::after { content: '★'; position: absolute; right: -14px; bottom: -38px; font-size: 130px; color: rgba(255, 183, 213, .14); transform: rotate(12deg); }
+.pro-hero h1 { margin: 4px 0 6px; font: 800 30px var(--font-display); letter-spacing: .02em; color: #fff; text-shadow: 0 0 22px rgba(180, 77, 255, .5); }
+.pro-hero p { margin: 0; color: var(--sakura); font: 500 13px var(--font-ui); }
+.pro-spark { font-size: 15px; color: var(--accent); text-shadow: 0 0 14px rgba(255, 61, 129, .8); }
+.pro-perks { margin: 14px 0 0; padding: 0 4px; list-style: none; }
+.pro-perks li { display: flex; align-items: center; gap: 10px; padding: 7px 0; font: 500 13px var(--font-ui); color: var(--muted-foreground); }
+.pro-perk-ico { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: var(--card); border: 1px solid var(--border-soft); font-size: 14px; }
+.pro-err { color: var(--destructive); font: 500 12px var(--font-ui); }
+.pro-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+.pro-plan { display: grid; gap: 2px; padding: 15px 14px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--card); cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s, transform .12s; }
+.pro-plan:hover { border-color: rgba(255, 61, 129, .45); box-shadow: 0 0 18px rgba(255, 61, 129, .18); }
+.pro-plan:active { transform: scale(.98); }
+.pro-plan-t { font: 750 13px var(--font-ui); color: var(--foreground); }
+.pro-plan-stars { display: flex; align-items: center; gap: 5px; font: 800 20px var(--font-display); color: #FFD36E; }
+.pro-plan-stars svg { filter: drop-shadow(0 0 8px rgba(255, 211, 110, .6)); }
+.pro-plan-n { font: 500 11px var(--font-ui); color: var(--muted-foreground); }
+.pro-plan-c { margin-top: 7px; padding: 7px 10px; border-radius: 8px; background: linear-gradient(180deg, var(--accent-hover), var(--accent) 74%); color: #fff; font: 750 11px var(--font-ui); text-align: center; letter-spacing: .02em; box-shadow: 0 0 14px rgba(255, 61, 129, .35); }
+.pro-plan.busy { opacity: .65; pointer-events: none; }
+.pro-guest-note { margin-top: 14px; padding: 11px 13px; border-radius: var(--radius); border: 1px solid rgba(56, 225, 255, .3); background: rgba(56, 225, 255, .07); color: var(--info-foreground); font: 500 12px var(--font-ui); }
+.pro-legal { margin-top: 14px; color: var(--muted-foreground); font: 400 11px var(--font-ui); }
