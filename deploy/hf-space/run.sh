@@ -2,7 +2,12 @@
 # Старт: восстановить базу из бэкапа → бэкап-вотчер → бот (под супервизором) → сервер.
 set -e
 cd /app
-python deploy/hf-space/backup.py restore || true
+# Жёсткий потолок на restore: hf_hub_download внутри ретраит с бэкоффом и
+# без таймаута может висеть минутами — контейнер тогда не проходит
+# health-check и Render крутит бут по кругу («Application loading»). Bash
+# timeout 120 убивает зависший restore: бот/сервер стартуют на пустой базе,
+# бэкап-вотчер позже снова зальёт текущую базу.
+timeout 120 python deploy/hf-space/backup.py restore || true
 # вотчер держим только когда бэкап реально настроен: спящий python
 # без дела — лишние ~40 МБ, на free-инстансе (512 МБ) это не мелочь.
 if [ -n "$BACKUP_REPO" ] && [ -n "$HF_TOKEN" ]; then

@@ -128,7 +128,7 @@ app.include_router(ympx_route.router)
 
 @app.get("/api/ping")
 async def ping():
-    return {"ok": True}
+    return {"ok": True, "build": "20261124-saavn"}
 
 @app.get("/health")
 async def health():
