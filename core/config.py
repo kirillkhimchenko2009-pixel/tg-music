@@ -16,6 +16,8 @@ class Settings:
     # Билд-метка для сброса кеша мини-аппа: кнопка «Приложение» открывает
     # WEBAPP_URL?v=<APP_BUILD> — Telegram-вебвью не подсовывает старый JS.
     APP_BUILD: str = os.getenv("APP_BUILD", "20261125-webapp")
+    # Секрет для /api/growth (метрики роста). Сменить в env при желании.
+    GROWTH_KEY: str = os.getenv("GROWTH_KEY", "k7Qv2mR9xT4w")
     ADMIN_IDS: list[int] = _int_list(os.getenv("ADMIN_IDS", ""))
     YM_TOKEN: str = os.getenv("YM_TOKEN", "")
     ZVUK_TOKEN: str = os.getenv("ZVUK_TOKEN", "")

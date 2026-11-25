@@ -131,6 +131,31 @@ async def ping():
     from core.config import settings
     return {"ok": True, "build": settings.APP_BUILD}
 
+
+@app.get("/api/growth")
+async def growth(key: str = ""):
+    """Метрики роста: счётчики рекламных меток + новые юзеры.
+    Защита секретом GROWTH_KEY (не для публичного доступа)."""
+    from core.config import settings
+    if key != settings.GROWTH_KEY:
+        raise HTTPException(403, "нет доступа")
+    from sqlalchemy import select, func
+    from core.models import User, WaveKV
+    from bot import runtime
+    from datetime import timedelta
+    from core.models import utcnow
+    async with runtime.get_session() as s:
+        rows = (await s.execute(select(WaveKV).where(
+            WaveKV.key.like("start:%") | (WaveKV.key == "landing_visits")))).scalars().all()
+        labels = {r.key: (r.value or {}).get("n", 0) for r in rows}
+        total = (await s.execute(select(func.count(User.id)))).scalar()
+        day = (await s.execute(select(func.count(User.id)).where(
+            User.created_at >= utcnow() - timedelta(hours=24)))).scalar()
+        week = (await s.execute(select(func.count(User.id)).where(
+            User.created_at >= utcnow() - timedelta(days=7)))).scalar()
+    return {"labels": labels, "users_total": int(total),
+            "users_24h": int(day), "users_7d": int(week)}
+
 @app.get("/health")
 async def health():
     return {"ok": True}
