@@ -33,6 +33,11 @@ _VERSION = re.compile(
     r"album version|extended|club|dub|live|acoustic|unplugged|instrumental|"
     r"feat|ft|featuring|vers?\.|version|edit|cover)\b", re.IGNORECASE)
 
+# чистые релизы (лейблы под РФ-закон 436-ФЗ выпускают замазанные дубли):
+# при прочих равных выбираем оригинал — clean-мастер звучит «замазанно»
+_CLEAN_TITLE = re.compile(
+    r"[\(\[]?\s*(clean|clean version|clean edit|censored|unclean)\b", re.IGNORECASE)
+
 
 def _fold(s: str) -> str:
     """Общая предобработка: NFKD, диакритика, кавычки, дефисы, мусор, пробелы."""
@@ -87,6 +92,11 @@ def similarity(a: TrackMeta, b: TrackMeta) -> float:
     if va != vb and (va or vb):
         # оригинал vs ремикс/лайв — всегда разные треки (мастер-промпт §6)
         ver_penalty = 0.25
+    # clean-релиз против равного оригинала — небольшой штраф (0.1):
+    # если это единственный кандидат, он всё равно пройдёт порог 0.62,
+    # но там, где есть оригинал, замазанный мастер не выиграет
+    if _CLEAN_TITLE.search(b.title or "") and not _CLEAN_TITLE.search(a.title or ""):
+        ver_penalty += 0.10
     return max(0.0, best - dur_penalty - ver_penalty)
 
 
