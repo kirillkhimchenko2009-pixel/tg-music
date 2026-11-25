@@ -149,12 +149,18 @@ async def growth(key: str = ""):
             WaveKV.key.like("start:%") | (WaveKV.key == "landing_visits")))).scalars().all()
         labels = {r.key: (r.value or {}).get("n", 0) for r in rows}
         total = (await s.execute(select(func.count(User.id)))).scalar()
-        day = (await s.execute(select(func.count(User.id)).where(
-            User.created_at >= utcnow() - timedelta(hours=24)))).scalar()
-        week = (await s.execute(select(func.count(User.id)).where(
-            User.created_at >= utcnow() - timedelta(days=7)))).scalar()
-    return {"labels": labels, "users_total": int(total),
-            "users_24h": int(day), "users_7d": int(week)}
+        # реальные пользователи бота — id < 1e12 (гости мини-аппа ≥ 1e12)
+        botq = select(func.count(User.id)).where(User.id < 1e12)
+        guestq = select(func.count(User.id)).where(User.id >= 1e12)
+        day_b = (await s.execute(botq.where(User.created_at >= utcnow() - timedelta(hours=24)))).scalar()
+        day_g = (await s.execute(guestq.where(User.created_at >= utcnow() - timedelta(hours=24)))).scalar()
+        week_b = (await s.execute(botq.where(User.created_at >= utcnow() - timedelta(days=7)))).scalar()
+        tot_b = (await s.execute(botq)).scalar()
+        tot_g = (await s.execute(guestq)).scalar()
+    return {"labels": labels,
+            "users_bot_total": int(tot_b), "users_bot_24h": int(day_b),
+            "users_bot_7d": int(week_b),
+            "guests_total": int(tot_g), "guests_24h": int(day_g)}
 
 @app.get("/health")
 async def health():
