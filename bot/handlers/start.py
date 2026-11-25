@@ -86,6 +86,11 @@ async def cmd_start(message: types.Message, command: CommandObject):
         except ValueError:
             await message.answer("Ссылка устарела — найди трек заново.")
         return
+    if arg.startswith("gift150"):
+        # раздача: 150 промокодов на месяц Lite, auto-выдача по диплинку
+        # t.me/<bot>?start=gift150 — для вирусного ролика
+        await _handle_gift150(message)
+        return
     if arg.startswith("ref"):
         # рефералка: t.me/<bot>?start=ref<inviter_uid>
         await _handle_referral(message, arg[3:])
@@ -130,6 +135,61 @@ async def cmd_start(message: types.Message, command: CommandObject):
         await _greet(message)
         return
     await _greet(message)      # start=inline (кнопка инлайна) тоже сюда
+
+
+async def _handle_gift150(message: types.Message) -> None:
+    """Авто-выдача промокода на месяц Lite по диплинку gift150.
+
+    Пул: 150 штук (счётчик gift150_left в wave_kv, инициализируется при
+    первом обращении). Идемпотентность: код юзера хранится в wave_kv —
+    повторный /start выдаёт тот же код, пул не тратится. Код генерируется
+    на месте через billing.create_promo (tier=lite, days=31, max_uses=1)."""
+    import html as _html
+    import secrets as _secrets
+    from core.models import WaveKV
+    from services import billing as _billing
+    uid = message.from_user.id
+    async with runtime.get_session() as s:
+        await runtime.ensure_user(s, uid, message.from_user.username,
+                                  message.from_user.first_name or "")
+        q = lambda k: _select(WaveKV).where(WaveKV.key == k)  # noqa: E731
+        left_row = (await s.execute(q("gift150_left"))).scalar_one_or_none()
+        if left_row is None:
+            s.add(WaveKV(key="gift150_left", value={"n": 150}))
+            await s.commit()
+        mine_row = (await s.execute(q(f"gift150:u:{uid}"))).scalar_one_or_none()
+        if mine_row is not None:
+            code = (mine_row.value or {}).get("code", "")
+        else:
+            left = int((left_row.value or {"n": 150}).get("n", 150)) \
+                if left_row is not None else 150
+            if left <= 0:
+                await s.commit()
+                await message.answer(
+                    "😔 Увы — все 150 промокодов уже разобрали!\n\n"
+                    "Но есть план Б: /ref — приглашай друзей и получай "
+                    "Vibe Lite за каждого (+3 дня).")
+                return
+            code = f"GIFT150-{str(uid)[-4:]}{_secrets.token_hex(3).upper()}"
+            try:
+                await _billing.create_promo(s, code, "lite", 31, 1,
+                                            note="gift150")
+            except ValueError:
+                code = f"GIFT150-{_secrets.token_hex(5).upper()}"
+                await _billing.create_promo(s, code, "lite", 31, 1,
+                                            note="gift150")
+            if left_row is None:
+                left_row = (await s.execute(q("gift150_left"))).scalar_one()
+            left_row.value = {"n": left - 1}
+            s.add(WaveKV(key=f"gift150:u:{uid}", value={"code": code}))
+            await s.commit()
+            log.info("gift150: выдан %s (uid=%s, осталось %s)", code, uid,
+                     left - 1)
+    await message.answer(
+        f"🎁 Твой промокод на <b>месяц Vibe Lite — бесплатно</b>:\n\n"
+        f"<code>{_html.escape(code)}</code>\n\n"
+        f"Активируй: кнопка «🌟 Промокод» ниже → введи код.\n"
+        f"Забирай друзей: /ref — +3 дня за каждого.")
 
 
 async def _handle_referral(message: types.Message, inviter_raw: str) -> None:
