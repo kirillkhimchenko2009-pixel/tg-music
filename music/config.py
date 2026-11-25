@@ -131,6 +131,11 @@ class MusicSettings:
         default_factory=lambda: _int("MEDIA_LOCAL_FALLBACK_SEC", 90))
     worker_caps_ffmpeg: bool = field(default_factory=lambda: _bool("MEDIA_CAPS_FFMPEG", True))
     media_max_attempts: int = field(default_factory=lambda: max(1, _int("MEDIA_MAX_ATTEMPTS", 3)))
+    # Сколько джоб воркер качает ОДНОВРЕМЕННО. Раньше было строго 1: очередь
+    # из 5 треков стояла минутами. 3 — безопасно для HF (2 vCPU) и Botkeep;
+    # на слабых хостах ставь MEDIA_POLLER_CONCURRENCY=1.
+    media_poller_concurrency: int = field(
+        default_factory=lambda: max(1, _int("MEDIA_POLLER_CONCURRENCY", 3)))
     # Жёсткий потолок одной джобы (скачивание+доставка). Лечит вечные
     # зависания в фазе, где таймеров нет (Telegram-upload большого файла),
     # не трогая нормальные загрузки (десятки секунд — единицы минут).

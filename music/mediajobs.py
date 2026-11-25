@@ -497,13 +497,15 @@ class MediaJobPoller:
 
     def __init__(self, name: str | None = None, poll_sec: float | None = None,
                  caps_ffmpeg: bool | None = None, min_age_sec: float = 0.0,
-                 stale_every: int = 20):
+                 stale_every: int = 20, max_concurrent: int | None = None):
         self.name = name or music_settings.worker_name or "local"
         self.poll_sec = (poll_sec if poll_sec is not None
                          else music_settings.worker_poll_sec)
         self.caps_ffmpeg = (music_settings.worker_caps_ffmpeg
                             if caps_ffmpeg is None else caps_ffmpeg)
         self.min_age_sec = min_age_sec
+        self.max_concurrent = (max(1, int(max_concurrent)) if max_concurrent is not None
+                               else music_settings.media_poller_concurrency)
         self._stale_every = max(1, stale_every)
         self._cycles = 0
         self._running = False
@@ -533,12 +535,25 @@ class MediaJobPoller:
         await self._run()
 
     async def _run(self) -> None:
-        log.info("media poller %s: старт (poll=%.0fs caps_ffmpeg=%s min_age=%.0fs)",
-                 self.name, self.poll_sec, self.caps_ffmpeg, self.min_age_sec)
+        log.info("media poller %s: старт (poll=%.0fs caps_ffmpeg=%s min_age=%.0fs "
+                 "concurrency=%d)", self.name, self.poll_sec, self.caps_ffmpeg,
+                 self.min_age_sec, self.max_concurrent)
+        inflight: set[asyncio.Task] = set()
         try:
             while self._running:
+                # убрать завершившиеся из слежения
+                for t in [t for t in inflight if t.done()]:
+                    inflight.discard(t)
+                    try:
+                        await t
+                    except Exception:  # noqa: BLE001
+                        log.exception("media poller %s: фоновая джоба упала",
+                                      self.name)
+                if len(inflight) >= self.max_concurrent:
+                    await asyncio.sleep(0.4)
+                    continue
                 try:
-                    outcome = await self.tick()
+                    job = await self.claim_next()
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001
@@ -546,12 +561,58 @@ class MediaJobPoller:
                                 self.name, e, exc_info=True)
                     await asyncio.sleep(min(self.poll_sec * 2, 30))
                     continue
-                # только что освободившийся воркер может сразу брать следующую;
-                # после "retry"/пустого цикла — обычный интервал (и спилловер
-                # не душит Neon: serv00 с 25 с делает ~120 запросов/час)
-                await asyncio.sleep(0.2 if outcome == "done" else self.poll_sec)
+                if job is None:
+                    await asyncio.sleep(self.poll_sec)
+                    continue
+                log.info("media poller %s: джоба %s (track=%s uid=%s attempt=%s)",
+                         self.name, job.id, job.track_id, job.uid, job.attempts)
+                inflight.add(asyncio.create_task(
+                    self._run_job(job), name=f"job-{job.id[:8]}"))
+                # свободные слоты не ждут полла — сразу пробуем взять следующую
+                await asyncio.sleep(0.1)
         finally:
-            log.info("media poller %s: стоп", self.name)
+            log.info("media poller %s: стоп (ждём %d фоновых джоб)",
+                     self.name, len(inflight))
+            if inflight:
+                await asyncio.gather(*inflight, return_exceptions=True)
+
+    async def claim_next(self):
+        """Забрать одну джобу из очереди (без исполнения)."""
+        async with AsyncSessionLocal() as session:
+            self._cycles += 1
+            if self._cycles % self._stale_every == 0:
+                try:
+                    await release_stale(session)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("media poller %s: release_stale упал: %s",
+                                self.name, e)
+            return await claim(session, self.name,
+                               caps_ffmpeg=self.caps_ffmpeg,
+                               min_age_sec=self.min_age_sec)
+
+    async def _run_job(self, job) -> None:
+        """Исполнение одной джобы (таймаут + ошибки — из старого tick)."""
+        try:
+            await asyncio.wait_for(execute(job),
+                                   timeout=music_settings.job_timeout_sec)
+        except asyncio.TimeoutError:
+            log.warning("media poller %s: джоба %s не уложилась в %.0f с — отмена",
+                        self.name, job.id, music_settings.job_timeout_sec)
+            retry = job.attempts < music_settings.media_max_attempts
+            try:
+                await mark_error(job.id, "джоба не уложилась в таймаут", retry=retry)
+            except Exception:  # noqa: BLE001
+                log.exception("media poller %s: mark_error упал", self.name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.error("media poller %s: execute %s упал:",
+                      self.name, job.id, exc_info=True)
+            retry = job.attempts < music_settings.media_max_attempts
+            try:
+                await mark_error(job.id, f"execute: {e}"[:200], retry=retry)
+            except Exception:  # noqa: BLE001
+                log.exception("media poller %s: mark_error упал", self.name)
 
     async def tick(self) -> str:
         """Один цикл. Возвращает "done" | "retry" | "empty"."""

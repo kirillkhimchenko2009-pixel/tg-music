@@ -127,14 +127,18 @@ async def _candidates(session: AsyncSession, user_id: int | None,
     #      внутренние ретраи и упирается в потолок без результатов).
     #      Международные бесплатные: promodj (DJ-миксы, per-track download),
     #      audius (негейтованные), ccmixter (CC-материал).
-    for prov, name in ((zay, "zaycev"), (svn, "saavn"), (scc, "soundcloud"),
-                       (pdj, "promodj"), (ccm, "ccmixter"),
-                       (aud, "audius"),
-                       (hpl, "hotplayer"), (mpp, "mp3party"),
-                       (hzm, "hitmoz")):
+    #      Поиск — ПАРАЛЛЕЛЬНО (раньше был последовательный цикл: до 8×10с
+    #      на неудачных источниках — минимум 80с ожидания). Результаты
+    #      собираются и вставляются в исходном порядке приоритета.
+    _ORDER = ((zay, "zaycev"), (svn, "saavn"), (scc, "soundcloud"),
+              (pdj, "promodj"), (ccm, "ccmixter"),
+              (aud, "audius"),
+              (hpl, "hotplayer"), (mpp, "mp3party"),
+              (hzm, "hitmoz"))
+
+    async def _match_one(prov, name: str):
+        """Поиск+матч на одном сайте: TrackMeta | None (ошибки — лог, None)."""
         try:
-            # жёсткий потолок на поиск: сайты с внутренними ретраями (hitmoz
-            # ловил 19.6 с без результатов) тормозили всю цепочку кандидатов
             cands = await asyncio.wait_for(prov.search(query, limit=6), 10)
             m = matching.best_match(meta, cands, min_score=0.55)
             # guard по артисту — иначе сайты подсовывают однофамильцев/тёзок
@@ -147,10 +151,15 @@ async def _candidates(session: AsyncSession, user_id: int | None,
                 log.info("%s: кандидат %s отвергнут по названию "
                          "(длительности нет)", name, m.display())
                 m = None
-            if m:
-                out.append((m, ""))
+            return m
         except Exception:
-            log.exception("поиск на %s не удался", name)
+            log.info("поиск на %s не удался", name, exc_info=True)
+            return None
+
+    got = await asyncio.gather(*(_match_one(p, n) for p, n in _ORDER))
+    for (prov, name), m in zip(_ORDER, got):
+        if m:
+            out.append((m, ""))
 
     # 3) YouTube Music: для ytmusic-источника сам трек — последний запасной
     #    вариант (с зарубежных IP YouTube часто ловит бот-чек, RU-сайты выше надёжнее)
@@ -158,9 +167,9 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         out.append((meta, ""))
     else:
         try:
-            out.extend(await _yt_candidates(meta, query))
+            out.extend(await asyncio.wait_for(_yt_candidates(meta, query), 20))
         except Exception:
-            log.exception("yt-поиск упал для %s", meta.display())
+            log.info("yt-поиск упал для %s", meta.display(), exc_info=True)
     return out
 
 
