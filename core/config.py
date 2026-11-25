@@ -13,6 +13,9 @@ def _int_list(s: str) -> list[int]:
 class Settings:
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "")
+    # Билд-метка для сброса кеша мини-аппа: кнопка «Приложение» открывает
+    # WEBAPP_URL?v=<APP_BUILD> — Telegram-вебвью не подсовывает старый JS.
+    APP_BUILD: str = os.getenv("APP_BUILD", "20261125-webapp")
     ADMIN_IDS: list[int] = _int_list(os.getenv("ADMIN_IDS", ""))
     YM_TOKEN: str = os.getenv("YM_TOKEN", "")
     ZVUK_TOKEN: str = os.getenv("ZVUK_TOKEN", "")

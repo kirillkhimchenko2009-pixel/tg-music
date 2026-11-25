@@ -6,8 +6,12 @@ from core.config import settings
 from core.models import Playlist
 
 def main_menu() -> InlineKeyboardMarkup:
+    # ?v=<build> сбрасывает кеш Telegram-вебвью: без этого после деплоя юзеры
+    # видят СТАРЫЙ бандл из кеша (жалоба «запускается старое приложение»)
+    base = settings.WEBAPP_URL.rstrip("/")
+    url = base + ("&" if "?" in base else "?") + f"v={settings.APP_BUILD}"
     rows = [[InlineKeyboardButton(text="📱 Открыть приложение",
-                                  web_app={"url": settings.WEBAPP_URL})]]
+                                  web_app={"url": url})]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

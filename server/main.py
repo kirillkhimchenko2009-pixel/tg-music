@@ -128,7 +128,8 @@ app.include_router(ympx_route.router)
 
 @app.get("/api/ping")
 async def ping():
-    return {"ok": True, "build": "20261124-saavn"}
+    from core.config import settings
+    return {"ok": True, "build": settings.APP_BUILD}
 
 @app.get("/health")
 async def health():
