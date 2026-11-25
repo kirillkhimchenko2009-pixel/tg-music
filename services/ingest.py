@@ -51,13 +51,13 @@ async def _candidates(session: AsyncSession, user_id: int | None,
         if tok:
             out.append((meta, tok))
     if meta.source == "yandex":
-        tok = await get_token(session, user_id, "ym")
-        if tok:
-            # ЯМ отдаёт оригиналы без цензуры даже для 18+ (проверено ASR:
-            # «Мама, я люблю» Anacondaz — мат в аудио целиком). Прежнее
-            # исключение давало кривые рипы с прямых сайтов. Замученные
-            # заливки (редкость) отсеет censor-check ниже по пайплайну.
-            out.append((meta, tok))
+        # пул аккаунтов: свой токен → env → админские → YM_TOKENS_EXTRA.
+        # Каждому токену — свой вариант: если основной сорвётся (лимит/
+        # ротация), цепочка уйдёт к следующему без потери качества
+        from services.authstore import get_token_pool
+        pool = await get_token_pool(session, user_id, "ym")
+        for tk in pool[:3]:
+            out.append((meta, tk))
     if meta.source in ("soundcloud", "zaycev", "hitmoz", "hotplayer", "mp3party",
                        "promodj", "audius", "ccmixter"):
         # собственный вариант — тоже кандидат: permalink/страница скачивается
@@ -247,6 +247,40 @@ async def _yt_candidates(meta: TrackMeta, query: str) -> list[tuple[TrackMeta, s
             out.append((scored[0][1], ""))
     return out
 
+async def _race_download(live2: list[tuple[TrackMeta, str]], quality: str,
+                         on_progress) -> tuple[tuple[TrackMeta, str], object] | None:
+    """Параллельное скачивание двух вариантов; первый готовый файл побеждает,
+    второй отменяется (без ожидания — временные файлы подчищает ОС/GC).
+    (None) — оба источника не дали файл."""
+    tasks = {
+        0: asyncio.create_task(pipeline.download(
+            live2[0][0], quality, live2[0][1], on_progress=on_progress)),
+        1: asyncio.create_task(pipeline.download(
+            live2[1][0], quality, live2[1][1], on_progress=on_progress)),
+    }
+    pending = {tasks[0], tasks[1]}
+    try:
+        while pending:
+            done, pending = await asyncio.wait(pending,
+                                               return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                if t.cancelled() or t.exception() is not None:
+                    continue
+                res = t.result()
+                if res is not None:
+                    idx = next(i for i, tt in tasks.items() if tt is t)
+                    for tt in tasks.values():
+                        if tt is not t and not tt.done():
+                            tt.cancel()
+                    return (live2[idx][0], live2[idx][1]), res
+        return None
+    except asyncio.CancelledError:
+        for tt in tasks.values():
+            if not tt.done():
+                tt.cancel()
+        raise
+
+
 async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                   user_id: int | None = None, on_progress=None,
                   allow_cached: bool = True) -> Resolved:
@@ -273,10 +307,29 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
                         status="not_found", error=err)
 
     bad: dict | None = None            # наименее зацензуренный кандидат
+
+    async def _finish_ok(dl_meta, res):
+        dl_track = await _upsert(session, dl_meta)
+        dl_track.quality = res.quality
+        dl_track.size_bytes = res.size_bytes
+        dl_track.local_path = res.path.as_posix()
+        await session.commit()
+        # удаляем заглушку из другого источника, если она без файла
+        if dl_track.id != track.id and not (track.local_path or track.file_id):
+            # заглушку удаляем в SAVEPOINT: FK без CASCADE (playlist_tracks,
+            # play_events…) гонит IntegrityError на flush — откатываем только
+            # точку, иначе сессия остаётся отравленной (PendingRollbackError)
+            try:
+                async with session.begin_nested():
+                    await session.delete(track)
+            except Exception:
+                pass
+        return Resolved(track=dl_track, file_path=res.path,
+                        quality=res.quality, status="downloaded")
+
+    # 2a) кеш-фильтрация цепочки (быстрые DB-проверки без скачивания)
+    live: list[tuple[TrackMeta, str]] = []
     for dl_meta, token in chain:
-        # если этот источник уже качался раньше и файл кеширован в ТГ —
-        # отдаём мгновенно (иначе повторное нажатие «скачать» снова гоняет
-        # весь конвейер пару минут, а юзер видит «вечную загрузку»)
         prev = await _upsert(session, dl_meta)
         if prev.id != track.id:
             if prev.file_id and not getattr(prev, "censored", False):
@@ -287,6 +340,42 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
             if local_p and local_p.exists():
                 return Resolved(track=prev, file_path=local_p,
                                 quality=prev.quality, status="downloaded")
+        live.append((dl_meta, token))
+
+    # 2b) ГОНКА первых двух кандидатов: оба качаются параллельно, первый
+    # готовый файл побеждает, второй отменяется. Устойчиво к медленным/
+    # полусдохшим источникам и ускоряет вдвое: пока ЯМ отдаёт файл,
+    # zaycev уже скачался — берём того, кто первый.
+    if len(live) >= 2:
+        winner = await _race_download(live[:2], quality, on_progress)
+        if winner is not None:
+            (dl_meta, token), res = winner
+            chk = await censor_mod.check(res.path.as_posix())
+            if not chk.get("censored"):
+                log.info("гонка: победил %s (%s)", dl_meta.source,
+                         dl_meta.display())
+                return await _finish_ok(dl_meta, res)
+            offenders = chk.get("beeps", 0) + chk.get("mutes", 0)
+            log.warning("ingest: гонка дала цензурную заливку %s из %s "
+                        "(бипы=%s муты=%s) — дальше по цепочке…",
+                        dl_meta.display(), dl_meta.source,
+                        chk["beeps"], chk["mutes"])
+            if bad is None or offenders < bad["offenders"]:
+                bad = {"res": res, "meta": dl_meta, "offenders": offenders}
+            try:
+                ctrack = await _upsert(session, dl_meta)
+                ctrack.quality = res.quality
+                ctrack.size_bytes = res.size_bytes
+                ctrack.local_path = res.path.as_posix()
+                ctrack.censored = True
+                await session.commit()
+            except Exception:  # noqa: BLE001
+                pass
+        # оба raced-кандидата отработаны (или сорвались) — идём дальше
+        live = live[2:]
+
+    # 2в) остаток цепочки — последовательно, как раньше
+    for dl_meta, token in live:
         res = await pipeline.download(dl_meta, quality, token, on_progress=on_progress)
         if not res:
             log.warning("skip %s: скачивание не удалось на %-6s (%s)",
@@ -316,23 +405,7 @@ async def resolve(session: AsyncSession, meta: TrackMeta, quality: str,
             except Exception:  # noqa: BLE001
                 pass
             continue
-        dl_track = await _upsert(session, dl_meta)
-        dl_track.quality = res.quality
-        dl_track.size_bytes = res.size_bytes
-        dl_track.local_path = res.path.as_posix()
-        await session.commit()
-        # удаляем заглушку из другого источника, если она без файла
-        if dl_track.id != track.id and not (track.local_path or track.file_id):
-            # заглушку удаляем в SAVEPOINT: FK без CASCADE (playlist_tracks,
-            # play_events…) гонит IntegrityError на flush — откатываем только
-            # точку, иначе сессия остаётся отравленной (PendingRollbackError)
-            try:
-                async with session.begin_nested():
-                    await session.delete(track)
-            except Exception:
-                pass
-        return Resolved(track=dl_track, file_path=res.path,
-                        quality=res.quality, status="downloaded")
+        return await _finish_ok(dl_meta, res)
 
     if bad is not None:
         # все источники отдали цензурные заливки — по решению юзера замученную

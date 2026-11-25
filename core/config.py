@@ -16,6 +16,10 @@ class Settings:
     ADMIN_IDS: list[int] = _int_list(os.getenv("ADMIN_IDS", ""))
     YM_TOKEN: str = os.getenv("YM_TOKEN", "")
     ZVUK_TOKEN: str = os.getenv("ZVUK_TOKEN", "")
+    # Дополнительные токены ЯМ через запятую — резервный пул для устойчивого
+    # скачивания (у ЯМ лимиты на аккаунт; второй/третий аккаунт снимает их).
+    # Встают ПОСЛЕ своего токена и токенов админов (см. authstore.get_token_pool).
+    YM_TOKENS_EXTRA: str = os.getenv("YM_TOKENS_EXTRA", "")
     SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     DEFAULT_QUALITY: str = os.getenv("DEFAULT_QUALITY", "aac320")
