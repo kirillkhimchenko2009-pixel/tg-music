@@ -90,6 +90,24 @@ async def cmd_start(message: types.Message, command: CommandObject):
         # рефералка: t.me/<bot>?start=ref<inviter_uid>
         await _handle_referral(message, arg[3:])
         return
+    if arg == "landing":
+        # переход с лендинга (docs/index.html) — считаем в wave_kv
+        try:
+            from core.models import WaveKV
+            async with runtime.get_session() as s:
+                row = (await s.execute(_select(WaveKV).where(
+                    WaveKV.key == "landing_visits"))).scalar_one_or_none()
+                n = int((row.value or {}).get("n", 0)) + 1 if row else 1
+                if row:
+                    row.value = {"n": n}
+                else:
+                    s.add(WaveKV(key="landing_visits", value={"n": n}))
+                await s.commit()
+            log.info("переход с лендинга #%s (uid=%s)", n, message.from_user.id)
+        except Exception:
+            log.exception("landing visit count fail")
+        await _greet(message)
+        return
     await _greet(message)      # start=inline (кнопка инлайна) тоже сюда
 
 

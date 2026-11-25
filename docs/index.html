@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Music — скачать музыку бесплатно в Telegram (FLAC, без рекламы)</title>
+<meta name="description" content="Бот Vibe Music скачивает и слушает музыку бесплатно: FLAC-качество, плейлисты из Яндекс Музыки, Spotify и YouTube, 18+ треки без блюра, аудиокниги и мини-приложение-плеер. Без рекламы.">
+<meta name="keywords" content="скачать музыку в телеграм, музыка бот телеграм, скачать песню телеграм, flac telegram, музыка без рекламы, аудиокниги телеграм">
+<meta property="og:title" content="Vibe Music — музыка в Telegram без блюра и рекламы">
+<meta property="og:description" content="FLAC-качество, плейлисты из Яндекс/Spotify/YouTube, аудиокниги, мини-приложение. Бесплатно.">
+<meta property="og:image" content="hero-wave.jpg">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0a0b10; --card:#14151d; --text:#eef0f6; --muted:#9aa0b4;
+    --accent:#7c5cff; --accent2:#ff5c8a; --border:#262838; --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);font:16px/1.65 'Segoe UI',system-ui,-apple-system,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  a{color:inherit}
+  header{position:sticky;top:0;z-index:9;background:rgba(10,11,16,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:800;font-size:19px;letter-spacing:.3px;display:flex;gap:10px;align-items:center;text-decoration:none}
+  .logo .dot{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-size:17px}
+  .btn{display:inline-block;padding:12px 26px;border-radius:12px;text-decoration:none;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;transition:transform .15s, box-shadow .15s;box-shadow:0 6px 24px rgba(124,92,255,.35)}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(124,92,255,.5)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);box-shadow:none}
+  .hero{padding:90px 0 70px;background:radial-gradient(1000px 400px at 70% -10%,rgba(124,92,255,.22),transparent),radial-gradient(800px 380px at 10% 20%,rgba(255,92,138,.12),transparent)}
+  .hero h1{font-size:clamp(30px,5.5vw,52px);line-height:1.15;font-weight:800;max-width:760px}
+  .hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .hero p.sub{color:var(--muted);font-size:clamp(16px,2.4vw,20px);max-width:640px;margin:22px 0 34px}
+  .cta-row{display:flex;gap:14px;flex-wrap:wrap}
+  .hero-img{margin-top:56px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
+  .hero-img img{width:100%;display:block}
+  section{padding:70px 0}
+  h2{font-size:clamp(24px,3.6vw,34px);font-weight:800;margin-bottom:14px}
+  .lead{color:var(--muted);max-width:640px;margin-bottom:36px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px}
+  .card h3{font-size:18px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:14.5px}
+  .card .ico{font-size:26px;margin-bottom:12px}
+  .steps{counter-reset:st;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .step{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:26px 22px;position:relative}
+  .step::before{counter-increment:st;content:counter(st);position:absolute;top:-14px;left:22px;width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;font-size:15px}
+  .step h3{margin:8px 0 6px;font-size:16.5px}
+  .step p{color:var(--muted);font-size:14px}
+  .banner{background:linear-gradient(135deg,rgba(124,92,255,.16),rgba(255,92,138,.14));border:1px solid var(--border);border-radius:var(--radius);padding:44px 30px;text-align:center}
+  .banner h2{margin-bottom:10px}
+  .banner p{color:var(--muted);margin-bottom:26px}
+  details{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:10px}
+  details summary{cursor:pointer;font-weight:600}
+  details p{color:var(--muted);margin-top:10px;font-size:14.5px}
+  footer{border-top:1px solid var(--border);padding:34px 0;color:var(--muted);font-size:13.5px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="logo" href="/"><span class="dot">🎧</span>Vibe Music</a>
+    <a class="btn" href="https://t.me/tG_dols_music_bot?start=landing">Открыть бота</a>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <h1>Скачивай музыку <em>бесплатно</em> прямо в Telegram</h1>
+    <p class="sub">FLAC-качество, плейлисты из Яндекс Музыки, Spotify и YouTube одним сообщением, 18+ треки без блюра, аудиокниги и полноценное мини-приложение с плеером. Без рекламы.</p>
+    <div class="cta-row">
+      <a class="btn" href="https://t.me/tG_dols_music_bot?start=landing">🚀 Запустить в Telegram</a>
+      <a class="btn ghost" href="#faq">Как это работает?</a>
+    </div>
+    <div class="hero-img"><img src="hero-wave.jpg" alt="Vibe Music — плеер с аниме-волнами" width="1080" loading="lazy"></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Почему Vibe Music</h2>
+    <p class="lead">Всё, что обычно спрятано за подписками и приложениями — в одном боте.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🎚️</div><h3>FLAC и 320 кбит/с</h3><p>Оригинальное качество с Яндекс Музыки и Звука. Подключи свой аккаунт командой /token — качество станет студийным.</p></div>
+      <div class="card"><div class="ico">📃</div><h3>Плейлисты одним сообщением</h3><p>Кинь ссылку на плейлист из Яндекс Музыки, Spotify или YouTube — бот скачает все треки сразу, параллельно.</p></div>
+      <div class="card"><div class="ico">🔓</div><h3>18+ без блюра</h3><p>Оригинальные фонограммы без замученных вставок и 30-секундных обрезков. Цензурные заливки отсеиваются автоматически.</p></div>
+      <div class="card"><div class="ico">📚</div><h3>Аудиокниги</h3><p>Полные книги с обложками, главами и запоминанием позиции. Доступно в подписке Pro.</p></div>
+      <div class="card"><div class="ico">📱</div><h3>Мини-приложение</h3><p>Полноценный плеер с аниме-оформлением: очереди, любимое, плейлисты, экран блокировки, приложение для ПК.</p></div>
+      <div class="card"><div class="ico">🚫</div><h3>Без рекламы</h3><p>Никаких всплывающих окон, waiting-экранов и спама. Скачал — слушаешь.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="background:var(--card)">
+  <div class="wrap">
+    <h2>Три шага</h2>
+    <p class="lead">Без регистраций, аккаунтов и установок.</p>
+    <div class="steps">
+      <div class="step"><h3>Открой бота</h3><p>Нажми кнопку — Telegram откроет чат с ботом автоматически.</p></div>
+      <div class="step"><h3>Пришли название</h3><p>Трек, исполнителя или ссылку на плейлист — бот найдёт варианты из разных источников.</p></div>
+      <div class="step"><h3>Скачай</h3><p>Один тап — файл в чате. Можно слушать прямо в Telegram или скачать на устройство.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>Частые вопросы</h2>
+    <p class="lead" id="faq-start">Коротко о главном.</p>
+    <details open><summary>Это бесплатно?</summary><p>Да. Поиск и скачивание музыки — бесплатно и без лимитов. За звёзды Telegram доступна подписка (FLAC-качество, аудиокниги, расширенные лимиты) — но базовые функции навсегда бесплатные.</p></details>
+    <details><summary>Как получить FLAC-качество?</summary><p>Пришли боту команду /token и подключи свой аккаунт Яндекс Музыки или Звука — бот будет брать оригинальные фонограммы с твоего аккаунта.</p></details>
+    <details><summary>Приложение устанавливать не нужно?</summary><p>Нет. Бот работает прямо в Telegram. А если хочется — есть мини-приложение (плеер с волнами и аниме-оформлением) и десктоп-приложение для ПК.</p></details>
+    <details><summary>Сколько треков можно скачать за раз?</summary><p>Целый плейлист: пришли ссылку, бот скачает все треки параллельно и пришлёт по очереди. Или пришли txt-файл со списком.</p></details>
+    <details><summary>Где найти бота в Telegram?</summary><p>Ищи <b>@tG_dols_music_bot</b> в поиске Telegram или просто открой <a style="color:#9d8bff" href="https://t.me/tG_dols_music_bot?start=landing">эту ссылку</a>.</p></details>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="banner">
+      <h2>Слушай прямо сейчас</h2>
+      <p>Открой бота в Telegram — поиск займет пять секунд.</p>
+      <a class="btn" href="https://t.me/tG_dols_music_bot?start=landing">🎧 t.me/tG_dols_music_bot</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>© Vibe Music — музыкальный бот в Telegram</div>
+    <div><a href="https://t.me/tG_dols_music_bot?start=landing">Telegram-бот</a></div>
+  </div>
+</footer>
+
+</body>
+</html>
