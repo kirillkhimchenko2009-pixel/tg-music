@@ -90,6 +90,27 @@ async def cmd_start(message: types.Message, command: CommandObject):
         # рефералка: t.me/<bot>?start=ref<inviter_uid>
         await _handle_referral(message, arg[3:])
         return
+    if arg and not arg.startswith("dl_") and not arg.startswith("ref"):
+        # любая другая метка (vk1, tg2, promo3…) — считаем отдельно:
+        # так меряется каждый рекламный канал по своему ключу
+        try:
+            from core.models import WaveKV
+            key = f"start:{arg[:48]}"
+            async with runtime.get_session() as s:
+                row = (await s.execute(_select(WaveKV).where(
+                    WaveKV.key == key))).scalar_one_or_none()
+                n = int((row.value or {}).get("n", 0)) + 1 if row else 1
+                if row:
+                    row.value = {"n": n}
+                else:
+                    s.add(WaveKV(key=key, value={"n": n}))
+                await s.commit()
+            log.info("переход по метке %s #%s (uid=%s)", key, n,
+                     message.from_user.id)
+        except Exception:
+            log.exception("start-label count fail")
+        await _greet(message)
+        return
     if arg == "landing":
         # переход с лендинга (docs/index.html) — считаем в wave_kv
         try:
