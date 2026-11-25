@@ -101,6 +101,21 @@ async def admin_promo(body: PromoIn, user: CurrentUser = Depends(tg_user)):
     return res
 
 
+@router.get("/referral")
+async def referral(user: CurrentUser = Depends(tg_user)):
+    """Рефералка мини-аппа: персональная ссылка + сколько друзей привёл."""
+    from core.models import Referral
+    if is_guest_id(int(user.id)):
+        return {"link": None, "invited": 0, "days": 0}
+    async with runtime.get_session() as s:
+        invited = (await s.execute(select(func.count(Referral.id)).where(
+            Referral.inviter_id == int(user.id)))).scalar() or 0
+    uname = settings.BOT_USERNAME or "tG_dols_music_bot"
+    link = f"https://t.me/{uname}?start=ref{int(user.id)}"
+    return {"link": link, "invited": int(invited),
+            "days": int(invited) * 3}
+
+
 @router.get("/admin/stats")
 async def admin_stats(user: CurrentUser = Depends(tg_user)):
     """Выручка и активации: только is_admin из БД."""

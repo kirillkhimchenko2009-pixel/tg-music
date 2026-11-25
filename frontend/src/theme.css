@@ -2843,6 +2843,13 @@ h1.h { letter-spacing: -.2px; }
 .pro-hero::after { content: '★'; position: absolute; right: -14px; bottom: -38px; font-size: 130px; color: rgba(255, 183, 213, .14); transform: rotate(12deg); }
 .pro-hero h1 { margin: 4px 0 6px; font: 800 28px var(--font-display); letter-spacing: .02em; color: #fff; text-shadow: 0 0 22px rgba(180, 77, 255, .5); }
 .pro-hero p { margin: 0; color: var(--sakura); font: 500 13px var(--font-ui); }
+.pro-ref { margin-top: 16px; padding: 16px 18px; border: 1px solid rgba(56, 225, 255, .3); border-radius: var(--radius); background: linear-gradient(135deg, rgba(56, 225, 255, .08), rgba(180, 77, 255, .08)); }
+.pro-ref h2 { margin: 0 0 6px; font: 800 17px var(--font-display); color: #fff; }
+.pro-ref p { margin: 0 0 12px; color: var(--sakura); font: 500 12.5px var(--font-ui); line-height: 1.5; }
+.pro-ref-row { display: flex; gap: 10px; align-items: stretch; }
+.pro-ref-link { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 10px; background: rgba(0, 0, 0, .25); color: var(--foam, #9fd7ff); font: 500 11px var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.pro-ref-copy { padding: 10px 16px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #38e1ff, #b44dff); color: #10131f; font: 700 13px var(--font-ui); cursor: pointer; }
+.pro-build { margin: 26px 0 0; text-align: center; color: rgba(255, 255, 255, .35); font: 500 10.5px var(--font-ui); letter-spacing: .08em; }
 .pro-spark { font-size: 15px; color: var(--accent); text-shadow: 0 0 14px rgba(255, 61, 129, .8); }
 .pro-err { color: var(--destructive); font: 500 12px var(--font-ui); }
 .pro-tiers { display: grid; gap: 14px; margin-top: 16px; }

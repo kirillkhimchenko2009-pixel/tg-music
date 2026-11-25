@@ -29,6 +29,8 @@ export default function Pro() {
   const [promoMsg, setPromoMsg] = useState('');
   const [promoOk, setPromoOk] = useState(false);
   const [stats, setStats] = useState(null);
+  const [referral, setReferral] = useState(null);
+  const [build, setBuild] = useState(null);
 
   const load = async () => {
     try {
@@ -38,12 +40,18 @@ export default function Pro() {
       ]);
       setTiers(p.tiers || []);
       if (s) { setStatus(s); if (s.admin) loadStats(); }
+      api('/api/billing/referral').then((r) => setReferral(r)).catch(() => {});
     } catch (e) {
       setErr((e && e.message) || 'не удалось загрузить планы');
     }
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    fetch('/api/ping').then((r) => r.json()).then((d) => setBuild(d?.build || null))
+      .catch(() => {});
+  }, []);
 
   const loadStats = async () => {
     try { setStats(await api('/api/billing/admin/stats')); } catch { setStats(null); }
@@ -116,6 +124,27 @@ export default function Pro() {
       </section>
 
       {err && <p className="pro-err" role="alert">{err}</p>}
+
+      {referral?.link && (
+        <section className="pro-ref">
+          <h2>🎁 Пригласи друга — +3 дня Lite</h2>
+          <p>
+            Каждый, кто запустит бота по твоей ссылке, продлевает твою
+            подписку: <b>+3 дня Vibe Lite</b> за каждого. Приглашено:
+            <b> {referral.invited}</b> · заработано: <b>{referral.days} дн.</b>
+          </p>
+          <div className="pro-ref-row">
+            <code className="pro-ref-link">{referral.link}</code>
+            <button
+              className="pro-ref-copy"
+              onClick={async () => {
+                try { await navigator.clipboard.writeText(referral.link); } catch { /* ignore */ }
+                toast('Ссылка скопирована — отправь другу 💜', { kind: 'success' });
+              }}
+            >Копировать</button>
+          </div>
+        </section>
+      )}
 
       <div className="pro-tiers">
         {tiers.map(tier => (
@@ -208,6 +237,10 @@ function AdminStats({ stats }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {build && (
+        <p className="pro-build">vibe build {build}</p>
       )}
     </section>
   );
