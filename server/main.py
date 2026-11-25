@@ -157,10 +157,13 @@ async def growth(key: str = ""):
         week_b = (await s.execute(botq.where(User.created_at >= utcnow() - timedelta(days=7)))).scalar()
         tot_b = (await s.execute(botq)).scalar()
         tot_g = (await s.execute(guestq)).scalar()
+        last = (await s.execute(select(User.id, User.first_name, User.created_at)
+            .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
             "users_bot_total": int(tot_b), "users_bot_24h": int(day_b),
             "users_bot_7d": int(week_b),
-            "guests_total": int(tot_g), "guests_24h": int(day_g)}
+            "guests_total": int(tot_g), "guests_24h": int(day_g),
+            "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
 @app.get("/health")
 async def health():
