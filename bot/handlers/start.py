@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aiogram import F, Router, types
 from aiogram.filters import Command, CommandObject, CommandStart
+from sqlalchemy import select as _select
 
 from core.config import settings
 from bot import runtime
@@ -85,7 +86,107 @@ async def cmd_start(message: types.Message, command: CommandObject):
         except ValueError:
             await message.answer("Ссылка устарела — найди трек заново.")
         return
+    if arg.startswith("ref"):
+        # рефералка: t.me/<bot>?start=ref<inviter_uid>
+        await _handle_referral(message, arg[3:])
+        return
     await _greet(message)      # start=inline (кнопка инлайна) тоже сюда
+
+
+async def _handle_referral(message: types.Message, inviter_raw: str) -> None:
+    """Пришёл по ссылке друга: записать инвайт, наградить пригласившего.
+
+    Награда — 3 дня Vibe Lite пригласившему (бесплатное привлечение).
+    Защита: один invited_id = один инвайт; сам себя не приглашает; гостевые
+    uid (1e12+) в боте не существуют — юзер всегда телеграмный."""
+    import html as _html
+    try:
+        inviter_id = int(inviter_raw)
+    except ValueError:
+        await _greet(message)
+        return
+    invited_id = message.from_user.id
+    if inviter_id == invited_id or inviter_id <= 0:
+        await _greet(message)
+        return
+    from core.models import Referral
+    from services import billing as _billing
+    msg_text = None
+    async with runtime.get_session() as s:
+        await runtime.ensure_user(s, invited_id,
+                                  message.from_user.username,
+                                  message.from_user.first_name or "")
+        dup = (await s.execute(_select(Referral).where(
+            Referral.invited_id == invited_id))).scalar_one_or_none()
+        if dup is None:
+            s.add(Referral(inviter_id=inviter_id, invited_id=invited_id,
+                           rewarded=True))
+            await s.commit()
+            try:
+                await _billing.grant(s, inviter_id, "lite", "ref3",
+                                     charge_id=f"ref:{inviter_id}:{invited_id}",
+                                     amount=0)
+                msg_text = "ok"
+            except Exception:
+                log.exception("referral reward fail")
+    await _greet(message)
+    if msg_text and inviter_id != invited_id:
+        try:
+            await message.bot.send_message(
+                inviter_id,
+                f"🎁 Друг {_html.escape(message.from_user.first_name or 'новый пользователь')} "
+                f"запустил бота по твоей ссылке — <b>+3 дня Vibe Lite!</b>\n"
+                f"Приглашай ещё: каждый друг = +3 дня.")
+        except Exception:
+            pass
+
+
+@router.message(Command("ref"))
+async def cmd_ref(message: types.Message) -> None:
+    """🎁 Пригласить друга: ссылка + статистика + кнопка «Поделиться».
+    Каждый запустивший по ссылке = +3 дня Vibe Lite пригласившему."""
+    from urllib.parse import quote
+    from core.models import Referral, User
+    uid = message.from_user.id
+    async with runtime.get_session() as s:
+        me = (await s.execute(_select(User).where(User.id == uid))).scalar_one_or_none()
+        invited = list((await s.execute(_select(Referral).where(
+            Referral.inviter_id == uid))).scalars())
+    uname = settings.BOT_USERNAME or (await _bot_username(message.bot))
+    link = f"https://t.me/{uname}?start=ref{uid}"
+    n = len(invited)
+    days = n * 3
+    txt = (
+        "<b>🎁 Пригласи друга — получи Vibe Lite</b>\n\n"
+        f"Твоя ссылка:\n<code>{link}</code>\n\n"
+        f"Каждый, кто запустит бота по ней — <b>+3 дня Vibe Lite</b> тебе.\n"
+        f"10 друзей = месяц Lite бесплатно.\n\n"
+        f"📊 Приглашено: <b>{n}</b> → заработано <b>{days} дн.</b>"
+    )
+    share = (f"https://t.me/share/url?url={quote(link)}"
+             f"&text={quote('Слушаю и качаю музыку тут 🎧 без рекламы и блюра')}")
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Поделиться ссылкой",
+                              url=share)],
+    ])
+    await message.answer(txt, reply_markup=kb)
+
+
+async def _bot_username(bot) -> str:
+    """Кэш username бота (для реф-ссылок), если не задан в env."""
+    global _BOT_UNAME
+    if _BOT_UNAME:
+        return _BOT_UNAME
+    try:
+        me = await bot.get_me()
+        _BOT_UNAME = me.username or ""
+    except Exception:
+        _BOT_UNAME = ""
+    return _BOT_UNAME
+
+
+_BOT_UNAME = ""
 
 
 async def _greet(message: types.Message) -> None:

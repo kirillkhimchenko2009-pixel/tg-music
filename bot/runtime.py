@@ -108,6 +108,29 @@ async def save_file_id_retry(track_id: int, file_id: str, quality: str | None = 
                 attempts, track_id, last)
     return False
 
+async def _brand_caption(bot) -> str | None:
+    """Подпись под аудио: каждый ПЕРЕСЛАННЫЙ трек рекламирует бота бесплатно
+    (кнопки при форварде теряются, caption — нет). Отключается BRAND_CAPTION=0.
+    None = без подписи (пустая строка тоже ломает send, нужен None)."""
+    global _BRAND_CAPTION
+    if _BRAND_CAPTION is not None:
+        return _BRAND_CAPTION or None
+    if (settings.BRAND_CAPTION or "1") != "1":
+        _BRAND_CAPTION = ""
+        return None
+    uname = settings.BOT_USERNAME
+    if not uname:
+        try:
+            uname = (await bot.get_me()).username or ""
+        except Exception:
+            uname = ""
+    _BRAND_CAPTION = (f"🎧 Скачано в Vibe Music — t.me/{uname}" if uname else "")
+    return _BRAND_CAPTION or None
+
+
+_BRAND_CAPTION = None
+
+
 async def _fav_state(chat_id: int, track_id: int) -> bool:
     """Лайкнут ли трек этим юзером (в личке chat_id == user_id)."""
     if chat_id <= 0:
@@ -140,6 +163,7 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
     from bot.keyboards import action_kb
     from aiogram.exceptions import (TelegramBadRequest, TelegramNetworkError,
                                     TelegramRetryAfter)
+    brand = await _brand_caption(bot)
     try:
         in_fav = await _fav_state(chat_id, track.id)
         for attempt in range(3):
@@ -147,6 +171,7 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
                 msg = await bot.send_audio(chat_id, track.file_id,
                                            title=track.title or "Трек",
                                            performer=track.artist or None,
+                                           caption=brand,
                                            reply_markup=action_kb(track.id, in_fav))
                 from bot import fx
                 await fx.react(bot, chat_id, msg.message_id, fx.OK)
@@ -183,6 +208,7 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
     станет иконкой ноты — плата за чистый плеер."""
     from bot.keyboards import action_kb
     from bot import fx
+    brand = await _brand_caption(bot)
     in_fav = await _fav_state(chat_id, track.id)
     msg = None
     from aiogram.exceptions import (TelegramBadRequest, TelegramEntityTooLarge,
@@ -195,6 +221,7 @@ async def send_audio_file(bot: Bot, chat_id: int, track: Track, path) -> str | N
             msg = await bot.send_audio(
                 chat_id, FSInputFile(path, chunk_size=1 << 20),
                 title=track.title or "Трек", performer=track.artist or None,
+                caption=brand,
                 request_timeout=300,
                 reply_markup=action_kb(track.id, in_fav),
             )

@@ -17,7 +17,9 @@ from core.models import (PromoCode, PromoRedemption, StarPayment,
 LOG = logging.getLogger("services.billing")
 
 # срок → дней
-PLAN_DAYS = {"month": 31, "half": 183, "year": 366}
+PLAN_DAYS = {"month": 31, "half": 183, "year": 366,
+            # ref3 — награда за приглашение друга (в Pro UI не показываем)
+            "ref3": 3}
 TERM_TITLES = {"month": "месяц", "half": "полгода", "year": "год"}
 
 # тир → (название, {срок → звёзды}, преимущества)

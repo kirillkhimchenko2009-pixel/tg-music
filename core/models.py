@@ -326,3 +326,14 @@ class PromoRedemption(Base):
     __table_args__ = (
         UniqueConstraint("code", "user_id", name="uq_promo_user"),
     )
+
+
+class Referral(Base):
+    """Приглашение: invited пришёл по ссылке inviter'а. Один invited_id —
+    один инвайт (кто первый, тот и пригласил). Награда — дни Vibe Lite."""
+    __tablename__ = "referrals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inviter_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    invited_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

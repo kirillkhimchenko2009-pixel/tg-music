@@ -68,6 +68,10 @@ async def on_label(message: types.Message, state: Optional[FSMContext] = None):
         from bot.handlers.billing import promo_start_input
         await promo_start_input(message, state)
         return
+    if "приглас" in key or "поделиться" in key:
+        from bot.handlers.start import cmd_ref
+        await cmd_ref(message)
+        return
     if "помощь" in key:
         from bot.handlers.start import cmd_help
         await cmd_help(message)

@@ -20,6 +20,12 @@ class Settings:
     # скачивания (у ЯМ лимиты на аккаунт; второй/третий аккаунт снимает их).
     # Встают ПОСЛЕ своего токена и токенов админов (см. authstore.get_token_pool).
     YM_TOKENS_EXTRA: str = os.getenv("YM_TOKENS_EXTRA", "")
+    # Username бота для реферальных ссылок (t.me/<username>?start=ref<uid>);
+    # если пусто — берётся из getMe при первом /ref.
+    BOT_USERNAME: str = os.getenv("BOT_USERNAME", "")
+    # Подпись под аудио для вирального привлечения (пересланный трек = реклама);
+    # 0 — отключить.
+    BRAND_CAPTION: str = os.getenv("BRAND_CAPTION", "1")
     SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     DEFAULT_QUALITY: str = os.getenv("DEFAULT_QUALITY", "aac320")

@@ -45,7 +45,7 @@ async def _broadcast_keyboard(bot: Bot) -> None:
     from bot import runtime
     from bot.keyboards import main_reply
 
-    key = "kb_broadcast_v2"
+    key = "kb_broadcast_v3"
     try:
         async with runtime.get_session() as s:
             done = (await s.execute(select(WaveKV).where(WaveKV.key == key))).scalar_one_or_none()
@@ -61,8 +61,8 @@ async def _broadcast_keyboard(bot: Bot) -> None:
             try:
                 await bot.send_message(
                     int(uid),
-                    "🎧 Обновление: в меню теперь «💳 Оплата» и «🌟 Промокод» — "
-                    "подписка за звёзды (Lite/Pro, аудиокниги в Pro).",
+                    "🎁 Новое: «Пригласить друга» — каждый друг по твоей ссылке = "
+                    "+3 дня Vibe Lite тебе бесплатно.",
                     reply_markup=kb, disable_notification=True)
                 sent += 1
             except Exception:  # noqa: BLE001  (заблокировали бота / нет чата)
