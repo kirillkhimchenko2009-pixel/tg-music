@@ -132,6 +132,56 @@ async def ping():
     return {"ok": True, "build": settings.APP_BUILD}
 
 
+_open_state: dict[int, float] = {}   # uid -> timestamp последнего авторизованного запроса
+
+
+@app.middleware("http")
+async def _count_app_opens(request, call_next):
+    """Аналитика запусков мини-аппа: авторизованный запрос после паузы ≥30 мин
+    = новый «открытый сеанс». Счётчики — wave_kv (opens:<uid>): total + дни.
+    Пишем только на переходе «новый сеанс» — максимум пара записей на визит."""
+    init = request.headers.get("x-init-data", "")
+    uid = None
+    if init and "user=" in init and "hash=" in init:
+        try:
+            import json as _json
+            import urllib.parse as _up
+            segs = dict(kv.split("=", 1) for kv in init.split("&") if "=" in kv)
+            u = _json.loads(_up.unquote(segs.get("user", "")))
+            uid = int(u.get("id", 0)) or None
+        except Exception:
+            uid = None
+    if uid and request.method in ("GET", "POST"):
+        import time as _time
+        now = _time.time()
+        last = _open_state.get(uid, 0.0)
+        _open_state[uid] = now
+        if now - last > 1800.0:
+            try:
+                from sqlalchemy import select as _sel
+                from core.models import WaveKV as _WK
+                from core.models import utcnow as _utcnow
+                async with runtime.get_session() as s:
+                    row = (await s.execute(_sel(_WK).where(_WK.key == f"opens:{uid}"))).scalar_one_or_none()
+                    today = _utcnow().date().isoformat()
+                    if row is None:
+                        s.add(_WK(key=f"opens:{uid}",
+                                  value={"days": {today: 1}, "total": 1, "last": today}))
+                    else:
+                        v = dict(row.value or {})
+                        days = dict(v.get("days") or {})
+                        days[today] = int(days.get(today, 0)) + 1
+                        if len(days) > 30:
+                            for k2 in sorted(days)[:-30]:
+                                days.pop(k2, None)
+                        v.update(days=days, total=int(v.get("total", 0)) + 1, last=today)
+                        row.value = v
+                    await s.commit()
+            except Exception:
+                pass
+    return await call_next(request)
+
+
 @app.get("/api/growth")
 async def growth(key: str = ""):
     """Метрики роста: счётчики рекламных меток + новые юзеры.
@@ -220,12 +270,24 @@ async def growth(key: str = ""):
             .group_by(PlayEvent.user_id))).all()
         lp = {r[0]: (int(r[1]), int(r[2]), r[3]) for r in plays}
         engaged = []
+        opens_rows = (await s.execute(select(WaveKV).where(
+            WaveKV.key.like("opens:%")))).scalars().all()
+        opens_map = {}
+        for r in opens_rows:
+            uid = int(r.key.split(":", 1)[1])
+            v = r.value or {}
+            opens_map[uid] = (int(v.get("total", 0)), int(v.get("last", "") == str(_utcnow().date())))
         for uid, lc, ld in logins:
             pc, pd, last_play = lp.get(uid, (0, 0, None))
             if lc >= 2 and (pc >= 3 or pd >= 2):
                 engaged.append({"uid": int(uid), "logins": lc, "login_days": int(ld),
                                 "plays": pc, "play_days": pd,
                                 "last": str(last_play)[:16] if last_play else None})
+        # «постоянные» = ≥2 открытия приложения (любой возврат — уже постоянство)
+        returning = sorted(((uid, tot) for uid, (tot, _t) in opens_map.items() if tot >= 2),
+                           key=lambda x: -x[1])
+        returning_active = [r for r in returning
+                            if lp.get(r[0], (0, 0, None))[0] >= 2]
         engaged.sort(key=lambda x: -(x["logins"] + x["plays"]))
         # диагностические распределения: кто сколько раз входил/слушал
         logins_top = sorted(logins, key=lambda r: -int(r[1]))[:5]
@@ -249,7 +311,11 @@ async def growth(key: str = ""):
                         "repeat_logins_users": int(repeat_logins),
                         "repeat_plays_users": int(repeat_plays),
                         "logins_top": [{"uid": int(r[0]), "n": int(r[1])} for r in logins_top],
-                        "plays_top": [{"uid": int(r[0]), "n": int(r[1]), "days": int(r[2])} for r in plays_top]},
+                        "plays_top": [{"uid": int(r[0]), "n": int(r[1]), "days": int(r[2])} for r in plays_top],
+                        "app_opens_users": len(opens_map),
+                        "returning_app_users": len(returning),
+                        "returning_app_active": len(returning_active),
+                        "returning_top": [{"uid": int(u), "opens": int(n)} for u, n in returning[:10]]},
             "stars": stars,
             "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
