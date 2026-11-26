@@ -140,7 +140,7 @@ async def growth(key: str = ""):
     if key != settings.GROWTH_KEY:
         raise HTTPException(403, "нет доступа")
     from sqlalchemy import select, func
-    from core.models import User, WaveKV, Track
+    from core.models import User, WaveKV, Track, PlayEvent
     from bot import runtime
     from datetime import timedelta
     from core.models import utcnow
@@ -209,6 +209,24 @@ async def growth(key: str = ""):
                 stars = {"received_total": total, "transactions": n}
             except Exception:
                 stars = None
+        # «постоянные» юзеры: ≥2 входов в приложение И активность в боте
+        from core.models import AuthCode
+        logins = (await s.execute(select(AuthCode.user_id,
+            func.count(AuthCode.id), func.count(func.distinct(func.date(AuthCode.created_at))))
+            .group_by(AuthCode.user_id))).all()
+        plays = (await s.execute(select(PlayEvent.user_id,
+            func.count(PlayEvent.id), func.count(func.distinct(func.date(PlayEvent.started_at))),
+            func.max(PlayEvent.started_at))
+            .group_by(PlayEvent.user_id))).all()
+        lp = {r[0]: (int(r[1]), int(r[2]), r[3]) for r in plays}
+        engaged = []
+        for uid, lc, ld in logins:
+            pc, pd, last_play = lp.get(uid, (0, 0, None))
+            if lc >= 2 and (pc >= 3 or pd >= 2):
+                engaged.append({"uid": int(uid), "logins": lc, "login_days": int(ld),
+                                "plays": pc, "play_days": pd,
+                                "last": str(last_play)[:16] if last_play else None})
+        engaged.sort(key=lambda x: -(x["logins"] + x["plays"]))
         last = (await s.execute(select(User.id, User.first_name, User.created_at)
             .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
@@ -220,6 +238,9 @@ async def growth(key: str = ""):
                      "tracks_24h": tr24, "tracks_7d": tr7,
                      "top_errors": [{"err": (e or "")[:110], "n": int(c)} for e, c in errs],
                      "sources_7d": [{"src": s2, "n": int(c)} for s2, c in srcs]},
+            "engaged": {"count": len(engaged),
+                        "criteria": "≥2 входов в приложение + ≥3 прослушиваний или ≥2 дней",
+                        "top": engaged[:10]},
             "stars": stars,
             "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
