@@ -227,6 +227,11 @@ async def growth(key: str = ""):
                                 "plays": pc, "play_days": pd,
                                 "last": str(last_play)[:16] if last_play else None})
         engaged.sort(key=lambda x: -(x["logins"] + x["plays"]))
+        # диагностические распределения: кто сколько раз входил/слушал
+        logins_top = sorted(logins, key=lambda r: -int(r[1]))[:5]
+        plays_top = sorted(plays, key=lambda r: -int(r[1]))[:5]
+        repeat_logins = sum(1 for _, lc, _ld in logins if lc >= 2)
+        repeat_plays = sum(1 for u, _row in lp.items() if lp[u][0] >= 2)
         last = (await s.execute(select(User.id, User.first_name, User.created_at)
             .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
@@ -240,7 +245,11 @@ async def growth(key: str = ""):
                      "sources_7d": [{"src": s2, "n": int(c)} for s2, c in srcs]},
             "engaged": {"count": len(engaged),
                         "criteria": "≥2 входов в приложение + ≥3 прослушиваний или ≥2 дней",
-                        "top": engaged[:10]},
+                        "top": engaged[:10],
+                        "repeat_logins_users": int(repeat_logins),
+                        "repeat_plays_users": int(repeat_plays),
+                        "logins_top": [{"uid": int(r[0]), "n": int(r[1])} for r in logins_top],
+                        "plays_top": [{"uid": int(r[0]), "n": int(r[1]), "days": int(r[2])} for r in plays_top]},
             "stars": stars,
             "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
