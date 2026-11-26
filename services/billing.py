@@ -187,6 +187,8 @@ async def link_invoice(bot_token: str, tier: str, term: str, user_id: int,
 PROMO_SEED: dict[str, dict] = {
     # безлимитный Pro навсегда, без лимита активаций (по разу на пользователя)
     "sever1908": {"tier": "pro", "days": None, "max_uses": None, "note": "вечный Pro"},
+    # вирусная раздача: один код FIRST, 150 активаций, месяц Lite
+    "FIRST": {"tier": "lite", "days": 31, "max_uses": 150, "note": "giveaway из видео"},
 }
 
 

@@ -87,9 +87,12 @@ async def cmd_start(message: types.Message, command: CommandObject):
             await message.answer("Ссылка устарела — найди трек заново.")
         return
     if arg.startswith("gift150"):
-        # раздача: 150 промокодов на месяц Lite, auto-выдача по диплинку
-        # t.me/<bot>?start=gift150 — для вирусного ролика
-        await _handle_gift150(message)
+        # старая механика заменена на единый код FIRST (150 активаций):
+        # по диплинку объясняем, куда ввести
+        await message.answer(
+            "🎁 Промокод на месяц Vibe Lite теперь один — <b>FIRST</b>\n\n"
+            "Введи его через кнопку «🌟 Промокод» ниже. Работает для первых "
+            "150 активаций — не тяни!")
         return
     if arg.startswith("ref"):
         # рефералка: t.me/<bot>?start=ref<inviter_uid>
