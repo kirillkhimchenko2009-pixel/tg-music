@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
 from core.db import init_db
+from bot import runtime
 from music.api import router as music_api_router
 from music.config import music_settings
 from music.db import init_music_db
