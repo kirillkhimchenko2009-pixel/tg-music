@@ -71,7 +71,15 @@ def categorize(probe: AudioProbe, clip: ClipStats, *,
             issues.append(AudioIssue("metadata", text, severity))
         if expected_duration and probe.duration:
             diff = abs(probe.duration - float(expected_duration))
-            if diff > max(10.0, expected_duration * 0.12):
+            if expected_duration >= 90 and probe.duration < min(90.0, expected_duration * 0.8):
+                # превью-подпись: крошечный файл против полноценного трека —
+                # это не «ремикс покороче», это мусор; ошибка = DAMAGED
+                issues.append(AudioIssue(
+                    "preview_like",
+                    f"Похоже на превью: {probe.duration:.0f}с вместо "
+                    f"{expected_duration}с",
+                    "error"))
+            elif diff > max(10.0, expected_duration * 0.12):
                 issues.append(AudioIssue(
                     "duration_mismatch",
                     f"Длительность {probe.duration:.0f}с ≠ ожидаемой {expected_duration}с",

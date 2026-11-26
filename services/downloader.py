@@ -218,6 +218,26 @@ async def download_direct(url: str, meta: TrackMeta, quality: str,
                  meta.display(), size)
         out_path.unlink(missing_ok=True)
         return None
+    # guard по длительности: 30-секундные превью (ЯМ без подписки, деградиро-
+    # вавшие источники) не должны уезжать пользователю как «трек»
+    try:
+        from music.config import music_settings
+        from music.downloader.file_handler import probe_file
+        pr = await probe_file(out_path)
+        exp = int(getattr(meta, "duration", 0) or 0)
+        if pr.duration and pr.duration < music_settings.min_duration_sec:
+            log.info("download_direct %s: слишком короткий файл (%.1fс)",
+                     meta.display(), pr.duration)
+            out_path.unlink(missing_ok=True)
+            return None
+        if pr.duration and exp >= 90 and pr.duration < min(90.0, exp * 0.8):
+            log.warning("download_direct %s: ПОХОЖЕ НА ПРЕВЬЮ: %.0fс вместо "
+                        "%dс (%s) — файл отклонён", meta.display(), pr.duration,
+                        exp, out_path.name)
+            out_path.unlink(missing_ok=True)
+            return None
+    except Exception:
+        pass
     q = "flac" if ext == "flac" else quality
     return DownloadResult(path=out_path, quality=q, size_bytes=size)
 
