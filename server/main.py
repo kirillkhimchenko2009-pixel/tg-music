@@ -294,6 +294,10 @@ async def growth(key: str = ""):
         plays_top = sorted(plays, key=lambda r: -int(r[1]))[:5]
         repeat_logins = sum(1 for _, lc, _ld in logins if lc >= 2)
         repeat_plays = sum(1 for u, _row in lp.items() if lp[u][0] >= 2)
+        # промокоды: сколько активаций у каждого + последние
+        from core.models import PromoCode, PromoRedemption
+        promos = (await s.execute(select(PromoCode))).scalars().all()
+        redemps = (await s.execute(select(PromoRedemption).order_by(PromoRedemption.at.desc()).limit(15))).scalars().all()
         last = (await s.execute(select(User.id, User.first_name, User.created_at)
             .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
@@ -305,6 +309,10 @@ async def growth(key: str = ""):
                      "tracks_24h": tr24, "tracks_7d": tr7,
                      "top_errors": [{"err": (e or "")[:110], "n": int(c)} for e, c in errs],
                      "sources_7d": [{"src": s2, "n": int(c)} for s2, c in srcs]},
+            "promos": [{"code": c.code, "used": int(c.used or 0), "max_uses": c.max_uses,
+                        "tier": c.tier, "days": c.days, "active": bool(c.active)} for c in promos],
+            "promo_redemptions": [{"code": r.code, "uid": int(r.user_id),
+                                   "at": r.at.isoformat()[:16] if r.at else None} for r in redemps],
             "engaged": {"count": len(engaged),
                         "criteria": "≥2 входов в приложение + ≥3 прослушиваний или ≥2 дней",
                         "top": engaged[:10],
