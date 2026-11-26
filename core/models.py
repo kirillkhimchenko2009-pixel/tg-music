@@ -328,6 +328,18 @@ class PromoRedemption(Base):
     )
 
 
+class TrackDelivery(Base):
+    """Факт отправки трека в чат. Дедуп «скачать весь плейлист»: то,
+    что уже прилетало в этот чат, повторно не качается и не шлётся."""
+    __tablename__ = "track_deliveries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    track_id: Mapped[int] = mapped_column(Integer, ForeignKey("tracks.id"), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("chat_id", "track_id",
+                                       name="uq_delivery_chat_track"),)
+
+
 class Referral(Base):
     """Приглашение: invited пришёл по ссылке inviter'а. Один invited_id —
     один инвайт (кто первый, тот и пригласил). Награда — дни Vibe Lite."""

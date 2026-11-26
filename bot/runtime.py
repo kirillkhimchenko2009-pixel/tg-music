@@ -108,6 +108,40 @@ async def save_file_id_retry(track_id: int, file_id: str, quality: str | None = 
                 attempts, track_id, last)
     return False
 
+async def mark_delivered(chat_id: int, track_id: int) -> None:
+    """Запоминаем «трек уже отправлялся в этот чат» — история для дедупа
+    пакетной загрузки плейлистов. Ошибки не критичны."""
+    if not chat_id or not track_id:
+        return
+    try:
+        from core.models import TrackDelivery
+        async with get_session() as s:
+            exists = (await s.execute(
+                select(TrackDelivery).where(
+                    TrackDelivery.chat_id == int(chat_id),
+                    TrackDelivery.track_id == int(track_id)))).scalar_one_or_none()
+            if not exists:
+                s.add(TrackDelivery(chat_id=int(chat_id), track_id=int(track_id)))
+                await s.commit()
+    except Exception as e:  # noqa: BLE001
+        log.debug("mark_delivered %s/%s: %s", chat_id, track_id, e)
+
+
+async def delivered_before(chat_id: int, track_id: int) -> bool:
+    if not chat_id or not track_id:
+        return False
+    try:
+        from core.models import TrackDelivery
+        async with get_session() as s:
+            row = (await s.execute(
+                select(TrackDelivery).where(
+                    TrackDelivery.chat_id == int(chat_id),
+                    TrackDelivery.track_id == int(track_id)))).scalar_one_or_none()
+            return row is not None
+    except Exception:
+        return False
+
+
 async def _brand_caption(bot) -> str | None:
     """Подпись под аудио: каждый ПЕРЕСЛАННЫЙ трек рекламирует бота бесплатно
     (кнопки при форварде теряются, caption — нет). Отключается BRAND_CAPTION=0.
@@ -175,6 +209,7 @@ async def send_track_cached(bot: Bot, chat_id: int, track: Track) -> bool:
                                            reply_markup=action_kb(track.id, in_fav))
                 from bot import fx
                 await fx.react(bot, chat_id, msg.message_id, fx.OK)
+                await mark_delivered(chat_id, track.id)
                 return True
             except TelegramRetryAfter as e:
                 if attempt == 2:
@@ -376,6 +411,7 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
                 if fid:
                     await save_file_id_retry(fresh.id, fid, fresh.quality,
                                              p.stat().st_size, fresh.local_path)
+                    await mark_delivered(chat_id, fresh.id)
                     return True
                 p.unlink(missing_ok=True)
 
@@ -435,6 +471,7 @@ async def deliver_track(bot: Bot, chat_id: int, session: AsyncSession,
                         size = getattr(res, "size", 0) or 0
                     await save_file_id_retry(target.id, fid, res.quality,
                                              size, res.file_path.as_posix())
+                    await mark_delivered(chat_id, target.id)
                 try:
                     res.file_path.unlink()
                 except OSError:

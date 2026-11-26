@@ -9,11 +9,11 @@ import time
 
 from aiogram import F, Router, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from bot import runtime
 from bot.state import EXT_CACHE
-from core.models import Playlist, PlaylistTrack
+from core.models import Playlist, PlaylistTrack, Track
 from services import catalog
 from services.providers.base import TrackMeta
 
@@ -106,6 +106,7 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
     BATCH_JOBS[user_id] = job_ids
     jobs_meta: dict[str, TrackMeta] = {}      # job_id → метаданные (для сводки)
     skipped = 0                               # уже скачаны ранее (кеш file_id)
+    sent_before = 0                           # уже отправлялись в этот чат (дедуп)
     t0 = time.monotonic()
     try:
         async with runtime.get_session() as session:
@@ -119,6 +120,29 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
                 if getattr(track, "file_id", None):
                     skipped += 1
                     continue
+                # дедуп по ИСТОРИИ ЧАТА: если этот трек уже прилетал в чат —
+                # не качаем и не дублируем (главная жалоба: «скачаю плейлист
+                # — всё шлётся заново»)
+                if await runtime.delivered_before(chat_id, track.id):
+                    sent_before += 1
+                    continue
+                # дедуп по СИБЛИНГАМ: тот же артист+название, но другая строка
+                # (другой источник/external_id) уже скачан — берём его file_id,
+                # вместо повторного скачивания того же файла
+                if (track.artist or "") and (track.title or ""):
+                    sib = (await session.execute(
+                        select(Track).where(
+                            Track.id != track.id,
+                            Track.file_id.isnot(None),
+                            func.lower(Track.artist) == func.lower(track.artist),
+                            func.lower(Track.title) == func.lower(track.title),
+                        ).limit(1))).scalars().first()
+                    if sib is not None:
+                        track.file_id = sib.file_id
+                        track.quality = track.quality or sib.quality
+                        await session.commit()
+                        skipped += 1
+                        continue
                 active = await mediajobs.find_active(session, track.id, user_id)
                 if active is not None:
                     job_ids.append(active.id)
@@ -134,6 +158,15 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
         log.exception("батч %s: постановка в очередь упала", user_id)
 
     queued = len(job_ids)                    # реально ждём только новые
+    if sent_before:
+        try:
+            await msg.edit_text(
+                f"🔁 Уже были в чате: <b>{sent_before}</b> — повторно не шлю\n"
+                f"В очередь: <b>{queued}</b> новых треков."
+                if queued else
+                f"✅ Все <b>{sent_before}</b> треков уже отправлялись в этот чат — дубликатов не будет")
+        except Exception:
+            pass
     if skipped:
         try:
             await msg.edit_text(
@@ -175,11 +208,12 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
         eta = (queued - settled) * (now - t0) / max(settled, 1)
         extra = f" · ⏹ {canceled}" if canceled else ""
         skip_note = f" · ⏭ {skipped} из кеша" if skipped else ""
+        dedup_note = f" · 🔁 {sent_before} уже в чате" if sent_before else ""
         tail = f"\nОсталось {_fmt_eta(eta)}" if settled < queued else ""
         try:
             await msg.edit_text(
                 f"⬇ Готово: <b>{done}</b>/{queued} · ⛔ {errored}"
-                f"{extra}{skip_note}{tail}",
+                f"{extra}{skip_note}{dedup_note}{tail}",
                 reply_markup=stop_kb if settled < queued else None)
         except Exception:  # noqa: BLE001
             pass
@@ -212,7 +246,8 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
             await msg.edit_text(
                 f"⏹ Остановлено\n\nОтправлено: <b>{sent}</b>"
                 f" · отменено: {canceled} · не удалось: {errored}"
-                + (f" · из кеша: {skipped}" if skipped else ""),
+                + (f" · из кеша: {skipped}" if skipped else "")
+                + (f" · уже в чате: {sent_before}" if sent_before else ""),
                 reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
@@ -224,10 +259,11 @@ async def run_batch(bot, chat_id: int, user_id: int, metas: list[TrackMeta],
             if len(failed) > 15:
                 tail += f"\n… +{len(failed) - 15}"
         skip_note = f" · из кеша: <b>{skipped}</b>" if skipped else ""
+        dedup_note = f" · 🔁 уже в чате: <b>{sent_before}</b>" if sent_before else ""
         extra = "\nФайлы продолжают приходить в чат" if settled < queued else ""
         try:
             await msg.edit_text(
-                f"✅ Готово: {sent}/{queued}{skip_note}{extra}{tail}",
+                f"✅ Готово: {sent}/{queued}{skip_note}{dedup_note}{extra}{tail}",
                 reply_markup=None)
         except Exception:  # noqa: BLE001
             pass
