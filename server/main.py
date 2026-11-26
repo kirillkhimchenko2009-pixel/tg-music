@@ -182,6 +182,33 @@ async def growth(key: str = ""):
             .where(Track.created_at >= utcnow() - timedelta(days=7))
             .group_by(Track.source).order_by(func.count(Track.id).desc())
             .limit(7))).all()
+        # баланс звёзд: сумма чистых зачислений через Bot API getStarTransactions
+        stars = None
+        tok = settings.BOT_TOKEN
+        if tok:
+            try:
+                import httpx
+                total, n = 0, 0
+                offset = 0
+                async with httpx.AsyncClient(timeout=30) as hc:
+                    while True:
+                        r = await hc.get(f"https://api.telegram.org/bot{tok}/getStarTransactions",
+                                         params={"offset": offset, "limit": 100})
+                        res = r.json().get("result", {})
+                        txs = res.get("transactions", [])
+                        if not txs:
+                            break
+                        for tx in txs:
+                            # amount — чистое зачисление боту (после комиссий)
+                            if tx.get("source", {}).get("type") in ("invoice", None):
+                                total += int(tx.get("amount", 0))
+                            n += 1
+                        offset = res.get("offset") or 0
+                        if not offset or len(txs) < 100:
+                            break
+                stars = {"received_total": total, "transactions": n}
+            except Exception:
+                stars = None
         last = (await s.execute(select(User.id, User.first_name, User.created_at)
             .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
@@ -193,6 +220,7 @@ async def growth(key: str = ""):
                      "tracks_24h": tr24, "tracks_7d": tr7,
                      "top_errors": [{"err": (e or "")[:110], "n": int(c)} for e, c in errs],
                      "sources_7d": [{"src": s2, "n": int(c)} for s2, c in srcs]},
+            "stars": stars,
             "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
 @app.get("/health")
