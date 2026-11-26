@@ -198,6 +198,12 @@ async def growth(key: str = ""):
         rows = (await s.execute(select(WaveKV).where(
             WaveKV.key.like("start:%") | (WaveKV.key == "landing_visits")))).scalars().all()
         labels = {r.key: (r.value or {}).get("n", 0) for r in rows}
+        # идемпотентный сид промокодов (FIRST и др.) — на случай пропуска при старте
+        try:
+            from services.billing import seed_promos
+            await seed_promos(s)
+        except Exception:
+            pass
         total = (await s.execute(select(func.count(User.id)))).scalar()
         # реальные пользователи бота — id < 1e12 (гости мини-аппа ≥ 1e12)
         botq = select(func.count(User.id)).where(User.id < 1e12)
