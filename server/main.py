@@ -283,7 +283,7 @@ async def growth(key: str = ""):
         for r in opens_rows:
             uid = int(r.key.split(":", 1)[1])
             v = r.value or {}
-            opens_map[uid] = (int(v.get("total", 0)), int(v.get("last", "") == str(_utcnow().date())))
+            opens_map[uid] = (int(v.get("total", 0)), int(v.get("last", "") == str(utcnow().date())))
         for uid, lc, ld in logins:
             pc, pd, last_play = lp.get(uid, (0, 0, None))
             if lc >= 2 and (pc >= 3 or pd >= 2):
