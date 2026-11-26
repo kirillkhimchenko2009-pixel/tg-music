@@ -140,7 +140,7 @@ async def growth(key: str = ""):
     if key != settings.GROWTH_KEY:
         raise HTTPException(403, "нет доступа")
     from sqlalchemy import select, func
-    from core.models import User, WaveKV
+    from core.models import User, WaveKV, Track
     from bot import runtime
     from datetime import timedelta
     from core.models import utcnow
@@ -157,12 +157,42 @@ async def growth(key: str = ""):
         week_b = (await s.execute(botq.where(User.created_at >= utcnow() - timedelta(days=7)))).scalar()
         tot_b = (await s.execute(botq)).scalar()
         tot_g = (await s.execute(guestq)).scalar()
+        # нагрузка: джобы загрузок и треки за окно
+        from core.models import DownloadJob
+        async def _cnt(q):
+            return int((await s.execute(q)).scalar() or 0)
+        jd24 = await _cnt(select(func.count(DownloadJob.id)).where(
+            DownloadJob.status == "done", DownloadJob.created_at >= utcnow() - timedelta(hours=24)))
+        jf24 = await _cnt(select(func.count(DownloadJob.id)).where(
+            DownloadJob.status == "failed", DownloadJob.created_at >= utcnow() - timedelta(hours=24)))
+        jd7 = await _cnt(select(func.count(DownloadJob.id)).where(
+            DownloadJob.status == "done", DownloadJob.created_at >= utcnow() - timedelta(days=7)))
+        jf7 = await _cnt(select(func.count(DownloadJob.id)).where(
+            DownloadJob.status == "failed", DownloadJob.created_at >= utcnow() - timedelta(days=7)))
+        tr24 = await _cnt(select(func.count(Track.id)).where(
+            Track.created_at >= utcnow() - timedelta(hours=24)))
+        tr7 = await _cnt(select(func.count(Track.id)).where(
+            Track.created_at >= utcnow() - timedelta(days=7)))
+        errs = (await s.execute(select(DownloadJob.error, func.count(DownloadJob.id))
+            .where(DownloadJob.status == "failed", DownloadJob.error.is_not(None),
+                   DownloadJob.created_at >= utcnow() - timedelta(days=7))
+            .group_by(DownloadJob.error).order_by(func.count(DownloadJob.id).desc())
+            .limit(5))).all()
+        srcs = (await s.execute(select(Track.source, func.count(Track.id))
+            .where(Track.created_at >= utcnow() - timedelta(days=7))
+            .group_by(Track.source).order_by(func.count(Track.id).desc())
+            .limit(7))).all()
         last = (await s.execute(select(User.id, User.first_name, User.created_at)
             .order_by(User.created_at.desc()).limit(8))).all()
     return {"labels": labels,
             "users_bot_total": int(tot_b), "users_bot_24h": int(day_b),
             "users_bot_7d": int(week_b),
             "guests_total": int(tot_g), "guests_24h": int(day_g),
+            "load": {"jobs_done_24h": jd24, "jobs_failed_24h": jf24,
+                     "jobs_done_7d": jd7, "jobs_failed_7d": jf7,
+                     "tracks_24h": tr24, "tracks_7d": tr7,
+                     "top_errors": [{"err": (e or "")[:110], "n": int(c)} for e, c in errs],
+                     "sources_7d": [{"src": s2, "n": int(c)} for s2, c in srcs]},
             "last_users": [{"id": r[0], "name": r[1], "at": str(r[2])} for r in last]}
 
 @app.get("/health")
