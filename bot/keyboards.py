@@ -31,14 +31,13 @@ BT_HELP = "ℹ️ Помощь"
 
 
 def main_reply() -> ReplyKeyboardMarkup | None:
-    """Премиум-клавиатура под полем ввода: web_app-кнопка + яркие подписи,
-    каждая кнопка реально работает (см. handlers/kblabels.py)."""
+    """Премиум-клавиатура под полем ввода: яркие подписи, каждая кнопка
+    реально работает (см. handlers/kblabels.py). Кнопка «Приложение» убрана
+    по запросу — приложение открывается кнопкой меню бота."""
     if not settings.WEBAPP_URL:
         return None
     rows = [
-        [KeyboardButton(text=BT_APP,
-                        web_app=WebAppInfo(url=settings.WEBAPP_URL)),
-         KeyboardButton(text=BT_PAY)],
+        [KeyboardButton(text=BT_PAY)],
         [KeyboardButton(text=BT_FIND), KeyboardButton(text=BT_MUSIC),
          KeyboardButton(text=BT_FAVS)],
         [KeyboardButton(text=BT_PLS), KeyboardButton(text=BT_IMPORT)],

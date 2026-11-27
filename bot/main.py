@@ -45,7 +45,7 @@ async def _broadcast_keyboard(bot: Bot) -> None:
     from bot import runtime
     from bot.keyboards import main_reply
 
-    key = "kb_broadcast_v3"
+    key = "kb_broadcast_v4"
     try:
         async with runtime.get_session() as s:
             done = (await s.execute(select(WaveKV).where(WaveKV.key == key))).scalar_one_or_none()
@@ -59,11 +59,15 @@ async def _broadcast_keyboard(bot: Bot) -> None:
         sent = 0
         for uid in ids:
             try:
-                await bot.send_message(
+                m = await bot.send_message(
                     int(uid),
-                    "🎁 Новое: «Пригласить друга» — каждый друг по твоей ссылке = "
-                    "+3 дня Vibe Lite тебе бесплатно.",
+                    "🎧 Обновление клавиатуры: без кнопки «Приложение» —"
+                    " оно и так открывается кнопкой меню снизу.",
                     reply_markup=kb, disable_notification=True)
+                try:
+                    await m.delete()   # тихое обновление: сообщение не остаётся
+                except Exception:      # noqa: BLE001
+                    pass
                 sent += 1
             except Exception:  # noqa: BLE001  (заблокировали бота / нет чата)
                 pass
